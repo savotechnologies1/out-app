@@ -1,0 +1,91 @@
+2026-02-23 11:10:36 ERROR Cannot read properties of undefined (reading 'statusCode')
+{}
+TypeError: Cannot read properties of undefined (reading 'statusCode')
+    at Request._callback (/Users/amanneema/Downloads/outupdated/functions/authentica.js:23:45)
+    at self.callback (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:185:22)
+    at Request.emit (node:events:524:28)
+    at setContentLength (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:437:14)
+    at Request.init (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:442:5)
+    at new Request (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:127:8)
+    at request (/Users/amanneema/Downloads/outupdated/node_modules/request/index.js:53:10)
+    at module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:6:9)
+    at /Users/amanneema/Downloads/outupdated/controller/userController.js:350:9
+    at /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:13 
+2026-02-23 11:11:20 ERROR Cannot read properties of undefined (reading 'statusCode')
+{}
+TypeError: Cannot read properties of undefined (reading 'statusCode')
+    at Request._callback (/Users/amanneema/Downloads/outupdated/functions/authentica.js:23:45)
+    at self.callback (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:185:22)
+    at Request.emit (node:events:524:28)
+    at setContentLength (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:437:14)
+    at Request.init (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:442:5)
+    at new Request (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:127:8)
+    at request (/Users/amanneema/Downloads/outupdated/node_modules/request/index.js:53:10)
+    at module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:6:9)
+    at /Users/amanneema/Downloads/outupdated/controller/userController.js:351:9
+    at /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:13 
+2026-02-23 11:11:55 ERROR Cannot read properties of undefined (reading 'headers')
+{}
+TypeError: Cannot read properties of undefined (reading 'headers')
+    at Request._callback (/Users/amanneema/Downloads/outupdated/functions/authentica.js:24:61)
+    at self.callback (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:185:22)
+    at Request.emit (node:events:524:28)
+    at setContentLength (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:437:14)
+    at Request.init (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:442:5)
+    at new Request (/Users/amanneema/Downloads/outupdated/node_modules/request/request.js:127:8)
+    at request (/Users/amanneema/Downloads/outupdated/node_modules/request/index.js:53:10)
+    at module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:6:9)
+    at /Users/amanneema/Downloads/outupdated/controller/userController.js:351:9
+    at /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:13 
+2026-02-23 11:12:23 ERROR OTP is not defined
+{}
+ReferenceError: OTP is not defined
+    at module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:27:9)
+    at /Users/amanneema/Downloads/outupdated/controller/userController.js:351:9
+    at /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/amanneema/Downloads/outupdated/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/layer.js:152:17)
+    at /Users/amanneema/Downloads/outupdated/node_modules/router/index.js:295:15
+    at processParams (/Users/amanneema/Downloads/outupdated/node_modules/router/index.js:582:12) 
+2026-02-23 11:13:00 ERROR OTP is not defined
+{}
+ReferenceError: OTP is not defined
+    at module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:28:9)
+    at /Users/amanneema/Downloads/outupdated/controller/userController.js:351:9
+    at /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/amanneema/Downloads/outupdated/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/amanneema/Downloads/outupdated/node_modules/router/lib/layer.js:152:17)
+    at /Users/amanneema/Downloads/outupdated/node_modules/router/index.js:295:15
+    at processParams (/Users/amanneema/Downloads/outupdated/node_modules/router/index.js:582:12) 
+2026-02-23 11:18:03 ERROR Request failed with status code 422
+{"message":"Request failed with status code 422","name":"AxiosError","stack":"AxiosError: Request failed with status code 422\n    at settle (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:2151:12)\n    at IncomingMessage.handleStreamEnd (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:3545:11)\n    at IncomingMessage.emit (node:events:536:35)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)\n    at Axios.request (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:4796:41)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:8:26)\n    at async /Users/amanneema/Downloads/outupdated/controller/userController.js:351:3\n    at async /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:7","config":{"transitional":{"silentJSONParsing":true,"forcedJSONParsing":true,"clarifyTimeoutError":false,"legacyInterceptorReqResOrdering":true},"adapter":["xhr","http","fetch"],"transformRequest":[null],"transformResponse":[null],"timeout":0,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"env":{},"headers":{"Accept":"application/json","Content-Type":"application/json","X-Authorization":"$2y$10$g9XpUexzU4fTlE3OPXtDf.wNnu7LgI5oH2JpyJJRUtmHnf4TNCe16","User-Agent":"axios/1.13.5","Content-Length":"110","Accept-Encoding":"gzip, compress, deflate, br"},"method":"post","url":"https://api.authentica.sa/api/v2/send-otp","data":"{\"method\":\"sms\",\"phone\":\"+918770797151\",\"template_id\":1,\"fallback_email\":\"gyfolimy@denipl.com\",\"otp\":\"123456\"}","allowAbsoluteUrls":true},"code":"ERR_BAD_REQUEST","status":422}
+AxiosError: Request failed with status code 422
+    at settle (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:2151:12)
+    at IncomingMessage.handleStreamEnd (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:3545:11)
+    at IncomingMessage.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)
+    at Axios.request (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:4796:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:8:26)
+    at async /Users/amanneema/Downloads/outupdated/controller/userController.js:351:3
+    at async /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:7 
+2026-02-23 11:44:52 ERROR Request failed with status code 422
+{"message":"Request failed with status code 422","name":"AxiosError","stack":"AxiosError: Request failed with status code 422\n    at settle (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:2151:12)\n    at IncomingMessage.handleStreamEnd (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:3545:11)\n    at IncomingMessage.emit (node:events:536:35)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)\n    at Axios.request (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:4796:41)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at async module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:8:26)\n    at async /Users/amanneema/Downloads/outupdated/controller/userController.js:351:3\n    at async /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:7","config":{"transitional":{"silentJSONParsing":true,"forcedJSONParsing":true,"clarifyTimeoutError":false,"legacyInterceptorReqResOrdering":true},"adapter":["xhr","http","fetch"],"transformRequest":[null],"transformResponse":[null],"timeout":0,"xsrfCookieName":"XSRF-TOKEN","xsrfHeaderName":"X-XSRF-TOKEN","maxContentLength":-1,"maxBodyLength":-1,"env":{},"headers":{"Accept":"application/json","Content-Type":"application/json","X-Authorization":"$2y$10$g9XpUexzU4fTlE3OPXtDf.wNnu7LgI5oH2JpyJJRUtmHnf4TNCe16","User-Agent":"axios/1.13.5","Content-Length":"115","Accept-Encoding":"gzip, compress, deflate, br"},"method":"post","url":"https://api.authentica.sa/api/v2/send-otp","data":"{\"method\":\"whatsapp\",\"phone\":\"+918770797151\",\"template_id\":7,\"fallback_email\":\"gyfolimy@denipl.com\",\"otp\":\"123456\"}","allowAbsoluteUrls":true},"code":"ERR_BAD_REQUEST","status":422}
+AxiosError: Request failed with status code 422
+    at settle (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:2151:12)
+    at IncomingMessage.handleStreamEnd (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:3545:11)
+    at IncomingMessage.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)
+    at Axios.request (/Users/amanneema/Downloads/outupdated/node_modules/axios/dist/node/axios.cjs:4796:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async module.exports.authenticaOTP (/Users/amanneema/Downloads/outupdated/functions/authentica.js:8:26)
+    at async /Users/amanneema/Downloads/outupdated/controller/userController.js:351:3
+    at async /Users/amanneema/Downloads/outupdated/functions/catchAsyncError.js:7:7 

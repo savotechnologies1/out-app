@@ -1,0 +1,13 @@
+2026-02-18 13:05:10 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\HP\Downloads\Archive 16\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\HP\Downloads\Archive 16\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\HP\Downloads\Archive 16\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\HP\Downloads\Archive 16\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\HP\Downloads\Archive 16\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\HP\Downloads\Archive 16\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\HP\Downloads\Archive 16\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\HP\Downloads\Archive 16\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\HP\Downloads\Archive 16\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\HP\Downloads\Archive 16\node_modules\router\index.js:295:15 

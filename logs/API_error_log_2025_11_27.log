@@ -1,0 +1,83 @@
+2025-11-27 15:22:35 ERROR read ECONNRESET
+{"errno":-54,"code":"ECONNRESET","syscall":"read"}
+Error: read ECONNRESET
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:218:20) 
+2025-11-27 15:22:52 ERROR read ECONNRESET
+{"errno":-54,"code":"ECONNRESET","syscall":"read"}
+Error: read ECONNRESET
+    at TLSWrap.onStreamRead (node:internal/stream_base_commons:218:20) 
+2025-11-27 15:23:17 ERROR mongoose is not defined
+{}
+ReferenceError: mongoose is not defined
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:514:3
+    at /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/route.js:157:13)
+    at done (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:47:7)
+    at indicateDone (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:51:68)
+    at Multipart.<anonymous> (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:168:7)
+    at Multipart.emit (node:events:524:28)
+    at emitCloseNT (node:internal/streams/destroy:147:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:81:21) 
+2025-11-27 15:23:55 ERROR humanize is not defined
+{}
+ReferenceError: humanize is not defined
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:519:24
+    at /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/route.js:157:13)
+    at done (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:47:7)
+    at indicateDone (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:51:68)
+    at Multipart.<anonymous> (/Users/amanneema/Desktop/out-admin/node_modules/multer/lib/make-middleware.js:168:7)
+    at Multipart.emit (node:events:524:28)
+    at emitCloseNT (node:internal/streams/destroy:147:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:81:21) 
+2025-11-27 16:12:16 ERROR amenityMap is not defined
+{}
+ReferenceError: amenityMap is not defined
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:470:7
+    at Array.forEach (<anonymous>)
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:466:18
+    at /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/route.js:157:13)
+    at validateAdminToken (/Users/amanneema/Desktop/out-admin/middleware/adminValidateToken.js:38:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) 
+2025-11-27 16:12:38 ERROR amenityMap is not defined
+{}
+ReferenceError: amenityMap is not defined
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:470:7
+    at Array.forEach (<anonymous>)
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:466:18
+    at /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/route.js:157:13)
+    at validateAdminToken (/Users/amanneema/Desktop/out-admin/middleware/adminValidateToken.js:38:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) 
+2025-11-27 16:13:09 ERROR amenityNames is not defined
+{}
+ReferenceError: amenityNames is not defined
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:475:33
+    at /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:13
+    at Layer.handleRequest (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/amanneema/Desktop/out-admin/node_modules/router/lib/route.js:157:13)
+    at validateAdminToken (/Users/amanneema/Desktop/out-admin/middleware/adminValidateToken.js:38:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) 
+2025-11-27 16:27:07 ERROR {(intermediate value)}.skip is not a function
+{}
+TypeError: {(intermediate value)}.skip is not a function
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:660:59
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:7 
+2025-11-27 16:27:12 ERROR {(intermediate value)}.skip is not a function
+{}
+TypeError: {(intermediate value)}.skip is not a function
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:660:59
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:7 
+2025-11-27 16:27:48 ERROR {(intermediate value)}.skip is not a function
+{}
+TypeError: {(intermediate value)}.skip is not a function
+    at /Users/amanneema/Desktop/out-admin/controller/adminController.js:660:59
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async /Users/amanneema/Desktop/out-admin/functions/catchAsyncError.js:7:7 

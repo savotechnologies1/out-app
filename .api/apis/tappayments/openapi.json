@@ -1,0 +1,425 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tokens",
+    "version": "1.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.tap.company/v2/tokens"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "sec0": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "x-bearer-format": "bearer",
+        "x-default": "sk_test_XKokBfNWv6FIYuTMg5sLPjhJ"
+      }
+    }
+  },
+  "security": [
+    {
+      "sec0": []
+    }
+  ],
+  "paths": {
+    "/": {
+      "post": {
+        "summary": "Create a Token (Card)",
+        "description": "This endpoint creates a single-use token that securely contains the details of a credit card.",
+        "operationId": "create-a-token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "card": {
+                    "type": "object",
+                    "description": "Card object. Ensure that your business account has the access to use this API.",
+                    "properties": {
+                      "number": {
+                        "type": "integer",
+                        "description": "Credit card number",
+                        "default": 4508750015741019,
+                        "format": "int32"
+                      },
+                      "exp_month": {
+                        "type": "integer",
+                        "description": "Two -digit number, representing month",
+                        "default": 1,
+                        "format": "int32"
+                      },
+                      "exp_year": {
+                        "type": "integer",
+                        "description": "Last two digits of the expiration year",
+                        "default": 2039,
+                        "format": "int32"
+                      },
+                      "cvc": {
+                        "type": "integer",
+                        "description": "Card verification code",
+                        "default": 100,
+                        "format": "int32"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Card holder Name",
+                        "default": "test user"
+                      },
+                      "address": {
+                        "type": "object",
+                        "description": "Address",
+                        "properties": {
+                          "country": {
+                            "type": "string",
+                            "description": "County",
+                            "default": "Kuwait"
+                          },
+                          "line1": {
+                            "type": "string",
+                            "description": "Address Line 1",
+                            "default": "Salmiya, 21"
+                          },
+                          "city": {
+                            "type": "string",
+                            "description": "City",
+                            "default": "Kuwait city"
+                          },
+                          "street": {
+                            "type": "string",
+                            "description": "Street",
+                            "default": "Salim"
+                          },
+                          "avenue": {
+                            "type": "string",
+                            "description": "Avenue",
+                            "default": "Gulf"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "client_ip": {
+                    "type": "string",
+                    "description": "The IP Address of the client.",
+                    "default": "192.168.1.20"
+                  }
+                }
+              },
+              "examples": {
+                "Request Example": {
+                  "value": {
+                    "card": {
+                      "number": 4508750015741019,
+                      "exp_month": 1,
+                      "exp_year": 2039,
+                      "cvc": 100,
+                      "name": "test user",
+                      "address": {
+                        "country": "Kuwait",
+                        "line1": "Salmiya, 21",
+                        "city": "Kuwait city",
+                        "street": "Salim",
+                        "avenue": "Gulf"
+                      }
+                    },
+                    "client_ip": "192.168.1.20"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "200",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Result": {
+                    "value": "{\n  \"id\": \"tok_SpTV5823926VPgE27bU3O801\",\n  \"created\": 1682587618801,\n  \"object\": \"token\",\n  \"live_mode\": false,\n  \"type\": \"CARD\",\n  \"used\": false,\n  \"card\": {\n    \"id\": \"card_u35O5823926okiJ27sk3D805\",\n    \"object\": \"card\",\n    \"address\": {\n      \"country\": \"Kuwait\",\n      \"city\": \"Kuwait city\",\n      \"avenue\": \"Gulf\",\n      \"street\": \"Salim\",\n      \"line1\": \"Salmiya, 21\"\n    },\n    \"funding\": \"DEBIT\",\n    \"fingerprint\": \"E1I78d8PV0UHivCrvV8dTkI%2FQJRHPow4XAU4FfmZxCQ%3D\",\n    \"brand\": \"VISA\",\n    \"scheme\": \"VISA\",\n    \"name\": \"test user\",\n    \"issuer\": {\n      \"bank\": \"THE CO-OPERATIVE BANK PLC\",\n      \"country\": \"GB\",\n      \"id\": \"bnk_TS06A1120231227Kx242704090\"\n    },\n    \"exp_month\": 1,\n    \"exp_year\": 39,\n    \"last_four\": \"1019\",\n    \"first_six\": \"450875\"\n  }\n}"
+                  }
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "tok_SpTV5823926VPgE27bU3O801"
+                    },
+                    "created": {
+                      "type": "integer",
+                      "example": 1682587618801,
+                      "default": 0
+                    },
+                    "object": {
+                      "type": "string",
+                      "example": "token"
+                    },
+                    "live_mode": {
+                      "type": "boolean",
+                      "example": false,
+                      "default": true
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "CARD"
+                    },
+                    "used": {
+                      "type": "boolean",
+                      "example": false,
+                      "default": true
+                    },
+                    "card": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "example": "card_u35O5823926okiJ27sk3D805"
+                        },
+                        "object": {
+                          "type": "string",
+                          "example": "card"
+                        },
+                        "address": {
+                          "type": "object",
+                          "properties": {
+                            "country": {
+                              "type": "string",
+                              "example": "Kuwait"
+                            },
+                            "city": {
+                              "type": "string",
+                              "example": "Kuwait city"
+                            },
+                            "avenue": {
+                              "type": "string",
+                              "example": "Gulf"
+                            },
+                            "street": {
+                              "type": "string",
+                              "example": "Salim"
+                            },
+                            "line1": {
+                              "type": "string",
+                              "example": "Salmiya, 21"
+                            }
+                          }
+                        },
+                        "funding": {
+                          "type": "string",
+                          "example": "DEBIT"
+                        },
+                        "fingerprint": {
+                          "type": "string",
+                          "example": "E1I78d8PV0UHivCrvV8dTkI%2FQJRHPow4XAU4FfmZxCQ%3D"
+                        },
+                        "brand": {
+                          "type": "string",
+                          "example": "VISA"
+                        },
+                        "scheme": {
+                          "type": "string",
+                          "example": "VISA"
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "test user"
+                        },
+                        "issuer": {
+                          "type": "object",
+                          "properties": {
+                            "bank": {
+                              "type": "string",
+                              "example": "THE CO-OPERATIVE BANK PLC"
+                            },
+                            "country": {
+                              "type": "string",
+                              "example": "GB"
+                            },
+                            "id": {
+                              "type": "string",
+                              "example": "bnk_TS06A1120231227Kx242704090"
+                            }
+                          }
+                        },
+                        "exp_month": {
+                          "type": "integer",
+                          "example": 1,
+                          "default": 0
+                        },
+                        "exp_year": {
+                          "type": "integer",
+                          "example": 39,
+                          "default": 0
+                        },
+                        "last_four": {
+                          "type": "string",
+                          "example": "1019"
+                        },
+                        "first_six": {
+                          "type": "string",
+                          "example": "450875"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "deprecated": false
+      }
+    },
+    "/{token_id}": {
+      "get": {
+        "summary": "Retrieve a Token",
+        "description": "This endpoint enables the retrieval of a specific Token ID, which is also provided in the Token response.",
+        "operationId": "retrieve-a-token",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "Unique identifier for the object.",
+            "schema": {
+              "type": "string",
+              "default": "tok_o7EM58231043tTZT274u3W894"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "200",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Result": {
+                    "value": "{\n  \"id\": \"tok_4VpPvSNJUHn723embBWuAgoK\",\n  \"object\": \"token\",\n  \"card\": {\n    \"id\": \"card_Yi1lfqAk7twr8Be3hTPg0Fv4\",\n    \"object\": \"card\",\n    \"address\": {},\n    \"customer\": \"cst_sdsbd7tsd977\",\n    \"funding\": \"CREDIT\",\n    \"fingerprint\": \"t9g/phBxZ9ZR6JgHBZ8ty2Yfy\",\n    \"brand\": \"AMEX\",\n    \"exp_month\": 12,\n    \"exp_year\": 2019,\n    \"last_four\": \"0005\",\n    \"first_six\": \"378282\",\n    \"name\": \"test user\"\n  },\n  \"client_ip\": \"127.0.0.1\",\n  \"created\": 1533728879,\n  \"live_mode\": false,\n  \"type\": \"CARD\",\n  \"used\": false\n}"
+                  }
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "tok_4VpPvSNJUHn723embBWuAgoK"
+                    },
+                    "object": {
+                      "type": "string",
+                      "example": "token"
+                    },
+                    "card": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "example": "card_Yi1lfqAk7twr8Be3hTPg0Fv4"
+                        },
+                        "object": {
+                          "type": "string",
+                          "example": "card"
+                        },
+                        "address": {
+                          "type": "object",
+                          "properties": {}
+                        },
+                        "customer": {
+                          "type": "string",
+                          "example": "cst_sdsbd7tsd977"
+                        },
+                        "funding": {
+                          "type": "string",
+                          "example": "CREDIT"
+                        },
+                        "fingerprint": {
+                          "type": "string",
+                          "example": "t9g/phBxZ9ZR6JgHBZ8ty2Yfy"
+                        },
+                        "brand": {
+                          "type": "string",
+                          "example": "AMEX"
+                        },
+                        "exp_month": {
+                          "type": "integer",
+                          "example": 12,
+                          "default": 0
+                        },
+                        "exp_year": {
+                          "type": "integer",
+                          "example": 2019,
+                          "default": 0
+                        },
+                        "last_four": {
+                          "type": "string",
+                          "example": "0005"
+                        },
+                        "first_six": {
+                          "type": "string",
+                          "example": "378282"
+                        },
+                        "name": {
+                          "type": "string",
+                          "example": "test user"
+                        }
+                      }
+                    },
+                    "client_ip": {
+                      "type": "string",
+                      "example": "127.0.0.1"
+                    },
+                    "created": {
+                      "type": "integer",
+                      "example": 1533728879,
+                      "default": 0
+                    },
+                    "live_mode": {
+                      "type": "boolean",
+                      "example": false,
+                      "default": true
+                    },
+                    "type": {
+                      "type": "string",
+                      "example": "CARD"
+                    },
+                    "used": {
+                      "type": "boolean",
+                      "example": false,
+                      "default": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "400",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "Result": {
+                    "value": "{}"
+                  }
+                },
+                "schema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          }
+        },
+        "deprecated": false
+      }
+    }
+  },
+  "x-readme": {
+    "headers": []
+  },
+  "x-readme-fauxas": true
+}

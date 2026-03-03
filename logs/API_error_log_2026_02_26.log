@@ -1,0 +1,17 @@
+2026-02-26 11:49:27 ERROR cursor is not defined
+{}
+ReferenceError: cursor is not defined
+    at C:\Users\HP\Downloads\out_backend\controller\adminController.js:427:3
+    at C:\Users\HP\Downloads\out_backend\functions\catchAsyncError.js:7:13
+    at Layer.handleRequest (C:\Users\HP\Downloads\out_backend\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\HP\Downloads\out_backend\node_modules\router\lib\route.js:157:13)
+    at validateAdminToken (C:\Users\HP\Downloads\out_backend\middleware\adminValidateToken.js:38:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) 
+2026-02-26 14:25:46 ERROR E11000 duplicate key error collection: outApp.commissions index: scope_1_categoryId_1 dup key: { scope: "GLOBAL", categoryId: null }
+{"errorLabelSet":{},"errorResponse":{"index":0,"code":11000,"errmsg":"E11000 duplicate key error collection: outApp.commissions index: scope_1_categoryId_1 dup key: { scope: \"GLOBAL\", categoryId: null }","keyPattern":{"scope":1,"categoryId":1},"keyValue":{"scope":"GLOBAL","categoryId":null}},"index":0,"code":11000,"keyPattern":{"scope":1,"categoryId":1},"keyValue":{"scope":"GLOBAL","categoryId":null}}
+MongoServerError: E11000 duplicate key error collection: outApp.commissions index: scope_1_categoryId_1 dup key: { scope: "GLOBAL", categoryId: null }
+    at UpdateOneOperation.execute (C:\Users\SAVO WD35\Downloads\outApp\node_modules\mongodb\lib\operations\update.js:75:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async tryOperation (C:\Users\SAVO WD35\Downloads\outApp\node_modules\mongodb\lib\operations\execute_operation.js:207:20)
+    at async executeOperation (C:\Users\SAVO WD35\Downloads\outApp\node_modules\mongodb\lib\operations\execute_operation.js:75:16)
+    at async Collection.updateOne (C:\Users\SAVO WD35\Downloads\outApp\node_modules\mongodb\lib\collection.js:207:16) 
