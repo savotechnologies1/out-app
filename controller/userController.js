@@ -800,7 +800,7 @@ const getNewlyVilla = catchAsyncError(async (req, res) => {
 
   return res.status(200).send({
     data,
-    message: data.length ? "Villa received successfully" : "No villa found",
+    message: data.length ? "Villa received successfully" : "No villa found"
   });
 
 });
