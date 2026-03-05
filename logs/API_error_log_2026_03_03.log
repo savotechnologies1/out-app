@@ -1,0 +1,130 @@
+2026-03-03 14:06:25 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 14:06:25 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 14:06:29 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:50:47 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:50:48 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:50:50 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:57:42 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:57:42 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 15:57:45 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 
+2026-03-03 17:16:29 ERROR invalid signature
+{"name":"JsonWebTokenError","message":"invalid signature"}
+JsonWebTokenError: invalid signature
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:171:19
+    at getSecret (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:97:14)
+    at module.exports [as verify] (C:\Users\SAVO WD35\Desktop\out-app\node_modules\jsonwebtoken\verify.js:101:10)
+    at validateAdminToken (C:\Users\SAVO WD35\Desktop\out-app\middleware\adminValidateToken.js:22:26)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at next (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\route.js:117:3)
+    at handle (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\lib\layer.js:152:17)
+    at C:\Users\SAVO WD35\Desktop\out-app\node_modules\router\index.js:295:15 

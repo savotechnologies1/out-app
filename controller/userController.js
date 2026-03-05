@@ -17,6 +17,7 @@ const Category = require("../models/Category");
 const moment = require("moment");
 const { authenticaOTP } = require("../functions/authentica");
 const { createTokenAndCharge } = require("../functions/payment");
+const Banner = require("../models/Banner");
 
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -911,6 +912,39 @@ const getNewlyResorts = catchAsyncError(async (req, res) => {
 
 });
 
+const getUserBanners = async (req, res) => {
+  try {
+    const { type } = req.query;
+
+
+    let filter = {};
+    const allowedTypes = ["OFFER", "PROMOTION", "ANNOUNCEMENT"];
+
+    if (type && !allowedTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid banner type",
+      });
+    }
+    if (type) {
+      filter.bannerType = type;
+    }
+
+    const banners = await Banner.find(filter)
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: banners.length,
+      data: banners,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 
 module.exports = {
   userLogin,
@@ -933,7 +967,8 @@ module.exports = {
   createPayment,
   getNewlyDashboard,
   getNewlyVilla,
-  getNewlyResorts
+  getNewlyResorts,
+  getUserBanners
 };
 
 //   await Coupon.findByIdAndUpdate(couponId, {

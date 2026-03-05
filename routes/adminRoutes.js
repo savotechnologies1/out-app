@@ -48,7 +48,11 @@ const {
   getAllCommissions,
   createCommission,
   updateCommission,
-  deleteCommission
+  deleteCommission,
+  createBanner,
+  updateBanner,
+  deleteBanner,
+  getAllBanners
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -136,5 +140,31 @@ router.get("/getAllCommissions", validateAdminToken, getAllCommissions);
 router.post("/createCommission", validateAdminToken, createCommission);
 router.put("/updateCommission/:id", validateAdminToken, updateCommission);
 router.delete("/deleteCommission/:id", validateAdminToken, deleteCommission);
+
+router.post(
+  "/create",
+  validateAdminToken,
+  uploads.single("bannerImg"),
+  createBanner
+);
+
+router.put(
+  "/updateBanner/:id",
+  validateAdminToken,
+  uploads.single("bannerImg"),
+ updateBanner
+);
+
+router.delete(
+  "/deleteBanner/:id",
+  validateAdminToken,
+  deleteBanner
+);
+
+router.get(
+  "/bannerList",
+validateAdminToken,
+  getAllBanners
+);
 
 module.exports = router;

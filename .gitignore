@@ -60,6 +60,10 @@ docker-data/
 # =========================
 uploads/
 tmp/
+admin.html
+user.html
+userSupport.html
+service.html
  
 # =========================
 # Database

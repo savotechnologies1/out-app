@@ -13,7 +13,8 @@ const UPLOAD_PATHS = Object.freeze({
   pool: "pool",
   bathroom: "bathroom",
   bedroom: "bedroom",
-  profileImage: "adminProfileImage"
+  profileImage: "adminProfileImage",
+  bannerImg: "bannerImg"
 });
 
 const ensureDir = (dir) => {

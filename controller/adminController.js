@@ -8,6 +8,8 @@ const RestRoom = require("../models/RestRoom");
 const Amenities = require("../models/Amenities");
 const Properties = require("../models/Properties")
 const catchAsyncError = require("../functions/catchAsyncError");
+const fs = require("fs");
+const path = require("path");
 const {
   generateRandomOTP,
   paginationQuery,
@@ -23,6 +25,7 @@ const { checkValidations } = require("../functions/checkValidation");
 const { validationResult } = require("express-validator");
 const Coupon = require("../models/Coupon");
 const Commission = require("../models/Commission");
+const Banner = require("../models/Banner");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -2136,6 +2139,140 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
   });
 });
 
+const createBanner = async (req, res) => {
+  try {
+    const { bannerType, title } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Image is required",
+      });
+    }
+    const newBanner = await Banner.create({
+      bannerType,
+      title,
+      image: req.file.filename,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Banner created successfully",
+      data: newBanner,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ✅ Update Banner
+const updateBanner = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { bannerType, title } = req.body;
+
+    const banner = await Banner.findById(id);
+
+    if (!banner) {
+      return res.status(404).json({
+        success: false,
+        message: "Banner not found",
+      });
+    }
+
+    banner.bannerType = bannerType || banner.bannerType;
+    banner.title = title || banner.title;
+
+    if (req.file) {
+      if (banner.image) {
+        const oldImagePath = path.join(
+          __dirname,
+          "../uploads/bannerImg",
+          banner.image
+        );
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
+      }
+
+      banner.image = req.file.filename;
+    }
+
+    await banner.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Banner updated successfully",
+      data: banner,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ✅ Delete Banner
+const deleteBanner = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const banner = await Banner.findById(id);
+
+    if (!banner) {
+      return res.status(404).json({
+        success: false,
+        message: "Banner not found",
+      });
+    }
+
+    if (banner.image) {
+      const imagePath = path.join(
+        __dirname,
+        "../uploads/bannerImg",
+        banner.image
+      );
+
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+    }
+
+    await Banner.findByIdAndDelete(id);
+
+    res.status(200).json({
+      success: true,
+      message: "Banner deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// ✅ Get All Banners
+const getAllBanners = async (req, res) => {
+  try {
+    const banners = await Banner.find().sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: banners,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -2184,6 +2321,10 @@ module.exports = {
   getAllCommissions,
   createCommission,
   updateCommission,
-  deleteCommission
+  deleteCommission,
+  createBanner,
+  updateBanner,
+  deleteBanner,
+  getAllBanners
 };
 

@@ -31,6 +31,7 @@
     "path": "^0.12.7",
     "request": "^2.88.2",
     "simple-node-logger": "^21.8.12",
+    "socket.io": "^4.8.3",
     "util": "^0.12.5",
     "uuidv4": "^6.2.13"
   },
