@@ -2,13 +2,13 @@
 require("dotenv").config()
 const axios = require("axios");
 
-module.exports.createTokenAndCharge = async () => {
+module.exports.createCharge = async (data) => {
     try {
 
         const response = await axios.post(
-            "https://api.tap.company/v2/charges",
+            `${process.env.PAYMENT_URL}/charges`,
             {
-                amount: 1,
+                amount: Number(data.amount),
                 currency: "SAR",
                 customer_initiated: true,
                 threeDSecure: true,
@@ -25,9 +25,9 @@ module.exports.createTokenAndCharge = async () => {
                     phone: { country_code: 965, number: 51234567 }
                 },
                 merchant: { id: process.env.PAYMENT_MERCHANT_ID },
-                source: { id: "src_all" },
+                source: { id: data.tokenId },
                 post: {
-                    url: 'http://your_website.com/post_url'
+                    url: 'https://webhook.site/182ba6ca-b40b-4a36-868d-00a07ad899f2'
                 },
                 redirect: {
                     url: `myapp://payment-success?orderId=1234`
@@ -36,7 +36,7 @@ module.exports.createTokenAndCharge = async () => {
             },
             {
                 headers: {
-                    Authorization: `Bearer ${process.env.PAYMENT_SECRET_KEY}`,
+                    Authorization: `Bearer ${process.env.SECRET_KEY}`,
                     "Content-Type": "application/json"
                 }
             }
@@ -49,3 +49,34 @@ module.exports.createTokenAndCharge = async () => {
         throw error;
     }
 };
+
+module.exports.createTokenForCard = async (data) => {
+    try {
+        const response = await axios.post(
+            `${process.env.PAYMENT_URL}/tokens`,
+            {
+                card: {
+                    number: data.cardNumber,
+                    exp_month: data.expMonth,
+                    exp_year: data.expYear,
+                    cvc: data.cvc,
+                },
+                client_ip: '192.168.1.20'
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.SECRET_KEY}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+
+        console.log(response.data);
+
+        return response.data.token.id;
+
+    } catch (error) {
+        console.error(error.response?.data || error.message);
+        throw error;
+    }
+}

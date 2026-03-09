@@ -1,5 +1,6 @@
 // const multer = require("multer");
 // const { upload } = require("./upload");
+const Availability = require("../models/Availability");
 
 module.exports.createLog = (logName) => {
   try {
@@ -424,6 +425,36 @@ module.exports.pagination = (data) => {
   } catch (error) {
     throw error;
   }
+};
+
+module.exports.generateAvailability = async (hotelId) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const nextYear = new Date(today);
+  nextYear.setFullYear(nextYear.getFullYear() + 1);
+
+  let bulkOps = [];
+
+  for (let d = new Date(today); d <= nextYear; d.setDate(d.getDate() + 1)) {
+    const date = new Date(d);
+
+    bulkOps.push({
+      updateOne: {
+        filter: { hotel: hotelId, date },
+        update: {
+          $setOnInsert: {
+            hotel: hotelId,
+            date,
+            isBooked: false
+          }
+        },
+        upsert: true
+      }
+    });
+  }
+
+  await Availability.bulkWrite(bulkOps);
 };
 
 

@@ -441,11 +441,11 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
   }
 
   // ✅ Total count (without cursor filter)
-  
+
   const total = await User.countDocuments(matchStage);
 
 
-    const users = await User.aggregate([
+  const users = await User.aggregate([
     { $match: matchStage },
     { $sort: sort },
     { $skip: skip },       // 👈 from paginationQuery
@@ -462,8 +462,8 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
       },
     },
   ]);
- 
-const pageInfo = pagination({
+
+  const pageInfo = pagination({
     total,
     page,
     pageSize,
@@ -559,11 +559,11 @@ const pageInfo = pagination({
 // });
 
 const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
-  let { search, status, sortBy = "latest"  } = req.query;
+  let { search, status, sortBy = "latest" } = req.query;
 
-   const { page, pageSize, skip } = paginationQuery(req.query);
-   
-   sortBy = sortBy?.toLowerCase();
+  const { page, pageSize, skip } = paginationQuery(req.query);
+
+  sortBy = sortBy?.toLowerCase();
   status = status?.toLowerCase();
 
   if (!search || search === "undefined") search = "";
@@ -601,10 +601,10 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
   }
 
 
-    const total = await ServiceUser.countDocuments(matchStage);
+  const total = await ServiceUser.countDocuments(matchStage);
 
-    const users = await ServiceUser.aggregate([
-     { $match: matchStage },
+  const users = await ServiceUser.aggregate([
+    { $match: matchStage },
     { $sort: sort },
     { $skip: skip },
     { $limit: pageSize },
@@ -625,7 +625,7 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
         createdAt: 1,
       },
     },
-    ]);
+  ]);
 
   // ✅ Pagination meta
   const pageInfo = pagination({
@@ -797,7 +797,7 @@ const getPropertiesById = catchAsyncError(async (req, res, next) => {
 
     {
       $lookup: {
-        from: "properties", // must match MongoDB collection name
+        from: "properties",
         localField: "_id",
         foreignField: "user",
         pipeline: [
@@ -1790,7 +1790,7 @@ const createCoupon = catchAsyncError(async (req, res) => {
 
   const existing = await Coupon.findOne({
     code: code.toUpperCase(),
-    isDelete:false
+    isDelete: false
   });
 
   if (existing) {
@@ -1934,7 +1934,7 @@ const getAllCoupons = catchAsyncError(async (req, res) => {
   } = req.query;
 
   const skip = (Number(page) - 1) * Number(limit);
-  const query = {isDelete:false};
+  const query = { isDelete: false };
 
   if (search) {
     query.code = { $regex: search, $options: "i" };
@@ -2113,7 +2113,7 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
   };
 
   if (scope) {
-    query.scope = scope; 
+    query.scope = scope;
   }
 
   if (isActive !== undefined) {
@@ -2125,7 +2125,7 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
   const total = await Commission.countDocuments(query);
 
   const commissions = await Commission.find(query)
-    .populate("categoryId", "category") 
+    .populate("categoryId", "category")
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit));

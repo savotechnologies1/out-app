@@ -1,21 +1,24 @@
 const mongoose = require("mongoose");
 
-const bookingSchema = new mongoose.Schema(
-    {
-        bookingDate: { type: Date },
-        time: { type: String },
-        notes: { type: String },
-        status: { type: String, default: 'pending' },
-        price: { type: Number },
-        charges: { type: Number },
-        discount: { type: Number },
-        address: { type: Object },
-        isDeleted: { type: Boolean, default: false },
-        property: { type: mongoose.Schema.Types.ObjectId },
-        bookingBy: { type: mongoose.Schema.Types.ObjectId },
-        propertyOwner: { type: mongoose.Schema.Types.ObjectId }
+const bookingSchema = new mongoose.Schema({
+    hotel: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Hotel",
+        required: true
     },
-    { timestamps: true }
-);
+    user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    },
+    checkIn: Date,
+    checkOut: Date,
+    status: {
+        type: String,
+        enum: ["pending", "confirmed", "cancelled", "expired"],
+        default: "pending"
+    },
+    paymentIntentId: String,
+    webhookProcessed: { type: Boolean, default: false }
+}, { timestamps: true });
 
 module.exports = mongoose.model("Booking", bookingSchema);

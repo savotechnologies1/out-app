@@ -3,6 +3,7 @@ const {
   generateRandomOTP,
   generateRandomId,
   codeRem,
+  generateAvailability,
 } = require("../functions/common");
 const jwt = require("jsonwebtoken");
 const Category = require("../models/Category");
@@ -431,7 +432,8 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       return res.status(400).json({ message: "Invalid count step" });
   }
 
-  // ✅ CREATE NEW PROPERTY
+  let hotelId = id ? id : null
+
   if (!id) {
     const newProperty = await Properties.create({
       ...obj,
@@ -439,6 +441,8 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       user: req.user._id,
       status: "draft",
     });
+
+    hotelId = newProperty._id
 
     return res.status(200).json({
       success: true,
@@ -455,17 +459,19 @@ const addProperties = catchAsyncError(async (req, res, next) => {
     count: finalCount,
   };
 
-  // ✅ If step 10 reached → mark completed
   if (finalCount === 10) {
     updateData.is_completed = true;
-    updateData.status = "completed"; // optional if you want
+    updateData.status = "completed";
   }
 
-  const updatedProperty = await Properties.findByIdAndUpdate(
-    id,
-    { $set: updateData },
-    { new: true }
-  );
+  const [updatedProperty, _] = await Promise.all([
+    Properties.findOneAndUpdate(
+      { _id: id },
+      { $set: updateData },
+      { new: true }
+    ),
+    generateAvailability(hotelId)
+  ])
 
   return res.status(200).json({
     success: true,

@@ -10,6 +10,8 @@ const mongoose = require("mongoose");
 const Properties = require("../models/Properties");
 const Booking = require("../models/Booking");
 const Bookmark = require("../models/Bookmark");
+const Availability = require("../models/Availability");
+const { getDatesBetween } = require("../utils/date");
 const catchAsyncError = require("../functions/catchAsyncError");
 const { checkValidations } = require("../functions/checkValidation");
 const { validationResult } = require("express-validator");
@@ -18,6 +20,7 @@ const moment = require("moment");
 const { authenticaOTP } = require("../functions/authentica");
 const { createTokenAndCharge } = require("../functions/payment");
 const Banner = require("../models/Banner");
+const { createCharge, createTokenForCard } = require("../functions/payment");
 
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -365,7 +368,10 @@ const testAuthentica = catchAsyncError(async (req, res, next) => {
 
 const createPayment = catchAsyncError(async (req, res, next) => {
 
-  const paymentUrl = await createTokenAndCharge();
+  const paymentUrl = await createCharge({
+    tokenId: req.body.tokenId,
+    amount: req.body.amount,
+  });
 
   return res.status(200).send({ data: paymentUrl, message: "ok" });
 })
@@ -624,15 +630,18 @@ const getNewlyDashboard = catchAsyncError(async (req, res) => {
       }
     },
     {
+      $match: {
+        categoryData: { $ne: [] }
+      }
+    },
+    {
       $lookup: {
         from: "amenities",
         let: { amenityIds: { $ifNull: ["$propertyAmenities", []] } },
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$amenityIds"]
-              }
+              $expr: { $in: ["$_id", "$$amenityIds"] }
             }
           }
         ],
@@ -646,9 +655,7 @@ const getNewlyDashboard = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$featureIds"]
-              }
+              $expr: { $in: ["$_id", "$$featureIds"] }
             }
           }
         ],
@@ -662,9 +669,7 @@ const getNewlyDashboard = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$facilityIds"]
-              }
+              $expr: { $in: ["$_id", "$$facilityIds"] }
             }
           }
         ],
@@ -732,15 +737,18 @@ const getNewlyVilla = catchAsyncError(async (req, res) => {
       }
     },
     {
+      $match: {
+        categoryData: { $ne: [] }
+      }
+    },
+    {
       $lookup: {
         from: "amenities",
         let: { amenityIds: { $ifNull: ["$propertyAmenities", []] } },
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$amenityIds"]
-              }
+              $expr: { $in: ["$_id", "$$amenityIds"] }
             }
           }
         ],
@@ -754,9 +762,7 @@ const getNewlyVilla = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$featureIds"]
-              }
+              $expr: { $in: ["$_id", "$$featureIds"] }
             }
           }
         ],
@@ -770,9 +776,7 @@ const getNewlyVilla = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$facilityIds"]
-              }
+              $expr: { $in: ["$_id", "$$facilityIds"] }
             }
           }
         ],
@@ -838,15 +842,18 @@ const getNewlyResorts = catchAsyncError(async (req, res) => {
       }
     },
     {
+      $match: {
+        categoryData: { $ne: [] }
+      }
+    },
+    {
       $lookup: {
         from: "amenities",
         let: { amenityIds: { $ifNull: ["$propertyAmenities", []] } },
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$amenityIds"]
-              }
+              $expr: { $in: ["$_id", "$$amenityIds"] }
             }
           }
         ],
@@ -860,9 +867,7 @@ const getNewlyResorts = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$featureIds"]
-              }
+              $expr: { $in: ["$_id", "$$featureIds"] }
             }
           }
         ],
@@ -876,9 +881,7 @@ const getNewlyResorts = catchAsyncError(async (req, res) => {
         pipeline: [
           {
             $match: {
-              $expr: {
-                $in: ["$_id", "$$facilityIds"]
-              }
+              $expr: { $in: ["$_id", "$$facilityIds"] }
             }
           }
         ],
@@ -945,6 +948,119 @@ const getUserBanners = async (req, res) => {
     });
   }
 };
+const getPropertyDetail = catchAsyncError(async (req, res) => {
+
+  const data = (await Properties.aggregate([
+    {
+      $match: {
+        isDeleted: false,
+        _id: new mongoose.Types.ObjectId(req.params.id)
+      }
+    },
+    {
+      $lookup: {
+        from: "categories",
+        let: { categoryId: "$category" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$categoryId"] },
+                  { $eq: ["$isDeleted", false] }
+                ]
+              }
+            }
+          },
+          {
+            $project: {
+              category: 1
+            }
+          }
+        ],
+        as: "categoryData"
+      }
+    },
+    {
+      $addFields: {
+        category: { $arrayElemAt: ["$categoryData.category", 0] }
+      }
+    },
+    {
+      $project: {
+        categoryData: 0
+      }
+    }
+  ]))[0];
+
+  return res.status(200).send({
+    data,
+    message: data ? "Property detail received successfully" : "No property found",
+  });
+});
+
+const createToken = catchAsyncError(async (req, res) => {
+
+  const data = await createTokenForCard(req.body);
+
+  return res.status(200).send({
+    data,
+    message: "Token created successfully",
+  });
+})
+const createBooking = async (req, res) => {
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { hotelId, checkIn, checkOut } = req.body;
+    const userId = req.user.id;
+
+    const start = new Date(checkIn);
+    const end = new Date(checkOut);
+
+    if (start >= end) {
+      return res.status(400).json({ message: "Invalid date range" });
+    }
+
+    const dates = getDatesBetween(start, end);
+
+    const availabilityDocs = await Availability.find({ hotel: hotelId, date: { $in: dates } }).session(session);
+
+    if (availabilityDocs.length !== dates.length) {
+      return res.status(400).json({ message: "Availability not initialized" });
+    }
+
+
+    for (let doc of availabilityDocs) {
+      if (doc.isBooked) {
+        return res.status(400).json({ message: "Room is already booked" });
+      }
+    }
+
+    await Availability.updateMany({ hotel: hotelId, date: { $in: dates } }, { $set: { isBooked: true } }, { session });
+
+    const booking = await Booking.create([{
+      hotel: hotelId,
+      user: userId,
+      checkIn: start,
+      checkOut: end,
+      status: "pending"
+    }], { session });
+
+    await session.commitTransaction();
+
+    return res.status(201).json(booking);
+
+  } catch (err) {
+    await session.abortTransaction();
+    res.status(400).json({ message: err.message });
+  } finally {
+    session.endSession();
+  }
+}
+
 
 module.exports = {
   userLogin,
@@ -968,7 +1084,10 @@ module.exports = {
   getNewlyDashboard,
   getNewlyVilla,
   getNewlyResorts,
-  getUserBanners
+  getUserBanners,
+  getPropertyDetail,
+  createBooking,
+  createToken
 };
 
 //   await Coupon.findByIdAndUpdate(couponId, {
