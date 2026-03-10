@@ -155,7 +155,6 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
 });
 
 const getUser = catchAsyncError(async (req, res, next) => {
-  console.log("dsfaaaaaaaaaaaaaaaaaaaaaa")
   let user = await User.findOne(
     { _id: req.user._id },
     {

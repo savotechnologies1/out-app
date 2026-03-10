@@ -31,6 +31,7 @@ app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/service", require("./routes/serviceRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
+app.use("/api", require('./routes/paymentRoutes'));
 
 app.use(errorHandler);
 

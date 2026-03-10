@@ -36,6 +36,10 @@ const propertiesSchema = new mongoose.Schema(
 
     count: { type: Number },
     price: { type: Number },
+    // maxGuests: {
+    //   type: Number,
+    //   default: 4
+    // },
     status: { type: String },
     isDeleted: { type: Boolean, default: false },
     is_completed: { type: Boolean, default: false },
