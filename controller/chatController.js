@@ -375,3 +375,122 @@ exports.getMessages = async (req, res) => {
     });
   }
 };
+
+exports.getUserSupportConversations = async (req, res) => {
+  try {
+
+    const userId = req.user._id;
+
+    const conversations = await Conversation.find({
+      chatType: "USER_SUPPORT",
+      userId: userId,
+      isDeleted: false
+    })
+      .populate("adminId", "name email")
+      .sort({ lastMessageAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      total: conversations.length,
+      data: conversations
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+exports.getServiceSupportConversations = async (req, res) => {
+  try {
+
+    const serviceUserId = req.user._id;
+
+    const conversations = await Conversation.find({
+      chatType: "SERVICE_SUPPORT",
+      serviceUserId: serviceUserId,
+      isDeleted: false
+    })
+      .populate("adminId", "name email")
+      .sort({ lastMessageAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      total: conversations.length,
+      data: conversations
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+exports.getUserServiceChats = async (req, res) => {
+  try {
+
+    const userId = req.user._id;
+
+    const conversations = await Conversation.find({
+      chatType: "SERVICE_CHAT",
+      userId,
+      isDeleted: false
+    })
+    .populate({
+      path: "serviceUserId",
+      select: "firstName lastName profile"
+    })
+    .sort({ lastMessageAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      total: conversations.length,
+      data: conversations
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+exports.getServiceUserChats = async (req, res) => {
+  try {
+
+    const serviceUserId = req.user._id;
+
+    const conversations = await Conversation.find({
+      chatType: "SERVICE_CHAT",
+      serviceUserId: serviceUserId,
+      isDeleted: false
+    })
+      .populate("userId", "firstName lastName profile")
+      .sort({ lastMessageAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      total: conversations.length,
+      data: conversations
+    });
+
+  } catch (error) {
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};

@@ -14,4 +14,12 @@ router.put("/read/:conversationId", chat.markAsRead);
 router.get("/admin-conversations", validateAdminToken, chat.getAdminConversations);
 router.get("/messages/:conversationId", validateAdminToken, chat.getMessages);
 
+router.get("/user-support-chats", validateToken, chat.getUserSupportConversations);
+
+router.get("/service-support-chats", validateServiceToken, chat.getServiceSupportConversations);
+
+router.get("/user-service-chats", validateToken, chat.getUserServiceChats);
+
+router.get("/serviceUser-service-chats", validateServiceToken, chat.getServiceUserChats);
+
 module.exports = router;
