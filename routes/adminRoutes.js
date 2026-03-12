@@ -52,7 +52,10 @@ const {
   createBanner,
   updateBanner,
   deleteBanner,
-  getAllBanners
+  getAllBanners,
+  getAllBookingsAdmin,
+  getBookingsByPropertyId,
+  getBookingDetails
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -166,5 +169,11 @@ router.get(
 validateAdminToken,
   getAllBanners
 );
+
+router.get("/allBookings", validateAdminToken, getAllBookingsAdmin);
+
+router.get("/property-bookings/:propertyId", validateAdminToken, getBookingsByPropertyId);
+
+router.get("/bookingDetail/:bookingId", validateAdminToken, getBookingDetails);
 
 module.exports = router;

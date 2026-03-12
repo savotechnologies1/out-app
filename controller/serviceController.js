@@ -16,6 +16,8 @@ const fs = require("fs");
 const { checkValidations } = require("../functions/checkValidation");
 const { validationResult } = require("express-validator");
 const mongoose = require("mongoose");
+const Booking = require("../models/Booking");
+const HotelAvailability = require("../models/Availability");
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -327,6 +329,17 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       obj.category = req.body.category;
       obj.status = "draft";
       obj.price = req.body.price;
+      obj.maxGuests = req.body.maxGuests;
+      obj.policies = {
+        checkInTime: req.body.checkInTime,
+        checkOutTime: req.body.checkOutTime,
+        additionalPolicies: req.body.additionalPolicies || [],
+        houseRules: {
+          petsAllowed: req.body.petsAllowed || false,
+          smokingAllowed: req.body.smokingAllowed || false,
+          partiesAllowed: req.body.partiesAllowed || false
+        }
+      };
       break;
 
     case 2:
@@ -480,215 +493,56 @@ const addProperties = catchAsyncError(async (req, res, next) => {
   });
 });
 
-// const addProperties = catchAsyncError(async (req, res, next) => {
 
-//   // ✅ Step 0: Check Service User Approval Status
-//   const serviceUser = await ServiceUser.findById(req.user._id, {
-//     isApproved: 1,
-//   });
+const getPropertyById = catchAsyncError(async (req, res) => {
 
-//   if (!serviceUser) {
-//     return res.status(400).json({ message: "Service User not found" });
-//   }
+  const data = (await Properties.aggregate([
+    {
+      $match: {
+        isDeleted: false,
+        _id: new mongoose.Types.ObjectId(req.params.id)
+      }
+    },
+    {
+      $lookup: {
+        from: "categories",
+        let: { categoryId: "$category" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$categoryId"] },
+                  { $eq: ["$isDeleted", false] }
+                ]
+              }
+            }
+          },
+          {
+            $project: {
+              category: 1
+            }
+          }
+        ],
+        as: "categoryData"
+      }
+    },
+    {
+      $addFields: {
+        category: { $arrayElemAt: ["$categoryData.category", 0] }
+      }
+    },
+    {
+      $project: {
+        categoryData: 0
+      }
+    }
+  ]))[0];
 
-//   if (serviceUser.isApproved !== "approved") {
-//     return res.status(403).json({
-//       message: `Your account is ${serviceUser.isApproved}. You cannot add properties.`,
-//     });
-//   }
-
-//   // 🔥 Agar approved hai tab hi niche ka code chalega
-
-//   const incomingCount = Number(req.body?.count) || 1;
-// // console.log( id );
-// //   let property = null;
-// //   let existingCount = 0;
-
-// //   if (id) {
-// //     property = await Properties.findOne(
-// //       { _id: id, isDeleted: false },
-// //       { count: 1 }
-// //     );
-// //   console.log( property)
-// //     if (!property) {
-// //       return res.status(400).json({ message: "Property not found" });
-// //     }
-
-// //     existingCount = property.count || 0;
-// //   }
-// const { id } = req.body;
-// let property = null;
-//   let existingCount = 0;
-
-//   if (id) {
-//     property = await Properties.findOne(
-//       { _id: id, isDeleted: false },
-//       { count: 1 }
-//     );
-
-//     if (!property) {
-//       return res.status(400).json({ message: "Property not found" });
-//     }
-
-//     existingCount = property.count || 0;
-//   }
-
-//   const files = req.files || {};
-//   const mainImage = files?.mainImage;
-//   const bedroom = files?.bedroom;
-//   const pool = files?.pool;
-//   const bathroom = files?.bathroom;
-
-//   let obj = {};
-
-//   switch (incomingCount) {
-//     case 1:
-//       obj.user = req.user._id;
-//       obj.name = req.body.name;
-//       obj.category = req.body.category;
-//       obj.status = "draft";
-//       obj.price = req.body.price;
-//       break;
-
-//     case 2:
-//       obj.address = {
-//         fullAddress: req.body.fullAddress,
-//         country: req.body.country,
-//         state: req.body.state,
-//         city: req.body.city,
-//         pincode: req.body.pincode,
-//         lat: req.body.lat,
-//         lng: req.body.lng,
-//       };
-//       break;
-
-//     case 3:
-//       obj.area = req.body.area;
-//       if (req.body.mainAmenities) {
-//         obj.mainAmenities = req.body.mainAmenities.split(",");
-//       }
-//       break;
-
-//     case 4:
-//       obj.bedRoom = {
-//         numBedroom: req.body.numBedroom,
-//         numSingleBed: req.body.numSingleBed,
-//         numMasterBed: req.body.numMasterBed,
-//       };
-//       break;
-
-//     case 5:
-//       obj.pool = {
-//         dimension: {
-//           height: req.body.height,
-//           width: req.body.width,
-//         },
-//         gradient: {
-//           type: req.body.gradient?.type,
-//         },
-//       };
-
-//       if (req.body.additional) {
-//         obj.pool.additional = req.body.additional.split(",");
-//       }
-
-//       if (req.body.gradient?.type === "tiered") {
-//         obj.pool.gradient.feet1 = req.body.gradient.feet1;
-//         obj.pool.gradient.feet2 = req.body.gradient.feet2;
-//       }
-//       break;
-
-//     case 6:
-//       obj.restRoom = {
-//         numBathroom: req.body.numBathroom,
-//         facilities: req.body.facilities?.split(",") || [],
-//       };
-//       break;
-
-//     case 7:
-//       if (req.body.propertyAmenities) {
-//         obj.propertyAmenities = req.body.propertyAmenities.split(",");
-//       }
-//       break;
-
-//     case 8:
-//       if (req.body.propertyFeatures) {
-//         obj.propertyFeatures = req.body.propertyFeatures.split(",");
-//       }
-//       break;
-
-//     case 9:
-//       obj.description = req.body.description;
-//       break;
-
-//     case 10:
-//       obj.media = {};
-
-//       if (mainImage?.length) {
-//         obj.media.mainImage = mainImage.map((file) => file.filename);
-//       }
-
-//       if (pool?.length) {
-//         obj.media.pool = pool.map((file) => file.filename);
-//       }
-
-//       if (bathroom?.length) {
-//         obj.media.bathroom = bathroom.map((file) => file.filename);
-//       }
-
-//       if (bedroom?.length) {
-//         obj.media.bedroom = bedroom.map((file) => file.filename);
-//       }
-//       break;
-
-//     default:
-//       return res.status(400).json({ message: "Invalid count step" });
-//   }
-
-//   // ✅ CREATE NEW PROPERTY
-//   if (!id) {
-//     const newProperty = await Properties.create({
-//       ...obj,
-//       count: 1,
-//       user: req.user._id,
-//       status: "draft",
-//     });
-
-//     return res.status(200).json({
-//       message: "Property added successfully",
-//       data: newProperty,
-//     });
-//   }
-
-//   const updatedProperty = await Properties.findByIdAndUpdate(
-//     id,
-//     {
-//       $set: {
-//         ...obj,
-//         count: incomingCount > existingCount ? incomingCount : existingCount,
-//       },
-//     },
-//     { new: true }
-//   );
-
-//   return res.status(200).json({
-//     message: "Property updated successfully",
-//     data: updatedProperty,
-//   });
-// });
-
-const getPropertyById = catchAsyncError(async (req, res, next) => {
-  const { id } = req.params;
-  if (!id)
-    return res.status(400).send({ message: "Provide Valid Property Id" });
-
-  const property = await Properties.findOne({
-    _id: id,
-    user: req.user._id,
-    isDeleted: false,
-  }).lean();
-
-  return res.status(200).send({ data: property });
+  return res.status(200).send({
+    data,
+    message: data ? "Property detail received successfully" : "No property found",
+  });
 });
 
 const getAllCategories = catchAsyncError(async (req, res, next) => {
@@ -760,16 +614,39 @@ const logout = catchAsyncError(async (req, res, next) => {
 });
 
 const getProperties = catchAsyncError(async (req, res, next) => {
-  const properties = await Properties.find({
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const skip = (page - 1) * limit;
+
+  const filter = {
     isDeleted: false,
-    user: req.user._id,
-  }).lean(true);
+    user: req.user._id
+  };
+
+  const [properties, total] = await Promise.all([
+    Properties.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Properties.countDocuments(filter)
+  ]);
+
   return res.status(200).send({
     data: properties,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    },
     message: properties.length
       ? "Properties received successfully"
-      : "No properties found",
+      : "No properties found"
   });
+
 });
 
 const deleteProperties = catchAsyncError(async (req, res, next) => {
@@ -973,6 +850,87 @@ const deleteServices = catchAsyncError(async (req, res, next) => {
   return res.status(200).send({ message: "Properties deleted successfully" });
 });
 
+const getUpcomingBookings = catchAsyncError(async (req, res) => {
+
+  const userId = req.user._id;
+
+  // get all properties of service user
+  const properties = await Properties.find({ user: userId }).select("_id").lean();
+  const propertyIds = properties.map(p => p._id);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const bookings = await Booking.find({
+    hotel: { $in: propertyIds },
+    checkIn: { $gte: today },
+    bookingStatus: { $in: ["confirmed", "pending"] },
+    paymentStatus: "paid"
+  })
+  .populate("user", "firstName lastName phone profile")
+  .sort({ checkIn: 1 })
+  .lean();
+
+  return res.status(200).send({
+    data: bookings,
+    message: bookings.length
+      ? "Upcoming bookings fetched"
+      : "No upcoming bookings"
+  });
+
+});
+
+const getBookingHistory = catchAsyncError(async (req, res) => {
+
+  const userId = req.user._id;
+
+  // get all properties of this service user
+  const properties = await Properties.find({ user: userId }).select("_id").lean();
+  const propertyIds = properties.map(p => p._id);
+
+  const bookings = await Booking.find({
+    hotel: { $in: propertyIds },
+    bookingStatus: { $in: ["confirmed", "cancelled"] }
+  })
+  .populate("user", "firstName lastName phone profile")
+  .populate("hotel", "name address price")
+  .sort({ createdAt: -1 })
+  .lean();
+
+  return res.status(200).send({
+    data: bookings,
+    message: bookings.length
+      ? "Booking history fetched successfully"
+      : "No booking history found"
+  });
+
+});
+
+const getBookingCalendar = catchAsyncError(async (req, res) => {
+
+  const userId = req.user._id;
+
+  const properties = await Properties.find({ user: userId }).select("_id").lean();
+
+  const propertyIds = properties.map(p => p._id);
+console.log("propertyIds", propertyIds)
+  const dates = await HotelAvailability.find({
+    hotel: { $in: propertyIds },
+    isBooked: true
+  })
+  .select("date booking hotel")
+  .populate({
+    path: "booking",
+    select: "bookingStatus"
+  })
+  .lean();
+
+  return res.status(200).send({
+    data: dates,
+    message: "Calendar data fetched"
+  });
+
+});
+
 module.exports = {
   serviceLogin,
   serviceSignUp,
@@ -991,5 +949,8 @@ module.exports = {
   logout,
   getProperties,
   deleteServices,
-  getIncompleteProperty
+  getIncompleteProperty,
+  getUpcomingBookings,
+  getBookingHistory,
+  getBookingCalendar
 };

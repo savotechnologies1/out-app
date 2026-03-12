@@ -24,12 +24,10 @@ exports.paymentWebhook = async (req, res) => {
 
     const payload = req.body;
 
-    // console.log("Tap Webhook Payload:", payload);
-
     const chargeId = payload.id;
     const status = payload.status;
     const orderId = payload.reference?.order;
-
+   
     if (!orderId) {
       return res.status(400).send({ message: "Order id missing" });
     }
@@ -79,7 +77,7 @@ exports.paymentWebhook = async (req, res) => {
       console.log("Dates reserved for booking:", booking._id);
 
     } else {
-
+      booking.bookingStatus = "cancelled";
       booking.paymentStatus = "failed";
       booking.webhookProcessed = true;
 

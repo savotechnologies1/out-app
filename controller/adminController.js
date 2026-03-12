@@ -26,6 +26,8 @@ const { validationResult } = require("express-validator");
 const Coupon = require("../models/Coupon");
 const Commission = require("../models/Commission");
 const Banner = require("../models/Banner");
+const Booking = require("../models/Booking");
+const PaymentTransaction = require("../models/PaymentTransaction");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -312,88 +314,6 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
   });
 });
 
-// const getAllUsers = catchAsyncError(async (req, res, next) => {
-//   let { s, limit, cursor, direction, currPage } = req.query;
-//   if (s == "undefined" || typeof s === "undefined") s = "";
-
-//   console.log(req.query);
-
-//   limit = parseInt(limit) || 10;
-//   cursor = cursor || null;
-
-//   const matchStage = {
-//     isDeleted: false,
-//     $or: [
-//       { phone: { $regex: s, $options: "i" } },
-//       { firstName: { $regex: s, $options: "i" } },
-//       { lastName: { $regex: s, $options: "i" } },
-//       { email: { $regex: s, $options: "i" } },
-//     ],
-//   };
-
-//   const totalCount = await User.countDocuments(matchStage);
-
-//   if (cursor) {
-//     if (direction === "next") {
-//       matchStage._id = { $lt: new objectId(cursor) };
-//     } else if (direction === "prev") {
-//       matchStage._id = { $gt: new objectId(cursor) };
-//     }
-//   }
-
-//   let users = await User.aggregate([
-//     { $match: matchStage },
-//     {
-//       $project: {
-//         _id: 1,
-//         userId: 1,
-//         salutataion: 1,
-//         firstName: 1,
-//         lastName: 1,
-//         email: 1,
-//         phone: 1,
-//         phoneCode: 1,
-//         city: 1,
-//         state: 1,
-//         profile: 1,
-//         createdAt: 1,
-//         role: 1,
-//       },
-//     },
-//     { $sort: { _id: direction === "prev" ? 1 : -1 } },
-//     { $limit: limit + 1 },
-//   ]);
-
-//   const hasNextPage =
-//     (currPage == 1 && users.length > limit) ||
-//     users.length > limit ||
-//     (direction === "prev" && users.length === limit);
-
-//   if (hasNextPage && direction) {
-//     if (direction === "next") users.pop();
-//   } else if (hasNextPage) {
-//     users.pop();
-//   }
-//   const hasPrevPage = currPage == 1 ? false : true;
-
-//   if (direction === "prev" && currPage != 1) {
-//     users.reverse().shift();
-//   } else if (direction === "prev") {
-//     users.reverse();
-//   }
-
-//   const nextCursor = hasNextPage ? users[users.length - 1]._id : null;
-//   const prevCursor = hasPrevPage ? users[0]._id : null;
-
-//   return res.status(200).send({
-//     data: users,
-//     nextCursor,
-//     prevCursor,
-//     hasNextPage,
-//     hasPrevPage,
-//     totalCount,
-//   });
-// });
 
 const getAllUsers = catchAsyncError(async (req, res, next) => {
   let {
@@ -403,8 +323,8 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
   } = req.query;
 
   const { page, pageSize, skip } = paginationQuery(req.query);
-  sortBy = sortBy?.toLowerCase();   // make case-insensitive
-  status = status?.toLowerCase();   // make case-insensitive
+  sortBy = sortBy?.toLowerCase();
+  status = status?.toLowerCase();
 
   const matchStage = {
     isDeleted: false,
@@ -448,8 +368,8 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
   const users = await User.aggregate([
     { $match: matchStage },
     { $sort: sort },
-    { $skip: skip },       // 👈 from paginationQuery
-    { $limit: pageSize },  // 👈 from paginationQuery
+    { $skip: skip },
+    { $limit: pageSize },  
     {
       $project: {
         _id: 1,
@@ -457,6 +377,7 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
         lastName: 1,
         email: 1,
         phone: 1,
+        role: 1,
         isActive: 1,
         createdAt: 1,
       },
@@ -476,87 +397,6 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
     ...pageInfo,   // 👈 adds page info
   });
 });
-
-// const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
-//   let { s, limit, cursor, direction, currPage } = req.query;
-//   if (s == "undefined" || typeof s === "undefined") s = "";
-
-//   limit = parseInt(limit) || 10;
-//   cursor = cursor || null;
-
-//   const matchStage = {
-//     isDeleted: false,
-//     $or: [
-//       { phone: { $regex: s, $options: "i" } },
-//       { userId: { $regex: s, $options: "i" } },
-//       { firstName: { $regex: s, $options: "i" } },
-//       { lastName: { $regex: s, $options: "i" } },
-//       { email: { $regex: s, $options: "i" } },
-//     ],
-//   };
-
-//   const totalCount = await ServiceUser.countDocuments(matchStage);
-
-//   if (cursor) {
-//     if (direction === "next") {
-//       matchStage._id = { $lt: new objectId(cursor) };
-//     } else if (direction === "prev") {
-//       matchStage._id = { $gt: new objectId(cursor) };
-//     }
-//   }
-
-//   let users = await ServiceUser.aggregate([
-//     { $match: matchStage },
-//     {
-//       $project: {
-//         _id: 1,
-//         salutataion: 1,
-//         userId: 1,
-//         firstName: 1,
-//         lastName: 1,
-//         email: 1,
-//         phoneCode: 1,
-//         isActive: 1,
-//         phone: 1,
-//         profile: 1,
-//         createdAt: 1,
-//         role: 1,
-//       },
-//     },
-//     { $sort: { _id: direction === "prev" ? 1 : -1 } },
-//     { $limit: limit + 1 },
-//   ]);
-
-//   const hasNextPage =
-//     (currPage == 1 && users.length > limit) ||
-//     users.length > limit ||
-//     (direction === "prev" && users.length === limit);
-
-//   if (hasNextPage && direction) {
-//     if (direction === "next") users.pop();
-//   } else if (hasNextPage) {
-//     users.pop();
-//   }
-//   const hasPrevPage = currPage == 1 ? false : true;
-
-//   if (direction === "prev" && currPage != 1) {
-//     users.reverse().shift();
-//   } else if (direction === "prev") {
-//     users.reverse();
-//   }
-
-//   const nextCursor = hasNextPage ? users[users.length - 1]._id : null;
-//   const prevCursor = hasPrevPage ? users[0]._id : null;
-
-//   return res.status(200).send({
-//     data: users,
-//     nextCursor,
-//     prevCursor,
-//     hasNextPage,
-//     hasPrevPage,
-//     totalCount,
-//   });
-// });
 
 const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
   let { search, status, sortBy = "latest" } = req.query;
@@ -2273,6 +2113,149 @@ const getAllBanners = async (req, res) => {
   }
 };
 
+
+const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const skip = (page - 1) * limit;
+
+  const filter = {
+    paymentStatus: "paid",
+    bookingStatus: { $in: ["confirmed", "cancelled"] }
+  };
+
+  const [bookings, total] = await Promise.all([
+    Booking.find(filter)
+      .populate({
+        path: "hotel",
+        select: "name price address"
+      })
+      .populate({
+        path: "user",
+        select: "name email phone"
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Booking.countDocuments(filter)
+  ]);
+
+  return res.status(200).send({
+    data: bookings,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    },
+    message: bookings.length
+      ? "Bookings fetched successfully"
+      : "No bookings found"
+  });
+
+});
+
+const getBookingsByPropertyId = catchAsyncError(async (req, res, next) => {
+
+  const { propertyId } = req.params;
+
+  if (!propertyId) {
+    return res.status(400).send({
+      message: "Property Id is required"
+    });
+  }
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const skip = (page - 1) * limit;
+
+  const filter = {
+    hotel: propertyId,
+    paymentStatus: "paid",
+    bookingStatus: { $in: ["confirmed", "cancelled"] }
+  };
+
+  const [bookings, total] = await Promise.all([
+    Booking.find(filter)
+      .populate({
+        path: "hotel",
+        select: "name price address"
+      })
+      .populate({
+        path: "user",
+        select: "name email phone"
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Booking.countDocuments(filter)
+  ]);
+
+  return res.status(200).send({
+    data: bookings,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    },
+    message: bookings.length
+      ? "Property bookings fetched successfully"
+      : "No bookings found for this property"
+  });
+
+});
+
+
+const getBookingDetails = catchAsyncError(async (req, res, next) => {
+
+  const { bookingId } = req.params;
+
+  if (!bookingId) {
+    return res.status(400).send({
+      message: "Booking Id is required"
+    });
+  }
+
+  const booking = await Booking.findById(bookingId)
+    .populate({
+      path: "hotel",
+      select: "name price address maxGuests media description policies"
+    })
+    .populate({
+      path: "user",
+      select: "name email phone"
+    })
+    .lean();
+
+  if (!booking) {
+    return res.status(404).send({
+      message: "Booking not found"
+    });
+  }
+
+  // get payment transaction
+  const payment = await PaymentTransaction.findOne({
+    booking: bookingId
+  }).lean();
+
+  return res.status(200).send({
+    data: {
+      ...booking,
+      paymentTransaction: payment
+    },
+    message: "Booking details fetched successfully"
+  });
+
+});
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -2325,6 +2308,9 @@ module.exports = {
   createBanner,
   updateBanner,
   deleteBanner,
-  getAllBanners
+  getAllBanners,
+  getAllBookingsAdmin,
+  getBookingsByPropertyId,
+  getBookingDetails
 };
 

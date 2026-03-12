@@ -17,7 +17,10 @@ const {
   editProperties,
   propertyDetail,
   editServiceUser,
-  getIncompleteProperty
+  getIncompleteProperty,
+  getUpcomingBookings,
+  getBookingHistory,
+  getBookingCalendar
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -83,4 +86,11 @@ router.put(
 );
 
 router.get("/getIncompleteProperty", validateServiceToken, getIncompleteProperty)
+
+router.get("/bookings/upcoming", validateServiceToken, getUpcomingBookings);
+
+router.get("/bookings/history", validateServiceToken, getBookingHistory);
+
+router.get("/bookings/calendar", validateServiceToken, getBookingCalendar);
+
 module.exports = router;

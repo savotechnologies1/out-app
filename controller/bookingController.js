@@ -1,6 +1,7 @@
 const Booking = require("../models/Booking");
 const { v4: uuidv4 } = require("uuid");
 const HotelAvailability = require("../models/Availability");
+const Properties = require("../models/Properties");
 
 
 
@@ -54,14 +55,30 @@ exports.checkAvailability = async (req, res) => {
   }
 
 };
+
 exports.createBooking = async (req, res) => {
   try {
 
-    const { hotelId, checkIn, checkOut, adults, children, amount } = req.body;
+    const { hotelId, checkIn, checkOut, adults = 1, children = 0, amount } = req.body;
+
+    const totalGuests = adults + children;
+
+    const property = await Properties.findById(hotelId).select("maxGuests");
+
+    if (!property) {
+      return res.status(404).send({
+        message: "Property not found"
+      });
+    }
+
+    if (totalGuests > property.maxGuests) {
+      return res.status(400).send({
+        message: `Maximum ${property.maxGuests} guests allowed for this property`
+      });
+    }
 
     const dates = getDatesBetween(checkIn, checkOut);
 
-    // Check if dates already booked
     const bookedDates = await HotelAvailability.find({
       hotel: hotelId,
       date: { $in: dates },
@@ -74,7 +91,7 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    const orderId = "ORD_" + uuidv4();
+   const orderId = "ORD_" + uuidv4().slice(0, 8).toUpperCase();
 
     const booking = await Booking.create({
       hotel: hotelId,
@@ -93,7 +110,8 @@ exports.createBooking = async (req, res) => {
       message: "Booking created",
       bookingId: booking._id,
       orderId,
-      amount
+      amount,
+      totalGuests
     });
 
   } catch (error) {
