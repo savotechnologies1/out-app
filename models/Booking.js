@@ -2,19 +2,65 @@ const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema({
 
-  hotel: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Properties"
-  },
-
   user: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
+    ref: "User",
+    required: true,
+    index: true
   },
 
-  checkIn: Date,
+  bookingType: {
+    type: String,
+    enum: ["PROPERTY", "SERVICE", "PACKAGE", "PROPERTY_SERVICE"],
+    required: true
+  },
 
-  checkOut: Date,
+  property: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Properties",
+    index: true,
+    required: function () {
+      return ["PROPERTY", "PROPERTY_SERVICE"].includes(this.bookingType);
+    }
+  },
+
+  package: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Package"
+  },
+
+  services: [{
+    service: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
+      required: function () {
+        return this.bookingType === "SERVICE" || this.bookingType === "PROPERTY_SERVICE";
+      },
+    },
+    price: {
+      type: Number,
+      required: function () {
+        return this.bookingType === "SERVICE" || this.bookingType === "PROPERTY_SERVICE";
+      }
+    }
+  }],
+
+  couponId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Coupon"
+  },
+
+  checkIn: {
+    type: Date,
+    required: true,
+    index: true
+  },
+
+  checkOut: {
+    type: Date,
+    required: true,
+    index: true
+  },
 
   adults: {
     type: Number,
@@ -26,11 +72,38 @@ const bookingSchema = new mongoose.Schema({
     default: 0
   },
 
-  amount: Number,
+  priceBreakdown: {
+    propertyPrice: {
+      type: Number,
+      default: 0
+    },
+    packagePrice: {
+      type: Number,
+      default: 0
+    },
+    servicePrice: {
+      type: Number,
+      default: 0
+    }
+  },
+
+  totalAmount: {
+    type: Number,
+    required: true
+  },
+
+  commissionAmount: Number,
+
+  providerAmount: Number,
+
+  platformFee: Number,
+
+  tax: Number,
 
   orderId: {
     type: String,
-    unique: true
+    unique: true,
+    index: true
   },
 
   tapChargeId: String,
@@ -53,5 +126,13 @@ const bookingSchema = new mongoose.Schema({
   }
 
 }, { timestamps: true });
+
+
+/* ========================
+   INDEXES FOR PERFORMANCE
+======================== */
+
+bookingSchema.index({ property: 1, checkIn: 1, checkOut: 1 });
+bookingSchema.index({ user: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);

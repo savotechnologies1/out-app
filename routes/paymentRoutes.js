@@ -15,6 +15,10 @@ router.get("/booking/status/:orderId", validateToken, bookingController.getBooki
 
 router.get("/booking/my", validateToken, bookingController.getUserBookings);
 
+router.get("/booking/getDetail/:bookingId", validateToken, bookingController.getBookingDetail);
+
+router.get("/user/getUserUpcomingBookings", validateToken, bookingController.getUserUpcomingBookings);
+
 router.post("/booking/cancel/:bookingId", validateToken, bookingController.cancelBooking);
 
 router.post("/payment/webhook", validateToken, paymentController.paymentWebhook);

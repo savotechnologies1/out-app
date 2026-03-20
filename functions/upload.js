@@ -9,12 +9,16 @@ const UPLOAD_PATHS = Object.freeze({
   userProfile: "users",
   image: "categories",
   docs: "documents",
+  document:"propertyDocument",
   mainImage: "mainImage",
   pool: "pool",
   bathroom: "bathroom",
   bedroom: "bedroom",
   profileImage: "adminProfileImage",
-  bannerImg: "bannerImg"
+  bannerImg: "bannerImg",
+  serviceIcon:"serviceIcon",
+  serviceMedia:"serviceMedia",
+  ticketImage:"ticketImage"
 });
 
 const ensureDir = (dir) => {
@@ -78,8 +82,10 @@ const uploads = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 25 * 1024 * 1024,
   },
 });
+
+
 
 module.exports = { uploads };

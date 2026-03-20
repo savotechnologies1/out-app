@@ -11,10 +11,18 @@ const propertiesSchema = new mongoose.Schema(
       state: String,
       country: String,
       pincode: String,
-      lat: Number,
-      lng: Number,
-    },
 
+      location: {
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point"
+        },
+        coordinates: {
+          type: [Number]
+        }
+      }
+    },
     area: { type: Number },
     mainAmenities: [{ type: String }],
     bedRoom: { type: Object },
@@ -40,9 +48,11 @@ const propertiesSchema = new mongoose.Schema(
       type: Number,
       default: 2
     },
+    document: { type: String, required: true },
+    experienceCount: Number,
     policies: {
-      checkInTime: { type: String },   
-      checkOutTime: { type: String }, 
+      checkInTime: { type: String },
+      checkOutTime: { type: String },
 
       additionalPolicies: [{ type: String }],
 
@@ -52,11 +62,28 @@ const propertiesSchema = new mongoose.Schema(
         partiesAllowed: { type: Boolean, default: false }
       }
     },
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending"
+    },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
+    approvedAt: Date,
+    rejectionReason: String,
     status: { type: String },
     isDeleted: { type: Boolean, default: false },
     is_completed: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
-
+propertiesSchema.index(
+  { "address.location": "2dsphere" },
+  {
+    partialFilterExpression: {
+      "address.location.coordinates": { $exists: true }
+    }
+  }
+);
+propertiesSchema.index({ maxGuests: 1 });
+propertiesSchema.index({ is_completed: 1, isDeleted: 1 });
 module.exports = mongoose.model("Properties", propertiesSchema);

@@ -28,6 +28,15 @@ const Commission = require("../models/Commission");
 const Banner = require("../models/Banner");
 const Booking = require("../models/Booking");
 const PaymentTransaction = require("../models/PaymentTransaction");
+const PlatformFee = require("../models/PlatformFee");
+const Tax = require("../models/Tax");
+const HotelAvailability = require("../models/Availability");
+const WalletTransaction = require("../models/WalletTransaction");
+const WithdrawRequest = require("../models/WithdrawRequest");
+const Wallet = require("../models/Wallet");
+const ServiceCategory = require("../models/ServiceCategory");
+const Service = require("../models/Service");
+const Package = require("../models/Package");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -316,13 +325,11 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
 
 
 const getAllUsers = catchAsyncError(async (req, res, next) => {
-  let {
-    search = "",
-    sortBy = "latest",
-    status
-  } = req.query;
 
-  const { page, pageSize, skip } = paginationQuery(req.query);
+  let { search = "", sortBy = "latest", status } = req.query;
+
+  const { page = 1, pageSize = 5, skip = 0 } = paginationQuery(req.query);
+
   sortBy = sortBy?.toLowerCase();
   status = status?.toLowerCase();
 
@@ -340,36 +347,32 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
     ];
   }
 
-  // ✅ Status filter (active / inactive)
+  // ✅ Status filter
   if (status === "active") {
     matchStage.isActive = true;
   } else if (status === "inactive") {
     matchStage.isActive = false;
   }
 
-  // ✅ Sorting logic
-  let sort = { _id: -1 }; // default latest
+  // ✅ Sorting
+  let sort = { createdAt: -1 };
 
   if (sortBy === "asc") {
-    sort = { category: 1 };
+    sort = { firstName: 1 };
   } else if (sortBy === "desc") {
-    sort = { category: -1 };
-  } else if (sortBy === "latest") {
-    sort = { createdAt: -1 };
+    sort = { firstName: -1 };
   } else if (sortBy === "oldest") {
     sort = { createdAt: 1 };
   }
 
-  // ✅ Total count (without cursor filter)
-
+  // ✅ Total count
   const total = await User.countDocuments(matchStage);
-
 
   const users = await User.aggregate([
     { $match: matchStage },
     { $sort: sort },
     { $skip: skip },
-    { $limit: pageSize },  
+    { $limit: pageSize },
     {
       $project: {
         _id: 1,
@@ -384,30 +387,33 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
     },
   ]);
 
-  const pageInfo = pagination({
-    total,
-    page,
-    pageSize,
-  });
+  const totalPages = Math.ceil(total / pageSize);
 
   return res.status(200).json({
     success: true,
     data: users,
+    page,
+    limit: pageSize,
     total,
-    ...pageInfo,   // 👈 adds page info
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages,
   });
+
 });
 
 const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
+
   let { search, status, sortBy = "latest" } = req.query;
 
-  const { page, pageSize, skip } = paginationQuery(req.query);
+  const { page = 1, pageSize = 5, skip = 0 } = paginationQuery(req.query);
 
   sortBy = sortBy?.toLowerCase();
   status = status?.toLowerCase();
 
   if (!search || search === "undefined") search = "";
-
 
   const matchStage = {
     isDeleted: false,
@@ -424,13 +430,13 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
     ];
   }
 
-  // ✅ Status Filter Only
+  // ✅ Status Filter
   if (status && ["approved", "rejected", "pending"].includes(status)) {
     matchStage.isApproved = status;
   }
 
   // ✅ Sorting
-  let sort = { createdAt: -1 }; // default latest
+  let sort = { createdAt: -1 };
 
   if (sortBy === "asc") {
     sort = { firstName: 1 };
@@ -440,7 +446,7 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
     sort = { createdAt: 1 };
   }
 
-
+  // ✅ Total count
   const total = await ServiceUser.countDocuments(matchStage);
 
   const users = await ServiceUser.aggregate([
@@ -461,25 +467,27 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
         profile: 1,
         isActive: 1,
         role: 1,
-        isApproved: 1,   // still returning status
+        isApproved: 1,
         createdAt: 1,
       },
     },
   ]);
 
-  // ✅ Pagination meta
-  const pageInfo = pagination({
-    total,
-    page,
-    pageSize,
-  });
+  const totalPages = Math.ceil(total / pageSize);
 
   return res.status(200).json({
     success: true,
     data: users,
+    page,
+    limit: pageSize,
     total,
-    ...pageInfo,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages,
   });
+
 });
 
 
@@ -520,52 +528,6 @@ const getServiceUserById = catchAsyncError(async (req, res, next) => {
   });
 });
 
-// const getServiceUserProperties = catchAsyncError(async (req, res, next) => {
-//   const { id } = req.params;
-
-//   const page = parseInt(req.query.page) || 1;
-//   const limit = parseInt(req.query.limit) || 10;
-//   const skip = (page - 1) * limit;
-
-//   // Get only required service user fields
-//   const serviceUser = await ServiceUser.findOne(
-//     { _id: id, isDeleted: false },
-//     { _id: 1, firstName: 1, lastName: 1 }
-//   ).lean();
-
-//   if (!serviceUser) {
-//     return res.status(400).json({ message: "Service User not found" });
-//   }
-
-//   const filter = {
-//     user: id,
-//     isDeleted: false,
-//     isApproved: "approved"
-//   };
-
-//   const total = await Properties.countDocuments(filter);
-
-//   const properties = await Properties.find(filter)
-//     .skip(skip)
-//     .limit(limit)
-//     .sort({ createdAt: -1 })
-//     .lean();
-
-//   return res.status(200).json({
-//     message: "Properties fetched successfully",
-//     serviceUser: {
-//       id: serviceUser._id,
-//       name: `${serviceUser.firstName} ${serviceUser.lastName}`
-//     },
-//     data: properties,
-//     pagination: {
-//       total,
-//       page,
-//       limit,
-//       totalPages: Math.ceil(total / limit)
-//     }
-//   });
-// });
 
 const getAllProperties = catchAsyncError(async (req, res, next) => {
 
@@ -573,21 +535,24 @@ const getAllProperties = catchAsyncError(async (req, res, next) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
-  // Total service users
-  const total = await ServiceUser.countDocuments({ isDeleted: false });
+  const matchStage = { isDeleted: false };
+
+  // ✅ Total service users
+  const total = await ServiceUser.countDocuments(matchStage);
 
   const users = await ServiceUser.aggregate([
-    { $match: { isDeleted: false } },
+    { $match: matchStage },
 
     {
       $lookup: {
-        from: "properties", // must match MongoDB collection name
+        from: "properties",
         localField: "_id",
         foreignField: "user",
         pipeline: [
           {
             $match: {
-              isDeleted: false
+              isDeleted: false,
+              approvalStatus: "approved"
             }
           },
           { $sort: { createdAt: -1 } }
@@ -610,15 +575,20 @@ const getAllProperties = catchAsyncError(async (req, res, next) => {
     { $limit: limit }
   ]);
 
+  const totalPages = Math.ceil(total / limit);
+
   return res.status(200).json({
     message: "Service users with properties fetched successfully",
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
-    },
-    data: users
+    data: users,
+
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages
   });
 
 });
@@ -823,35 +793,66 @@ const addCategory = catchAsyncError(async (req, res, next) => {
   });
 });
 
+
 const editCategory = catchAsyncError(async (req, res, next) => {
 
-  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: 'Invalid Category Id' });
+  const categoryId = req.params.categoryId;
+
+  if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+    return res.status(400).send({ message: "Invalid Category Id" });
+  }
+  const categoryName = humanize(req.body.categoryName);
+
+  const category = await Category.findById(categoryId);
+
+  if (!category || category.isDeleted) {
+    return res.status(404).send({ message: "Category not found" });
   }
 
-  const categoryName = humanize(req.body.category);
-
+  // Check duplicate category
   const categoryExists = await Category.countDocuments({
-    _id: { $ne: req.params.id },
+    _id: { $ne: categoryId },
     category: categoryName,
     isDeleted: false
   });
 
   if (categoryExists) {
-    return res.status(400).send({ message: 'Category already exists' });
+    return res.status(400).send({ message: "Category already exists" });
   }
 
-  let obj = {
+  let updateObj = {
     category: categoryName
-  }
+  };
 
+  // If new image uploaded
   if (req.file) {
-    obj['image'] = req.file.filename
+
+    updateObj.image = req.file.filename;
+
+    // Delete old image
+    if (category.image) {
+
+      const oldImagePath = path.join(
+        process.cwd(),
+        "uploads/categories",
+        category.image
+      );
+      if (fs.existsSync(oldImagePath)) {
+        fs.unlinkSync(oldImagePath);
+      }
+
+    }
   }
 
-  await Category.updateOne({ _id: req.params.id }, { $set: obj });
+  await Category.updateOne(
+    { _id: categoryId },
+    { $set: updateObj }
+  );
 
-  return res.status(200).send({ message: 'Category updated successfully' });
+  return res.status(200).send({
+    message: "Category updated successfully"
+  });
+
 });
 
 const deleteCategory = catchAsyncError(async (req, res, next) => {
@@ -1174,19 +1175,74 @@ const getAllCategories = catchAsyncError(async (req, res, next) => {
       : "No categories found",
   });
 });
+
+
 const getAllFeatures = catchAsyncError(async (req, res, next) => {
-  const features = await Feature.find({ isDeleted: false }).lean(true);
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const condition = { isDeleted: false };
+
+  // total count
+  const total = await Feature.countDocuments(condition);
+
+  const features = await Feature.find(condition)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  const totalPages = Math.ceil(total / limit);
+
   return res.status(200).send({
     data: features,
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages,
     message: features.length
       ? "Features received successfully"
       : "No features found",
   });
+
 });
 
 const getAllRestRooms = catchAsyncError(async (req, res, next) => {
-  const rest_features = await RestRoom.find({ isDeleted: false }).lean();
-  return res.status(200).send({ data: rest_features });
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const condition = { isDeleted: false };
+
+  const total = await RestRoom.countDocuments(condition);
+
+  const rest_features = await RestRoom.find(condition)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  const totalPages = Math.ceil(total / limit);
+
+  return res.status(200).send({
+    data: rest_features,
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages
+  });
+
 });
 
 const getAmenitiById = catchAsyncError(async (req, res, next) => {
@@ -1339,14 +1395,20 @@ const addUser = catchAsyncError(async (req, res, next) => {
 });
 
 const categoryList = catchAsyncError(async (req, res, next) => {
-  let condition = {};
-  let sort = {};
-  const { search, sortBy } = req.query;
+
+  let condition = { isDeleted: false };
+  let sort = { createdAt: -1 };
+
+  const { search, sortBy, page = 1, limit = 5 } = req.query;
+
+  const pageNumber = Number(page);
+  const pageSize = Number(limit);
+  const skip = (pageNumber - 1) * pageSize;
+
   if (search) {
-    condition = {
-      $or: [{ category: { $regex: search, $options: "i" } }],
-    };
+    condition.category = { $regex: search, $options: "i" };
   }
+
   const sortValue = sortBy?.toLowerCase();
 
   if (sortValue === "asc") {
@@ -1355,35 +1417,36 @@ const categoryList = catchAsyncError(async (req, res, next) => {
     sort = { category: -1 };
   } else if (sortValue === "latest") {
     sort = { createdAt: -1 };
-  } else {
-    sort = { createdAt: -1 };
   }
-  const pagination = await paginationQuery(req.query);
 
-  const [manualData, total] = await Promise.all([
+  const [data, total] = await Promise.all([
     Category.find(condition)
       .collation({ locale: "en", strength: 2 })
       .sort(sort)
-      .skip(pagination.skip)
-      .limit(pagination.pageSize)
-      .lean(true),
+      .skip(skip)
+      .limit(pageSize)
+      .lean(),
+
     Category.countDocuments(condition),
   ]);
+
+  const totalPages = Math.ceil(total / pageSize);
+
   return res.status(200).send({
-    data: manualData,
-    page: pagination.page,
-    limit: pagination.pageSize,
+    data,
+    page: pageNumber,
+    limit: pageSize,
     total,
-    totalPages: Math.ceil(total / pagination.pageSize),
-    previousDisabled: pagination.page <= 1,
-    nextPage: pagination.page + 1,
-    previousPage: pagination.page - 1,
-    nextDisabled:
-      pagination.page >= Math.ceil(total / pagination.pageSize),
-    message: manualData.length
+    totalPages,
+    previousDisabled: pageNumber <= 1,
+    nextPage: pageNumber + 1,
+    previousPage: pageNumber - 1,
+    nextDisabled: pageNumber >= totalPages,
+    message: data.length
       ? "Categories received successfully"
-      : "No categories found",
+      : "No categories found"
   });
+
 });
 
 const deleteAmenities = catchAsyncError(async (req, res, next) => {
@@ -1764,32 +1827,40 @@ const updateCoupon = catchAsyncError(async (req, res) => {
 
 
 const getAllCoupons = catchAsyncError(async (req, res) => {
+
   const {
     page = 1,
     limit = 10,
     search,
     isActive,
     firstTimeUserOnly,
-    status, // active | expired | upcoming
+    status
   } = req.query;
 
-  const skip = (Number(page) - 1) * Number(limit);
+  const pageNumber = Number(page);
+  const pageSize = Number(limit);
+  const skip = (pageNumber - 1) * pageSize;
+
   const query = { isDelete: false };
 
+  // 🔍 Search
   if (search) {
     query.code = { $regex: search, $options: "i" };
   }
 
+  // ✅ Active filter
   if (isActive !== undefined) {
     query.isActive = isActive === "true";
   }
 
+  // ✅ First time user filter
   if (firstTimeUserOnly !== undefined) {
     query.firstTimeUserOnly = firstTimeUserOnly === "true";
   }
 
   const now = new Date();
 
+  // 📅 Status filters
   if (status === "active") {
     query.startDate = { $lte: now };
     query.expiryDate = { $gte: now };
@@ -1803,21 +1874,31 @@ const getAllCoupons = catchAsyncError(async (req, res) => {
     query.startDate = { $gt: now };
   }
 
-  const coupons = await Coupon.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit))
-    .lean();
+  const [coupons, total] = await Promise.all([
+    Coupon.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean(),
 
-  const total = await Coupon.countDocuments(query);
+    Coupon.countDocuments(query)
+  ]);
 
-  res.status(200).json({
+  const totalPages = Math.ceil(total / pageSize);
+
+  return res.status(200).json({
     success: true,
-    totalRecords: total,
-    totalPages: Math.ceil(total / limit),
-    currentPage: Number(page),
     data: coupons,
+    page: pageNumber,
+    limit: pageSize,
+    total,
+    totalPages,
+    previousDisabled: pageNumber <= 1,
+    nextPage: pageNumber + 1,
+    previousPage: pageNumber - 1,
+    nextDisabled: pageNumber >= totalPages
   });
+
 });
 
 const deleteCoupon = catchAsyncError(async (req, res) => {
@@ -1946,11 +2027,14 @@ const deleteCommission = catchAsyncError(async (req, res, next) => {
 });
 
 const getAllCommissions = catchAsyncError(async (req, res, next) => {
+
   const { page = 1, limit = 10, scope, isActive } = req.query;
 
-  const query = {
-    isDeleted: false,
-  };
+  const pageNumber = Number(page);
+  const pageSize = Number(limit);
+  const skip = (pageNumber - 1) * pageSize;
+
+  const query = { isDeleted: false };
 
   if (scope) {
     query.scope = scope;
@@ -1960,23 +2044,32 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
     query.isActive = isActive === "true";
   }
 
-  const skip = (Number(page) - 1) * Number(limit);
+  const [commissions, total] = await Promise.all([
+    Commission.find(query)
+      .populate("categoryId", "category")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean(),
 
-  const total = await Commission.countDocuments(query);
+    Commission.countDocuments(query)
+  ]);
 
-  const commissions = await Commission.find(query)
-    .populate("categoryId", "category")
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit));
+  const totalPages = Math.ceil(total / pageSize);
 
   res.status(200).json({
     success: true,
-    total,
-    page: Number(page),
-    totalPages: Math.ceil(total / limit),
     data: commissions,
+    page: pageNumber,
+    limit: pageSize,
+    total,
+    totalPages,
+    previousDisabled: pageNumber <= 1,
+    nextPage: pageNumber + 1,
+    previousPage: pageNumber - 1,
+    nextDisabled: pageNumber >= totalPages
   });
+
 });
 
 const createBanner = async (req, res) => {
@@ -2099,17 +2192,45 @@ const deleteBanner = async (req, res) => {
 // ✅ Get All Banners
 const getAllBanners = async (req, res) => {
   try {
-    const banners = await Banner.find().sort({ createdAt: -1 });
+
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = {};
+
+    const [banners, total] = await Promise.all([
+      Banner.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      Banner.countDocuments(query)
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
 
     res.status(200).json({
       success: true,
       data: banners,
+      page,
+      limit,
+      total,
+      totalPages,
+      previousDisabled: page <= 1,
+      nextPage: page + 1,
+      previousPage: page - 1,
+      nextDisabled: page >= totalPages
     });
+
   } catch (error) {
+
     res.status(500).json({
       success: false,
       message: error.message,
     });
+
   }
 };
 
@@ -2118,7 +2239,6 @@ const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
 
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
-
   const skip = (page - 1) * limit;
 
   const filter = {
@@ -2129,9 +2249,10 @@ const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
   const [bookings, total] = await Promise.all([
     Booking.find(filter)
       .populate({
-        path: "hotel",
+        path: "property",
         select: "name price address"
       })
+      .populate("services.service", "name price")
       .populate({
         path: "user",
         select: "name email phone"
@@ -2144,14 +2265,18 @@ const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
     Booking.countDocuments(filter)
   ]);
 
+  const totalPages = Math.ceil(total / limit);
+
   return res.status(200).send({
     data: bookings,
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
-    },
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages,
     message: bookings.length
       ? "Bookings fetched successfully"
       : "No bookings found"
@@ -2175,7 +2300,7 @@ const getBookingsByPropertyId = catchAsyncError(async (req, res, next) => {
   const skip = (page - 1) * limit;
 
   const filter = {
-    hotel: propertyId,
+    property: propertyId,
     paymentStatus: "paid",
     bookingStatus: { $in: ["confirmed", "cancelled"] }
   };
@@ -2183,9 +2308,10 @@ const getBookingsByPropertyId = catchAsyncError(async (req, res, next) => {
   const [bookings, total] = await Promise.all([
     Booking.find(filter)
       .populate({
-        path: "hotel",
+        path: "property",
         select: "name price address"
       })
+      .populate("services.service", "name price")
       .populate({
         path: "user",
         select: "name email phone"
@@ -2226,9 +2352,10 @@ const getBookingDetails = catchAsyncError(async (req, res, next) => {
 
   const booking = await Booking.findById(bookingId)
     .populate({
-      path: "hotel",
+      path: "property",
       select: "name price address maxGuests media description policies"
     })
+    .populate("services.service", "name price")
     .populate({
       path: "user",
       select: "name email phone"
@@ -2255,6 +2382,1070 @@ const getBookingDetails = catchAsyncError(async (req, res, next) => {
   });
 
 });
+
+
+const upsertPlatformFee = async (req, res) => {
+  try {
+    const { feeType, value } = req.body;
+
+    const fee = await PlatformFee.findOneAndUpdate(
+      { isDeleted: false }, // condition
+      { feeType, value, isActive: true },
+      {
+        new: true,
+        upsert: true, // create if not exists
+        setDefaultsOnInsert: true
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Platform fee saved successfully",
+      data: fee
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const upsertTax = async (req, res) => {
+  try {
+
+    const { percentage } = req.body;
+
+    const tax = await Tax.findOneAndUpdate(
+      { isDeleted: false },
+      { percentage, isActive: true },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Tax saved successfully",
+      data: tax
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getPlatformConfig = async (req, res) => {
+  try {
+
+    const platformFee = await PlatformFee.findOne({
+      isActive: true,
+      isDeleted: false
+    }).lean();
+
+    const tax = await Tax.findOne({
+      isActive: true,
+      isDeleted: false
+    }).lean();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        platformFee,
+        tax
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getAllPaymentTransactions = async (req, res) => {
+  try {
+
+    let { page = 1, limit = 10, search = "" } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const skip = (page - 1) * limit;
+
+    // Search filter
+    const filter = {};
+
+    if (search) {
+      filter.$or = [
+        { orderId: { $regex: search, $options: "i" } },
+        { tapChargeId: { $regex: search, $options: "i" } },
+        { currency: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    const total = await PaymentTransaction.countDocuments(filter);
+
+    const transactions = await PaymentTransaction.find(filter)
+      .populate({
+        path: "booking",
+        select: "orderId user hotel bookingStatus",
+        populate: [
+          {
+            path: "user",
+            select: "firstName lastName email"
+          },
+          {
+            path: "hotel",
+            select: "title"
+          }
+        ]
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).send({
+      success: true,
+      data: transactions,
+      page,
+      limit,
+      total,
+      totalPages,
+      previousDisabled: page === 1,
+      nextPage: page < totalPages ? page + 1 : null,
+      previousPage: page > 1 ? page - 1 : 0,
+      nextDisabled: page >= totalPages
+    });
+
+  } catch (error) {
+
+    return res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getTransactionDetails = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const transaction = await PaymentTransaction.findById(id)
+      .populate({
+        path: "booking",
+        populate: [
+          {
+            path: "user", // customer
+            model: "User",
+            select: "firstName lastName email phone"
+          },
+          {
+            path: "hotel",
+            model: "Properties",
+            select: "name address user",
+            populate: {
+              path: "user", // property owner
+              model: "ServiceUser",
+              select: "firstName lastName email phone"
+            }
+          },
+          {
+            path: "couponId",
+            model: "Coupon",
+            select: "code discountType discountValue"
+          }
+        ]
+      });
+
+    if (!transaction) {
+      return res.status(404).send({
+        success: false,
+        message: "Transaction not found"
+      });
+    }
+
+    return res.status(200).send({
+      success: true,
+      data: transaction
+    });
+
+  } catch (error) {
+
+    return res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getAdminUpcomingBookings = catchAsyncError(async (req, res) => {
+
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const filter = {
+    checkIn: { $gte: today },
+    bookingStatus: { $in: ["confirmed", "pending"] },
+    paymentStatus: "paid"
+  };
+
+  const [bookings, total] = await Promise.all([
+    Booking.find(filter)
+      .populate("user", "firstName lastName phone profile")
+      .populate("property", "name address")
+      .populate("services.service", "name price")
+      .sort({ checkIn: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Booking.countDocuments(filter)
+  ]);
+
+  const formattedBookings = bookings.map(b => ({
+    ...b,
+    propertyName: b.hotel?.name || null
+  }));
+
+  const totalPages = Math.ceil(total / limit);
+
+  return res.status(200).send({
+    data: formattedBookings,
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page + 1,
+    previousPage: page - 1,
+    nextDisabled: page >= totalPages,
+    message: bookings.length
+      ? "Upcoming bookings fetched"
+      : "No upcoming bookings"
+  });
+
+});
+
+const getAdminBookingCalendar = catchAsyncError(async (req, res) => {
+
+  const { propertyId } = req.query;
+
+  if (!propertyId) {
+    return res.status(400).send({
+      message: "propertyId is required"
+    });
+  }
+
+  const dates = await HotelAvailability.find({
+    hotel: propertyId,
+    isBooked: true
+  })
+    .select("date booking hotel")
+    .populate({
+      path: "booking",
+      select: "bookingStatus checkIn checkOut"
+    })
+    .populate({
+      path: "hotel",
+      select: "name address"
+    })
+    .sort({ date: 1 })
+    .lean();
+
+  return res.status(200).send({
+    data: dates,
+    message: dates.length
+      ? "Calendar data fetched"
+      : "No bookings found for this property"
+  });
+
+});
+
+const getAllWalletTransactions = async (req, res) => {
+  try {
+
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [transactions, total] = await Promise.all([
+
+      WalletTransaction.find()
+        .populate("user", "firstName lastName email")
+        .populate("bookingId", "orderId")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      WalletTransaction.countDocuments()
+
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.send({
+      success: true,
+      data: transactions,
+      page,
+      limit,
+      total,
+      totalPages,
+      previousDisabled: page <= 1,
+      nextPage: page + 1,
+      previousPage: page - 1,
+      nextDisabled: page >= totalPages
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getWithdrawRequests = async (req, res) => {
+  try {
+
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [requests, total] = await Promise.all([
+
+      WithdrawRequest.find()
+        .populate("user", "firstName lastName email phone")
+        .populate(
+          "bankDetails",
+          "accountHolderName accountNumber bankName ifscCode iban swiftCode"
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      WithdrawRequest.countDocuments()
+
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.send({
+      success: true,
+      data: requests,
+      page,
+      limit,
+      total,
+      totalPages,
+      previousDisabled: page <= 1,
+      nextPage: page + 1,
+      previousPage: page - 1,
+      nextDisabled: page >= totalPages
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+const updateWithdrawStatus = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+    const { status, rejectReason } = req.body;
+
+    const request = await WithdrawRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).send({
+        message: "Withdraw request not found"
+      });
+    }
+
+    request.status = status;
+
+    if (status === "rejected") {
+      request.rejectReason = rejectReason;
+    }
+
+    await request.save();
+
+    if (status === "approved") {
+
+      const wallet = await Wallet.findOne({
+        user: request.user
+      });
+
+      wallet.balance -= request.amount;
+
+      await wallet.save();
+
+      await WalletTransaction.create({
+        wallet: wallet._id,
+        user: request.user,
+        type: "debit",
+        amount: request.amount,
+        status: "completed",
+        description: "Withdraw approved"
+      });
+
+    }
+
+    res.send({
+      success: true,
+      data: request
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+const getAllUserBookingsAdmin = async (req, res) => {
+  try {
+
+    const { userId } = req.params;
+    const { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {};
+
+    if (userId) {
+      filter.user = userId;
+    }
+
+    const total = await Booking.countDocuments(filter);
+
+    const bookings = await Booking.find(filter)
+      .populate({
+        path: "hotel",
+        select: "name address price"
+      })
+      .populate({
+        path: "user",
+        select: "firstName lastName email phone profile"
+      })
+      .populate({
+        path: "couponId",
+        select: "code discountType"
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber)
+      .lean();
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: bookings,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const createServiceCategory = async (req, res) => {
+  try {
+    const { name } = req.body;
+    const icon = req.file ? req.file.filename : null;
+
+    const category = await ServiceCategory.create({
+      name,
+      icon,
+      isActive: true,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Category created",
+      data: category,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updateSerivceCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    const category = await ServiceCategory.findById(id);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    let icon = category.icon;
+
+    if (req.file) {
+      icon = req.file.filename;
+
+      if (category.icon) {
+        const oldPath = path.join(__dirname, "../uploads/serviceIcon", category.icon);
+
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+    }
+
+    category.name = name || category.name;
+    category.icon = icon;
+
+    await category.save();
+
+    res.json({
+      success: true,
+      message: "Category updated successfully",
+      data: category,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const toggleServiceCategoryStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const category = await ServiceCategory.findById(id);
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    category.isActive = !category.isActive;
+    await category.save();
+
+    res.json({
+      success: true,
+      message: "Category status toggled",
+      data: category,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getAllServiceCategories = async (req, res) => {
+  try {
+    let { page = 1, limit = 10, search = "" } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {};
+
+    if (search) {
+      filter.name = { $regex: search, $options: "i" };
+    }
+
+    const total = await ServiceCategory.countDocuments(filter);
+
+    const categories = await ServiceCategory.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: categories,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getAllServicesAdmin = async (req, res) => {
+  try {
+    let { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    // ✅ Filter
+    const filter = {
+      isDeleted: false,
+      approvalStatus: "approved"
+    };;
+
+    // ✅ Total count
+    const total = await Service.countDocuments(filter);
+
+    // ✅ Fetch paginated data
+    const services = await Service.find(filter)
+      .populate("user", "firstName lastName profile email")
+      .populate("category", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: services,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getSingleServiceAdmin = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const service = await Service.findOne({
+      _id: id,
+      isDeleted: false
+    })
+      .populate("user", "firstName lastName profile email")
+      .populate("category", "name");
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getServicesByUserAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    let { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {
+      user: userId,
+      isDeleted: false,
+      approvalStatus: "approved"
+    };
+
+    const total = await Service.countDocuments(filter);
+
+    const services = await Service.find(filter)
+      .populate("category", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: services,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getAllPackagesAdmin = async (req, res) => {
+  try {
+    let { page = 1, limit = 10, search, isActive } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {};
+
+    if (search) {
+      filter.name = { $regex: search, $options: "i" };
+    }
+
+    if (isActive !== undefined) {
+      filter.isActive = isActive === "true";
+    }
+
+    const total = await Package.countDocuments(filter);
+
+    const packages = await Package.find(filter)
+      .populate("user", "firstName lastName email")
+      .populate("services", "name price")
+      .populate("property", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: packages,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getSinglePackageAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pkg = await Package.findById(id)
+      .populate("user", "firstName lastName email")
+      .populate("services", "name price description")
+      .populate("property", "name");
+
+    if (!pkg) {
+      return res.status(404).json({
+        success: false,
+        message: "Package not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: pkg
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getPackagesByUserAdmin = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    let { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = { user: userId };
+
+    const total = await Package.countDocuments(filter);
+
+    const packages = await Package.find(filter)
+      .populate("services", "name price")
+      .populate("property", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: packages,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getPendingProperties = async (req, res) => {
+  try {
+    const properties = await Properties.find({
+      approvalStatus: "pending",
+      isDeleted: false,
+      is_completed: true
+    })
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: properties.length,
+      data: properties
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const updatePropertyApproval = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, reason } = req.body;
+    const adminId = req.user._id;
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action. Use 'approve' or 'reject'"
+      });
+    }
+
+    const property = await Properties.findById(id);
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    // Prevent duplicate action
+    if (property.approvalStatus !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Property already ${property.approvalStatus}`
+      });
+    }
+
+    // If rejecting, reason is required
+    if (action === "reject" && !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required"
+      });
+    }
+
+    // Update based on action
+    property.approvalStatus = action === "approve" ? "approved" : "rejected";
+    property.approvedBy = adminId;
+    property.approvedAt = new Date();
+    property.rejectionReason = action === "reject" ? reason : undefined;
+
+    await property.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Property ${property.approvalStatus} successfully`,
+      data: property
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getPendingServices = async (req, res) => {
+  try {
+    const services = await Service.find({
+      approvalStatus: "pending",
+      isDeleted: false
+    })
+      .populate("user", "name email")
+      .populate("category", "name")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: services.length,
+      data: services
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const updateServiceApproval = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, reason } = req.body;
+    const adminId = req.user._id;
+
+    if (!["approve", "reject"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid action. Use 'approve' or 'reject'"
+      });
+    }
+
+    const service = await Service.findById(id);
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    // Prevent duplicate action
+    if (service.approvalStatus !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: `Service already ${service.approvalStatus}`
+      });
+    }
+
+    // Reject → reason required
+    if (action === "reject" && !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required"
+      });
+    }
+
+    // Update
+    service.approvalStatus = action === "approve" ? "approved" : "rejected";
+    service.approvedBy = adminId;
+    service.approvedAt = new Date();
+    service.rejectionReason = action === "reject" ? reason : undefined;
+
+    await service.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Service ${service.approvalStatus} successfully`,
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 
 module.exports = {
   adminLogin,
@@ -2311,6 +3502,31 @@ module.exports = {
   getAllBanners,
   getAllBookingsAdmin,
   getBookingsByPropertyId,
-  getBookingDetails
+  getBookingDetails,
+  upsertPlatformFee,
+  upsertTax,
+  getPlatformConfig,
+  getAllPaymentTransactions,
+  getTransactionDetails,
+  getAdminUpcomingBookings,
+  getAdminBookingCalendar,
+  getAllWalletTransactions,
+  getWithdrawRequests,
+  updateWithdrawStatus,
+  getAllUserBookingsAdmin,
+  createServiceCategory,
+  updateSerivceCategory,
+  toggleServiceCategoryStatus,
+  getAllServiceCategories,
+  getAllServicesAdmin,
+  getSingleServiceAdmin,
+  getServicesByUserAdmin,
+  getAllPackagesAdmin,
+  getSinglePackageAdmin,
+  getPackagesByUserAdmin,
+  getPendingProperties,
+  updatePropertyApproval,
+  getPendingServices,
+  updateServiceApproval
 };
 

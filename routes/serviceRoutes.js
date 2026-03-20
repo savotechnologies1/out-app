@@ -20,7 +20,31 @@ const {
   getIncompleteProperty,
   getUpcomingBookings,
   getBookingHistory,
-  getBookingCalendar
+  getBookingCalendar,
+  addBankDetails,
+  getAllBanks,
+  getBankById,
+  updateBankDetails,
+  deleteBankDetails,
+  setPrimaryBank,
+  getWallet,
+  getWalletTransactions,
+  createWithdrawRequest,
+  getWithdrawHistory,
+  getServiceUserBookingDetail,
+  getActiveServiceCategories,
+  createService,
+  getMyServices,
+  getSingleService,
+  updateService,
+  deleteService,
+  toggleServiceStatus,
+  createPackage,
+  getAllPackages,
+  getSinglePackage,
+  togglePackageStatus,
+  deletePackage,
+  updatePackage
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -56,6 +80,7 @@ router.post(
     { name: "bedroom" },
     { name: "pool" },
     { name: "bathroom" },
+    { name: "document" },
   ]),
   addProperties
 );
@@ -81,6 +106,7 @@ router.put(
     { name: "bedroom" },
     { name: "pool" },
     { name: "bathroom" },
+    { name: "document" },
   ]),
   editProperties
 );
@@ -92,5 +118,69 @@ router.get("/bookings/upcoming", validateServiceToken, getUpcomingBookings);
 router.get("/bookings/history", validateServiceToken, getBookingHistory);
 
 router.get("/bookings/calendar", validateServiceToken, getBookingCalendar);
+
+router.post("/bank-details", validateServiceToken, addBankDetails);
+
+router.get("/bank-details", validateServiceToken, getAllBanks);
+
+router.get("/bank-details/:id", validateServiceToken, getBankById);
+
+router.patch("/bank-details/:id", validateServiceToken, updateBankDetails);
+
+router.delete("/bank-details/:id", validateServiceToken, deleteBankDetails);
+
+router.patch("/bank-details/:id/set-primary", validateServiceToken, setPrimaryBank);
+
+router.get("/getWallet", validateServiceToken, getWallet);
+
+router.get("/getWalletTransactions", validateServiceToken, getWalletTransactions)
+
+router.post("/createWithdrawRequest", validateServiceToken, createWithdrawRequest)
+
+router.get("/getWithdrawHistory", validateServiceToken, getWithdrawHistory)
+
+router.get("/getServiceUserBookingDetail/:bookingId", validateServiceToken, getServiceUserBookingDetail)
+
+router.get("/getActiveServiceCategories", validateServiceToken, getActiveServiceCategories)
+
+router.post(
+  "/createService",
+  validateServiceToken,
+  uploads.fields([
+    { name: "serviceMedia", maxCount:5 },
+    { name: "document" },
+  ]),
+  createService
+);
+
+router.get("/getMyServices", validateServiceToken, getMyServices);
+
+router.get("/getSingleService/:id", validateServiceToken, getSingleService)
+
+router.put(
+  "/updateService/:id",
+  validateServiceToken,
+   uploads.fields([
+    { name: "serviceMedia", maxCount:5 },
+    { name: "document" },
+  ]),
+  updateService
+);
+
+router.delete("/deleteService/:id", validateServiceToken, deleteService);
+
+router.patch("/toggleServiceStatus/:id", validateServiceToken, toggleServiceStatus);
+
+router.post("/createPackage", validateServiceToken, createPackage)
+
+router.get("/getAllPackages", validateServiceToken, getAllPackages)
+
+router.get("/getSinglePackage/:id", validateServiceToken, getSinglePackage)
+
+router.patch("/togglePackageStatus/:id", validateServiceToken, togglePackageStatus)
+
+router.put("/updatePackage/:id", validateServiceToken, updatePackage)
+
+router.delete("/deletePackage/:id", validateServiceToken, deletePackage)
 
 module.exports = router;

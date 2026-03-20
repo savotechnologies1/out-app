@@ -55,7 +55,32 @@ const {
   getAllBanners,
   getAllBookingsAdmin,
   getBookingsByPropertyId,
-  getBookingDetails
+  getBookingDetails,
+  upsertPlatformFee,
+  upsertTax,
+  getPlatformConfig,
+  getAllPaymentTransactions,
+  getTransactionDetails,
+  getAdminUpcomingBookings,
+  getAdminBookingCalendar,
+  getAllWalletTransactions,
+  getWithdrawRequests,
+  updateWithdrawStatus,
+  getAllUserBookingsAdmin,
+  createServiceCategory,
+  updateSerivceCategory,
+  toggleServiceCategoryStatus,
+  getAllServiceCategories,
+  getAllServicesAdmin,
+  getSingleServiceAdmin,
+  getServicesByUserAdmin,
+  getAllPackagesAdmin,
+  getSinglePackageAdmin,
+  getPackagesByUserAdmin,
+  getPendingProperties,
+  updatePropertyApproval,
+  getPendingServices,
+  updateServiceApproval
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -81,7 +106,7 @@ router.get("/userAllProperties/:id", validateAdminToken, getPropertiesById);
 router.get("/get-service-user/:id", validateAdminToken, getServiceUserById);
 router.get("/get-user/:id", validateAdminToken, getUserById);
 router.post("/add-category", validateAdminToken, uploads.single("image"), addCategory);
-router.put("/edit-category/:id", validateAdminToken, uploads.single("image"), editCategory);
+router.put("/edit-category/:categoryId", validateAdminToken, uploads.single("image"), editCategory);
 router.get("/get-category/:id", validateAdminToken, getCategoriesById);
 router.delete("/delete-category/:id", validateAdminToken, deleteCategory);
 router.post("/add-feature", validateAdminToken, addFeature);
@@ -155,7 +180,7 @@ router.put(
   "/updateBanner/:id",
   validateAdminToken,
   uploads.single("bannerImg"),
- updateBanner
+  updateBanner
 );
 
 router.delete(
@@ -166,7 +191,7 @@ router.delete(
 
 router.get(
   "/bannerList",
-validateAdminToken,
+  validateAdminToken,
   getAllBanners
 );
 
@@ -175,5 +200,55 @@ router.get("/allBookings", validateAdminToken, getAllBookingsAdmin);
 router.get("/property-bookings/:propertyId", validateAdminToken, getBookingsByPropertyId);
 
 router.get("/bookingDetail/:bookingId", validateAdminToken, getBookingDetails);
+
+router.post("/platform-fee", validateAdminToken, upsertPlatformFee);
+
+router.post("/tax", validateAdminToken, upsertTax);
+
+router.get("/platform-config", validateAdminToken, getPlatformConfig);
+
+router.get("/getAllPaymentTransactions", validateAdminToken, getAllPaymentTransactions)
+
+router.get("/getTransactionDetails/:id", validateAdminToken, getTransactionDetails)
+
+router.get("/getAdminUpcomingBookings", validateAdminToken, getAdminUpcomingBookings)
+
+router.get("/getAdminBookingCalendar", validateAdminToken, getAdminBookingCalendar)
+
+router.get("/getAllWalletTransactions", validateAdminToken, getAllWalletTransactions)
+
+router.get("/getWithdrawRequests", validateAdminToken, getWithdrawRequests)
+
+router.put("/updateWithdrawStatus/:id", validateAdminToken, updateWithdrawStatus)
+
+router.get("/getAllUserBookingsAdmin/:userId", validateAdminToken, getAllUserBookingsAdmin)
+
+router.post("/createServiceCategory", validateAdminToken, uploads.single("serviceIcon"), createServiceCategory)
+
+router.put("/updateServiceCategory/:id", validateAdminToken, uploads.single("serviceIcon"), updateSerivceCategory)
+
+router.patch("/toggleServiceCategoryStatus/:id", validateAdminToken, toggleServiceCategoryStatus)
+
+router.get("/getAllServiceCategories", validateAdminToken, getAllServiceCategories)
+
+router.get("/getAllServicesAdmin", validateAdminToken, getAllServicesAdmin);
+
+router.get("/getSingleServiceAdmin/:id", validateAdminToken, getSingleServiceAdmin);
+
+router.get("/getServicesByUserAdmin/:userId", validateAdminToken, getServicesByUserAdmin);
+
+router.get("/getAllPackagesAdmin", validateAdminToken, getAllPackagesAdmin);
+
+router.get("/getSinglePackageAdmin/:id", validateAdminToken, getSinglePackageAdmin);
+
+router.get("/getPackagesByUserAdmin/:userId", validateAdminToken, getPackagesByUserAdmin);
+
+router.get("/getPendingProperties", validateAdminToken, getPendingProperties);
+
+router.put("/updatePropertyApproval/:id", validateAdminToken, updatePropertyApproval)
+
+  router.get("/getPendingServices", validateAdminToken, getPendingServices);
+
+router.put("/updateServiceApproval/:id", validateAdminToken, updateServiceApproval)
 
 module.exports = router;

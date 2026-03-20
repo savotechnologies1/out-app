@@ -1,6 +1,7 @@
 const { Server } = require("socket.io");
 const Conversation = require("./models/Conversation");
 const Message = require("./models/Message");
+const Ticket = require("./models/Ticket");
 
 module.exports = function (server) {
 
@@ -80,10 +81,92 @@ module.exports = function (server) {
         /* =====================================================
            SEND MESSAGE
         ===================================================== */
+        // socket.on("sendMessage", async (data) => {
+
+        //     try {
+
+        //         const {
+        //             conversationId,
+        //             senderId,
+        //             message,
+        //             messageType = "TEXT",
+        //         } = data;
+
+        //         if (!conversationId || !senderId) return;
+
+        //         const conversation = await Conversation.findById(conversationId);
+
+        //         if (!conversation) {
+        //             socket.emit("errorMessage", "Conversation not found");
+        //             return;
+        //         }
+
+        //         if (conversation.isClosed) {
+        //             socket.emit("errorMessage", "Chat is closed");
+        //             return;
+        //         }
+
+        //         // Save message
+        //         const newMessage = await Message.create({
+        //             conversationId,
+        //             senderId,
+        //             message,
+        //             messageType,
+        //         });
+
+        //         // Update last message
+        //         conversation.lastMessage = message;
+        //         conversation.lastMessageAt = new Date();
+
+        //         // Unread logic
+        //         if (conversation.userId?.toString() === senderId) {
+        //             conversation.serviceUserUnreadCount =
+        //                 (conversation.serviceUserUnreadCount || 0) + 1;
+        //         }
+        //         else if (conversation.serviceUserId?.toString() === senderId) {
+        //             conversation.userUnreadCount =
+        //                 (conversation.userUnreadCount || 0) + 1;
+        //         }
+
+        //         await conversation.save();
+
+        //         // Emit to room
+        //         io.to(conversationId).emit("receiveMessage", newMessage);
+
+        //         /* =====================================================
+        //            DIRECT NOTIFICATION FIX
+        //         ===================================================== */
+
+        //         const participants = [
+        //             conversation.userId?.toString(),
+        //             conversation.serviceUserId?.toString(),
+        //             conversation.adminId?.toString(),
+        //         ].filter(Boolean);
+
+        //         participants.forEach((participantId) => {
+
+        //             if (participantId !== senderId) {
+
+        //                 const userSockets = onlineUsers.get(participantId);
+
+        //                 if (userSockets) {
+        //                     userSockets.forEach((socketId) => {
+        //                         io.to(socketId).emit("newMessageNotification", {
+        //                             conversationId,
+        //                         });
+        //                     });
+        //                 }
+        //             }
+        //         });
+
+        //     } catch (err) {
+        //         console.log("SendMessage Error:", err.message);
+        //     }
+        // });
+
+
         socket.on("sendMessage", async (data) => {
-
             try {
-
                 const {
                     conversationId,
                     senderId,
@@ -100,12 +183,45 @@ module.exports = function (server) {
                     return;
                 }
 
+                // 🚫 Conversation closed
                 if (conversation.isClosed) {
                     socket.emit("errorMessage", "Chat is closed");
                     return;
                 }
 
-                // Save message
+                /* =====================================================
+                   ✅ TICKET VALIDATION (NEW)
+                ===================================================== */
+                if (
+                    conversation.chatType === "USER_SUPPORT" ||
+                    conversation.chatType === "SERVICE_SUPPORT"
+                ) {
+                    const ticket = await Ticket.findOne({ conversationId });
+
+                    if (!ticket) {
+                        socket.emit("errorMessage", "Ticket not found");
+                        return;
+                    }
+
+                    // 🚫 Ticket closed
+                    if (ticket.status === "CLOSED") {
+                        socket.emit("errorMessage", "Ticket is closed");
+                        return;
+                    }
+
+                    // 🔄 Auto move to IN_PROGRESS when admin replies
+                    if (
+                        conversation.adminId?.toString() === senderId &&
+                        ticket.status === "OPEN"
+                    ) {
+                        ticket.status = "IN_PROGRESS";
+                        await ticket.save();
+                    }
+                }
+
+                /* =====================================================
+                   💬 SAVE MESSAGE
+                ===================================================== */
                 const newMessage = await Message.create({
                     conversationId,
                     senderId,
@@ -113,29 +229,40 @@ module.exports = function (server) {
                     messageType,
                 });
 
-                // Update last message
+                /* =====================================================
+                   🧠 UPDATE CONVERSATION
+                ===================================================== */
                 conversation.lastMessage = message;
                 conversation.lastMessageAt = new Date();
+                conversation.lastMessageSenderId = senderId;
 
-                // Unread logic
+                // 🔔 Unread logic
                 if (conversation.userId?.toString() === senderId) {
                     conversation.serviceUserUnreadCount =
                         (conversation.serviceUserUnreadCount || 0) + 1;
-                }
-                else if (conversation.serviceUserId?.toString() === senderId) {
+                } else if (conversation.serviceUserId?.toString() === senderId) {
                     conversation.userUnreadCount =
                         (conversation.userUnreadCount || 0) + 1;
+                } else if (conversation.adminId?.toString() === senderId) {
+                    if (conversation.userId)
+                        conversation.userUnreadCount =
+                            (conversation.userUnreadCount || 0) + 1;
+
+                    if (conversation.serviceUserId)
+                        conversation.serviceUserUnreadCount =
+                            (conversation.serviceUserUnreadCount || 0) + 1;
                 }
 
                 await conversation.save();
 
-                // Emit to room
+                /* =====================================================
+                   📡 EMIT MESSAGE
+                ===================================================== */
                 io.to(conversationId).emit("receiveMessage", newMessage);
 
                 /* =====================================================
-                   DIRECT NOTIFICATION FIX
+                   🔔 DIRECT NOTIFICATION
                 ===================================================== */
-
                 const participants = [
                     conversation.userId?.toString(),
                     conversation.serviceUserId?.toString(),
@@ -143,9 +270,7 @@ module.exports = function (server) {
                 ].filter(Boolean);
 
                 participants.forEach((participantId) => {
-
                     if (participantId !== senderId) {
-
                         const userSockets = onlineUsers.get(participantId);
 
                         if (userSockets) {
@@ -162,7 +287,6 @@ module.exports = function (server) {
                 console.log("SendMessage Error:", err.message);
             }
         });
-
 
         /* =====================================================
            MARK AS READ

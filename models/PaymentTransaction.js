@@ -11,7 +11,11 @@ const paymentSchema = new mongoose.Schema({
 
   tapChargeId: String,
 
-  amount: Number,
+  totalAmount: Number,
+  commissionAmount: Number,
+  providerAmount: Number,
+  platformFee: Number,
+  tax: Number,
 
   currency: String,
 

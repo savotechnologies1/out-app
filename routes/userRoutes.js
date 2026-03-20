@@ -18,13 +18,18 @@ const {
   getHomeProperties,
   getAllProperties,
   createPayment,
-  getNewlyDashboard,
-  getNewlyVilla,
-  getNewlyResorts,
+  getDashboard,
   getUserBanners,
   getPropertyDetail,
   createBooking,
-  createToken
+  createToken,
+  getAvailableCoupons,
+  getPlatformCharges,
+  search,
+  getLatestServices,
+  getServiceDetail,
+  toggleFavorite,
+  getUserFavorites
 } = require("../controller/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 const {
@@ -67,12 +72,7 @@ router.get("/getHomeProperties", validateToken, getHomeProperties)
 
 router.post('/create-payment', validateToken, createPayment);
 
-router.get('/get-newly-apartments', validateToken, getNewlyDashboard);
-router.get('/get-newly-apartments', getNewlyDashboard);
-
-router.get('/get-newly-villa', validateToken, getNewlyVilla);
-
-router.get('/get-newly-resorts', validateToken, getNewlyResorts);
+router.get('/getDashboard', validateToken, getDashboard);
 
 router.get('/getBanner', validateToken, getUserBanners);
 
@@ -83,5 +83,19 @@ router.post('/create-token', validateToken, createToken);
 router.post('/create-payment', createPayment);
 
 router.post('/create-booking', validateToken, createBooking);
+
+router.get("/getAvailableCoupons", validateToken, getAvailableCoupons)
+
+router.get("/getPlatformCharges", validateToken, getPlatformCharges)
+
+router.post("/search", validateToken, search)
+
+router.get("/getLatestServices", validateToken, getLatestServices)
+
+router.get("/getServiceDetail/:serviceId", validateToken, getServiceDetail)
+
+router.post("/toggleFavorite",validateToken, toggleFavorite);
+
+router.get("/getUserFavorites", validateToken, getUserFavorites);
 
 module.exports = router;

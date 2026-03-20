@@ -1,0 +1,89 @@
+const mongoose = require("mongoose");
+
+const serviceSchema = new mongoose.Schema(
+  {
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "ServiceUser" },
+
+    name: { type: String, required: true },
+
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ServiceCategory",
+    },
+
+    price: {
+      type: Number,
+      required: true
+    },
+    duration: Number,
+
+    priceType: {
+      type: String,
+      enum: ["per_person", "flat"]
+    },
+    document: {
+      type: String,
+      required: true
+    },
+    description: {
+      type: String
+    },
+    approvalStatus: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending"
+    },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
+    approvedAt: Date,
+    rejectionReason: String,
+    workingDays: [{
+      type: String,
+      enum: [
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+      ]
+    }],
+
+    workingHours: {
+      start: String,
+      end: String
+    },
+
+    media: {
+      images: [String]
+    },
+
+    location: {
+      city: String,
+      state: String,
+      country: String,
+
+      coordinates: {
+        type: {
+          type: String,
+          enum: ["Point"],
+          default: "Point"
+        },
+        coordinates: {
+          type: [Number],
+          required: true
+        }
+      }
+    },
+
+    isActive: { type: Boolean, default: true },
+
+    isDeleted: {
+      type: Boolean,
+      default: false
+    }
+
+  },
+  { timestamps: true }
+);
+
+serviceSchema.index({ "location.coordinates": "2dsphere" });
+
+serviceSchema.index({ workingDays: 1 });
+serviceSchema.index({ isActive: 1, isDeleted: 1 });
+
+module.exports = mongoose.model("Service", serviceSchema);

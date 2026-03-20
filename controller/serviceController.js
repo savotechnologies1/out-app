@@ -13,11 +13,19 @@ const RestRoom = require("../models/RestRoom");
 const Properties = require("../models/Properties");
 const catchAsyncError = require("../functions/catchAsyncError");
 const fs = require("fs");
+const path = require("path");
 const { checkValidations } = require("../functions/checkValidation");
 const { validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const HotelAvailability = require("../models/Availability");
+const Wallet = require("../models/Wallet");
+const BankDetails = require("../models/BankDetails");
+const WalletTransaction = require("../models/WalletTransaction");
+const WithdrawRequest = require("../models/WithdrawRequest");
+const ServiceCategory = require("../models/ServiceCategory");
+const Service = require("../models/Service");
+const Package = require("../models/Package");
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -40,9 +48,14 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
     res.status(403).json({ message: "Your account is suspended please contact the support" })
   }
   const otp = generateRandomOTP();
-
   ServiceUser.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+  const existingWallet = await Wallet.findOne({ user: user._id });
 
+  if (!existingWallet) {
+    await Wallet.create({
+      user: user._id
+    });
+  }
   return res
     .status(200)
     .send({ data: { otp, id: user._id }, message: "Login successfully" });
@@ -113,7 +126,9 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   };
 
   const data = await ServiceUser.create(obj);
-
+  // await Wallet.create({
+  //   user: data._id
+  // });
   return res
     .status(200)
     .send({ data: { otp, id: data._id }, message: "Please verify Email" });
@@ -263,235 +278,6 @@ const getIncompleteProperty = catchAsyncError(async (req, res) => {
   });
 });
 
-const addProperties = catchAsyncError(async (req, res, next) => {
-  const { id } = req.body;
-  const incomingCount = Number(req.body?.count) || 1;
-
-  const serviceUser = await ServiceUser.findById(req.user._id, {
-    isApproved: 1,
-  });
-
-  if (!serviceUser) {
-    return res.status(400).json({ message: "Service User not found" });
-  }
-
-  if (serviceUser.isApproved !== "approved") {
-    return res.status(403).json({
-      message: `Your account is ${serviceUser.isApproved}. You cannot add properties.`,
-    });
-  }
-
-  const existingIncomplete = await Properties.findOne({
-    user: req.user._id,
-    is_completed: false,
-    isDeleted: false,
-  }).select("_id count name");
-
-  if (!id && existingIncomplete) {
-    return res.status(400).json({
-      success: false,
-      message:
-        "You must complete your existing property before creating a new one.",
-      propertyId: existingIncomplete._id,
-      currentStep: existingIncomplete.count,
-      data: existingIncomplete,
-    });
-  }
-
-  let property = null;
-  let existingCount = 0;
-
-  if (id) {
-    property = await Properties.findOne(
-      { _id: id, isDeleted: false },
-      { count: 1 }
-    );
-
-    if (!property) {
-      return res.status(400).json({ message: "Property not found" });
-    }
-
-    existingCount = property.count || 0;
-  }
-
-  const files = req.files || {};
-  const mainImage = files?.mainImage;
-  const bedroom = files?.bedroom;
-  const pool = files?.pool;
-  const bathroom = files?.bathroom;
-
-  let obj = {};
-
-  switch (incomingCount) {
-    case 1:
-      obj.user = req.user._id;
-      obj.name = req.body.name;
-      obj.category = req.body.category;
-      obj.status = "draft";
-      obj.price = req.body.price;
-      obj.maxGuests = req.body.maxGuests;
-      obj.policies = {
-        checkInTime: req.body.checkInTime,
-        checkOutTime: req.body.checkOutTime,
-        additionalPolicies: req.body.additionalPolicies || [],
-        houseRules: {
-          petsAllowed: req.body.petsAllowed || false,
-          smokingAllowed: req.body.smokingAllowed || false,
-          partiesAllowed: req.body.partiesAllowed || false
-        }
-      };
-      break;
-
-    case 2:
-      obj.address = {
-        fullAddress: req.body.fullAddress,
-        country: req.body.country,
-        state: req.body.state,
-        city: req.body.city,
-        pincode: req.body.pincode,
-        lat: req.body.lat,
-        lng: req.body.lng,
-      };
-      break;
-
-    case 3:
-      obj.area = req.body.area;
-      if (req.body.mainAmenities) {
-        obj.mainAmenities = req.body.mainAmenities.split(",");
-      }
-      break;
-
-    case 4:
-      obj.bedRoom = {
-        numBedroom: req.body.numBedroom,
-        numSingleBed: req.body.numSingleBed,
-        numMasterBed: req.body.numMasterBed,
-      };
-      break;
-
-    case 5:
-      obj.pool = {
-        dimension: {
-          height: req.body.height,
-          width: req.body.width,
-        },
-        gradient: {
-          type: req.body.gradient?.type,
-        },
-      };
-
-      if (req.body.additional) {
-        obj.pool.additional = req.body.additional.split(",");
-      }
-
-      if (req.body.gradient?.type === "tiered") {
-        obj.pool.gradient.feet1 = req.body.gradient.feet1;
-        obj.pool.gradient.feet2 = req.body.gradient.feet2;
-      }
-      break;
-
-    case 6:
-      obj.restRoom = {
-        numBathroom: req.body.numBathroom,
-        facilities: req.body.facilities
-          ? req.body.facilities
-            .split(",")
-            .map(id => new mongoose.Types.ObjectId(id.trim()))
-          : [],
-      };
-      break;
-
-    case 7:
-      if (req.body.propertyAmenities) {
-        obj.propertyAmenities = req.body.propertyAmenities
-          .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
-      }
-      break;
-
-    case 8:
-      if (req.body.propertyFeatures) {
-        obj.propertyFeatures = req.body.propertyFeatures
-          .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
-      }
-      break;
-
-    case 9:
-      obj.description = req.body.description;
-      break;
-
-    case 10:
-      obj.media = {};
-
-      if (mainImage?.length) {
-        obj.media.mainImage = mainImage.map((file) => file.filename);
-      }
-
-      if (pool?.length) {
-        obj.media.pool = pool.map((file) => file.filename);
-      }
-
-      if (bathroom?.length) {
-        obj.media.bathroom = bathroom.map((file) => file.filename);
-      }
-
-      if (bedroom?.length) {
-        obj.media.bedroom = bedroom.map((file) => file.filename);
-      }
-      break;
-
-    default:
-      return res.status(400).json({ message: "Invalid count step" });
-  }
-
-  let hotelId = id ? id : null
-
-  if (!id) {
-    const newProperty = await Properties.create({
-      ...obj,
-      count: 1,
-      user: req.user._id,
-      status: "draft",
-    });
-
-    hotelId = newProperty._id
-
-    return res.status(200).json({
-      success: true,
-      message: "Property added successfully",
-      data: newProperty,
-    });
-  }
-
-  const finalCount =
-    incomingCount > existingCount ? incomingCount : existingCount;
-
-  const updateData = {
-    ...obj,
-    count: finalCount,
-  };
-
-  if (finalCount === 10) {
-    updateData.is_completed = true;
-    updateData.status = "completed";
-  }
-
-  const [updatedProperty, _] = await Promise.all([
-    Properties.findOneAndUpdate(
-      { _id: id },
-      { $set: updateData },
-      { new: true }
-    ),
-    generateAvailability(hotelId)
-  ])
-
-  return res.status(200).json({
-    success: true,
-    message: "Property updated successfully",
-    data: updatedProperty
-  });
-});
 
 
 const getPropertyById = catchAsyncError(async (req, res) => {
@@ -680,6 +466,258 @@ const propertyDetail = catchAsyncError(async (req, res) => {
   });
 });
 
+const addProperties = catchAsyncError(async (req, res, next) => {
+  const { id } = req.body;
+  const incomingCount = Number(req.body?.count) || 1;
+
+  const serviceUser = await ServiceUser.findById(req.user._id, {
+    isApproved: 1,
+  });
+
+  if (!serviceUser) {
+    return res.status(400).json({ message: "Service User not found" });
+  }
+
+  if (serviceUser.isApproved !== "approved") {
+    return res.status(403).json({
+      message: `Your account is ${serviceUser.isApproved}. You cannot add properties.`,
+    });
+  }
+
+  const existingIncomplete = await Properties.findOne({
+    user: req.user._id,
+    is_completed: false,
+    isDeleted: false,
+  }).select("_id count name");
+
+  if (!id && existingIncomplete) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "You must complete your existing property before creating a new one.",
+      propertyId: existingIncomplete._id,
+      currentStep: existingIncomplete.count,
+      data: existingIncomplete,
+    });
+  }
+
+  let property = null;
+  let existingCount = 0;
+
+  if (id) {
+    property = await Properties.findOne(
+      { _id: id, isDeleted: false },
+      { count: 1 }
+    );
+
+    if (!property) {
+      return res.status(400).json({ message: "Property not found" });
+    }
+
+    existingCount = property.count || 0;
+  }
+
+  const files = req.files || {};
+  const mainImage = files?.mainImage;
+  const bedroom = files?.bedroom;
+  const pool = files?.pool;
+  const bathroom = files?.bathroom;
+  const document = files.document;
+
+  let obj = {};
+
+  switch (incomingCount) {
+    case 1:
+      obj.user = req.user._id;
+      obj.name = req.body.name;
+      obj.category = req.body.category;
+      obj.status = "draft";
+      obj.price = req.body.price;
+      obj.maxGuests = req.body.maxGuests;
+      obj.policies = {
+        checkInTime: req.body.checkInTime,
+        checkOutTime: req.body.checkOutTime,
+        additionalPolicies: req.body.additionalPolicies || [],
+        houseRules: {
+          petsAllowed: req.body.petsAllowed || false,
+          smokingAllowed: req.body.smokingAllowed || false,
+          partiesAllowed: req.body.partiesAllowed || false
+        }
+      };
+      if (document?.length) {
+        obj.document = document[0].filename;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Document is required in step 1"
+        });
+      }
+      break;
+
+    case 2:
+      const lat = parseFloat(req.body.lat);
+      const lng = parseFloat(req.body.lng);
+
+      if (isNaN(lat) || isNaN(lng)) {
+        return res.status(400).json({
+          success: false,
+          message: "Latitude and Longitude are required and must be valid numbers"
+        });
+      }
+      obj.address = {
+        fullAddress: req.body.fullAddress,
+        country: req.body.country,
+        state: req.body.state,
+        city: req.body.city,
+        pincode: req.body.pincode,
+
+        location: {
+          type: "Point",
+          coordinates: [lng, lat]
+        }
+      };
+      break;
+
+    case 3:
+      obj.area = req.body.area;
+      if (req.body.mainAmenities) {
+        obj.mainAmenities = req.body.mainAmenities.split(",");
+      }
+      break;
+
+    case 4:
+      obj.bedRoom = {
+        numBedroom: req.body.numBedroom,
+        numSingleBed: req.body.numSingleBed,
+        numMasterBed: req.body.numMasterBed,
+      };
+      break;
+
+    case 5:
+      obj.pool = {
+        dimension: {
+          height: req.body.height,
+          width: req.body.width,
+        },
+        gradient: {
+          type: req.body.gradient?.type,
+        },
+      };
+
+      if (req.body.additional) {
+        obj.pool.additional = req.body.additional.split(",");
+      }
+
+      if (req.body.gradient?.type === "tiered") {
+        obj.pool.gradient.feet1 = req.body.gradient.feet1;
+        obj.pool.gradient.feet2 = req.body.gradient.feet2;
+      }
+      break;
+
+    case 6:
+      obj.restRoom = {
+        numBathroom: req.body.numBathroom,
+        facilities: req.body.facilities
+          ? req.body.facilities
+            .split(",")
+            .map(id => new mongoose.Types.ObjectId(id.trim()))
+          : [],
+      };
+      break;
+
+    case 7:
+      if (req.body.propertyAmenities) {
+        obj.propertyAmenities = req.body.propertyAmenities
+          .split(",")
+          .map(id => new mongoose.Types.ObjectId(id.trim()));
+      }
+      break;
+
+    case 8:
+      if (req.body.propertyFeatures) {
+        obj.propertyFeatures = req.body.propertyFeatures
+          .split(",")
+          .map(id => new mongoose.Types.ObjectId(id.trim()));
+      }
+      break;
+
+    case 9:
+      obj.description = req.body.description;
+      break;
+
+    case 10:
+      obj.media = {};
+
+      if (mainImage?.length) {
+        obj.media.mainImage = mainImage.map((file) => file.filename);
+      }
+
+      if (pool?.length) {
+        obj.media.pool = pool.map((file) => file.filename);
+      }
+
+      if (bathroom?.length) {
+        obj.media.bathroom = bathroom.map((file) => file.filename);
+      }
+
+      if (bedroom?.length) {
+        obj.media.bedroom = bedroom.map((file) => file.filename);
+      }
+      break;
+
+    default:
+      return res.status(400).json({ message: "Invalid count step" });
+  }
+
+  let hotelId = id ? id : null
+
+  if (!id) {
+    const newProperty = await Properties.create({
+      ...obj,
+      count: 1,
+      user: req.user._id,
+      status: "draft",
+    });
+
+    hotelId = newProperty._id
+
+    return res.status(200).json({
+      success: true,
+      message: "Property added successfully",
+      data: newProperty,
+    });
+  }
+
+  const finalCount =
+    incomingCount > existingCount ? incomingCount : existingCount;
+
+  const updateData = {
+    ...obj,
+    count: finalCount,
+  };
+
+  if (finalCount === 10) {
+    updateData.is_completed = true;
+    updateData.status = "completed";
+  }
+
+  const [updatedProperty, _] = await Promise.all([
+    Properties.findOneAndUpdate(
+      { _id: id },
+      { $set: updateData },
+      { new: true }
+    ),
+    generateAvailability(hotelId)
+  ])
+
+  return res.status(200).json({
+    success: true,
+    message: "Property updated successfully",
+    data: updatedProperty
+  });
+});
+
+
 const editProperties = catchAsyncError(async (req, res, next) => {
   const { id } = req.params;
 
@@ -703,13 +741,40 @@ const editProperties = catchAsyncError(async (req, res, next) => {
   const poolImage = files?.pool;
   const bathroomImage = files?.bathroom;
   const bedroomImage = files?.bedroom;
+  const document = files.document;
 
   let obj = { media: { ...property.media } };
 
   switch (incomingCount) {
     case 1:
+      obj.user = req.user._id;
       obj.name = req.body.name;
       obj.category = req.body.category;
+      obj.status = "draft";
+      obj.price = req.body.price;
+      obj.maxGuests = req.body.maxGuests;
+      obj.policies = {
+        checkInTime: req.body.checkInTime,
+        checkOutTime: req.body.checkOutTime,
+        additionalPolicies: req.body.additionalPolicies || [],
+        houseRules: {
+          petsAllowed: req.body.petsAllowed || false,
+          smokingAllowed: req.body.smokingAllowed || false,
+          partiesAllowed: req.body.partiesAllowed || false
+        }
+      };
+      if (document?.length) {
+        obj.document = document[0].filename;
+        obj.approvalStatus = "pending";
+        obj.approvedBy = null;
+        obj.approvedAt = null;
+        obj.rejectionReason = null;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Document is required in step 1"
+        });
+      }
       break;
 
     case 2:
@@ -719,10 +784,16 @@ const editProperties = catchAsyncError(async (req, res, next) => {
         state: req.body.state,
         city: req.body.city,
         pincode: req.body.pincode,
-        lat: req.body.lat,
-        lng: req.body.lng,
         neighborhood: req.body.neighborhood,
         trends: req.body.trends,
+
+        location: {
+          type: "Point",
+          coordinates: [
+            parseFloat(req.body.lng),
+            parseFloat(req.body.lat)
+          ]
+        }
       };
       break;
 
@@ -854,21 +925,39 @@ const getUpcomingBookings = catchAsyncError(async (req, res) => {
 
   const userId = req.user._id;
 
-  // get all properties of service user
-  const properties = await Properties.find({ user: userId }).select("_id").lean();
+  // ✅ Get properties of this service user
+  const properties = await Properties.find({ user: userId })
+    .select("_id")
+    .lean();
+
   const propertyIds = properties.map(p => p._id);
+
+  // ✅ Get services of this service user
+  const services = await Service.find({ user: userId })
+    .select("_id")
+    .lean();
+
+  const serviceIds = services.map(s => s._id);
+
   const today = new Date();
-  today.setHours(0,0,0,0);
+  today.setHours(0, 0, 0, 0);
 
   const bookings = await Booking.find({
-    hotel: { $in: propertyIds },
-    checkIn: { $gte: today },
+
+    $or: [
+      { property: { $in: propertyIds } },
+      { "services.service": { $in: serviceIds } }
+    ],
+
+    checkOut: { $gte: today },
     bookingStatus: { $in: ["confirmed", "pending"] },
     paymentStatus: "paid"
   })
-  .populate("user", "firstName lastName phone profile")
-  .sort({ checkIn: 1 })
-  .lean();
+    .populate("user", "firstName lastName phone profile")
+    .populate("property", "name address")
+    .populate("services.service", "name price duration")
+    .sort({ checkIn: 1 })
+    .lean();
 
   return res.status(200).send({
     data: bookings,
@@ -883,18 +972,33 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
 
   const userId = req.user._id;
 
-  // get all properties of this service user
-  const properties = await Properties.find({ user: userId }).select("_id").lean();
+  const properties = await Properties.find({ user: userId })
+    .select("_id")
+    .lean();
+
   const propertyIds = properties.map(p => p._id);
 
+  const services = await Service.find({ user: userId })
+    .select("_id")
+    .lean();
+
+  const serviceIds = services.map(s => s._id);
+
   const bookings = await Booking.find({
-    hotel: { $in: propertyIds },
+
+    $or: [
+      { property: { $in: propertyIds } },
+      { "services.service": { $in: serviceIds } }
+    ],
+
     bookingStatus: { $in: ["confirmed", "cancelled"] }
+
   })
-  .populate("user", "firstName lastName phone profile")
-  .populate("hotel", "name address price")
-  .sort({ createdAt: -1 })
-  .lean();
+    .populate("user", "firstName lastName phone profile")
+    .populate("property", "name address price")
+    .populate("services.service", "name price duration")
+    .sort({ createdAt: -1 })
+    .lean();
 
   return res.status(200).send({
     data: bookings,
@@ -909,20 +1013,26 @@ const getBookingCalendar = catchAsyncError(async (req, res) => {
 
   const userId = req.user._id;
 
-  const properties = await Properties.find({ user: userId }).select("_id").lean();
+  const properties = await Properties.find({ user: userId })
+    .select("_id")
+    .lean();
 
   const propertyIds = properties.map(p => p._id);
-console.log("propertyIds", propertyIds)
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const dates = await HotelAvailability.find({
     hotel: { $in: propertyIds },
-    isBooked: true
+    isBooked: true,
+    date: { $gte: today }
   })
-  .select("date booking hotel")
-  .populate({
-    path: "booking",
-    select: "bookingStatus"
-  })
-  .lean();
+    .select("date booking hotel")
+    .populate({
+      path: "booking",
+      select: "bookingStatus"
+    })
+    .lean();
 
   return res.status(200).send({
     data: dates,
@@ -930,6 +1040,1637 @@ console.log("propertyIds", propertyIds)
   });
 
 });
+
+const addBankDetails = async (req, res) => {
+  try {
+
+    const { accountHolderName, accountNumber, bankName, ifscCode, iban, swiftCode, isPrimary } = req.body;
+
+    if (isPrimary) {
+      await BankDetails.updateMany(
+        { user: req.user._id },
+        { isPrimary: false }
+      );
+    }
+
+    const bank = await BankDetails.create({
+      user: req.user._id,
+      accountHolderName,
+      accountNumber,
+      bankName,
+      ifscCode,
+      iban,
+      swiftCode,
+      isPrimary
+    });
+
+    res.status(201).send({
+      success: true,
+      data: bank
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getAllBanks = async (req, res) => {
+  try {
+
+    const banks = await BankDetails.find({
+      user: req.user._id,
+      isDeleted: false
+    }).sort({ createdAt: -1 });
+
+    res.send({
+      success: true,
+      data: banks
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getBankById = async (req, res) => {
+  try {
+
+    const bank = await BankDetails.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!bank) {
+      return res.status(404).send({
+        message: "Bank not found"
+      });
+    }
+
+    res.send({
+      success: true,
+      data: bank
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const updateBankDetails = async (req, res) => {
+  try {
+
+    const { isPrimary } = req.body;
+
+    if (isPrimary) {
+      await BankDetails.updateMany(
+        { user: req.user._id },
+        { isPrimary: false }
+      );
+    }
+
+    const bank = await BankDetails.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        user: req.user._id,
+        isDeleted: false
+      },
+      req.body,
+      { new: true }
+    );
+
+    res.send({
+      success: true,
+      data: bank
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const deleteBankDetails = async (req, res) => {
+  try {
+
+    await BankDetails.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        user: req.user._id
+      },
+      {
+        isDeleted: true,
+        isPrimary: false
+      }
+    );
+
+    res.send({
+      success: true,
+      message: "Bank deleted successfully"
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const setPrimaryBank = async (req, res) => {
+  try {
+
+    await BankDetails.updateMany(
+      { user: req.user._id },
+      { isPrimary: false }
+    );
+
+    const bank = await BankDetails.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        user: req.user._id,
+        isDeleted: false
+      },
+      { isPrimary: true },
+      { new: true }
+    );
+
+    res.send({
+      success: true,
+      data: bank
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getWallet = async (req, res) => {
+  try {
+
+    const wallet = await Wallet.findOne({
+      user: req.user._id
+    });
+
+    if (!wallet) {
+      return res.status(404).send({
+        success: false,
+        message: "Wallet not found"
+      });
+    }
+
+    res.send({
+      success: true,
+      data: wallet
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getWalletTransactions = async (req, res) => {
+  try {
+
+    const { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {
+      user: req.user._id
+    };
+
+    const total = await WalletTransaction.countDocuments(filter);
+
+    const transactions = await WalletTransaction.find(filter)
+      .populate("bookingId", "orderId checkIn checkOut")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber)
+      .lean();
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: transactions,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const createWithdrawRequest = async (req, res) => {
+  try {
+
+    const { amount } = req.body;
+
+    const wallet = await Wallet.findOne({
+      user: req.user._id
+    });
+
+    if (!wallet) {
+      return res.status(404).send({
+        message: "Wallet not found"
+      });
+    }
+
+    if (wallet.balance < amount) {
+      return res.status(400).send({
+        message: "Insufficient balance"
+      });
+    }
+
+    // get primary bank
+    const bank = await BankDetails.findOne({
+      user: req.user._id,
+      isPrimary: true,
+      isDeleted: false
+    });
+
+    if (!bank) {
+      return res.status(400).send({
+        message: "Primary bank account not found"
+      });
+    }
+    const pending = await WithdrawRequest.findOne({
+      user: req.user._id,
+      status: "pending"
+    });
+
+    if (pending) {
+      return res.status(400).send({
+        message: "You already have a pending withdraw request"
+      });
+    }
+    const withdraw = await WithdrawRequest.create({
+      user: req.user._id,
+      amount,
+      bankDetails: bank._id
+    });
+
+    res.status(201).send({
+      success: true,
+      data: withdraw
+    });
+
+  } catch (error) {
+
+    res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getWithdrawHistory = async (req, res) => {
+  try {
+
+    let { page = 1, limit = 10 } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const skip = (page - 1) * limit;
+
+    const filter = {
+      user: req.user._id
+    };
+
+    const total = await WithdrawRequest.countDocuments(filter);
+
+    const withdraws = await WithdrawRequest.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return res.status(200).send({
+      success: true,
+      data: withdraws,
+      page,
+      limit,
+      total,
+      message: withdraws.length
+        ? "Withdraw history fetched successfully"
+        : "No withdraw history found"
+    });
+
+  } catch (error) {
+
+    return res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getServiceUserBookingDetail = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await Booking.findOne({
+      _id: bookingId
+    })
+      .populate({
+        path: "property",
+        populate: [
+          {
+            path: "propertyAmenities",
+            model: "Amenities",
+            select: "name icon"
+          },
+          {
+            path: "propertyFeatures",
+            model: "Feature",
+            select: "feature"
+          },
+          {
+            path: "user",
+            select: "_id"
+          }
+        ]
+      })
+      .populate({
+        path: "user",
+        select: "firstName lastName email phone profile"
+      })
+      .populate("couponId");
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found"
+      });
+    }
+
+    if (
+      !booking.property ||
+      !booking.property.user ||
+      booking.property.user._id.toString() !== req.user._id.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to view this booking"
+      });
+    }
+
+    res.json({
+      success: true,
+      booking,
+      customer: booking.user
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getActiveServiceCategories = async (req, res) => {
+  try {
+    const categories = await ServiceCategory.find({ isActive: true })
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: categories,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+function convertToMinutes(time) {
+
+  const [timePart, modifier] = time.split(" ");
+  let [hours, minutes] = timePart.split(":").map(Number);
+
+  if (modifier === "PM" && hours !== 12) hours += 12;
+  if (modifier === "AM" && hours === 12) hours = 0;
+
+  return hours * 60 + minutes;
+}
+// const createService = async (req, res) => {
+
+//   try {
+
+//     const {
+//       name,
+//       category,
+//       price,
+//       priceType,
+//       description,
+//       workingDays,
+//       start,
+//       end,
+//       city,
+//       state,
+//       country,
+//       lat,
+//       lng
+//     } = req.body;
+
+//     if (!name || !category || !price || !lat || !lng) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "name, category, price, lat, lng are required"
+//       });
+//     }
+
+//     if (isNaN(price) || Number(price) <= 0) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Price must be a valid positive number"
+//       });
+//     }
+
+//     const validPriceTypes = ["per_person", "flat"];
+
+//     if (priceType && !validPriceTypes.includes(priceType)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid priceType"
+//       });
+//     }
+
+//     const latitude = parseFloat(lat);
+//     const longitude = parseFloat(lng);
+
+//     if (
+//       isNaN(latitude) || latitude < -90 || latitude > 90 ||
+//       isNaN(longitude) || longitude < -180 || longitude > 180
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid latitude or longitude"
+//       });
+//     }
+
+//     const validDays = [
+//       "Monday",
+//       "Tuesday",
+//       "Wednesday",
+//       "Thursday",
+//       "Friday",
+//       "Saturday",
+//       "Sunday"
+//     ];
+
+//     if (workingDays && Array.isArray(workingDays)) {
+
+//       const invalidDays = workingDays.filter(
+//         day => !validDays.includes(day)
+//       );
+
+//       if (invalidDays.length > 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Invalid workingDays: ${invalidDays.join(", ")}`
+//         });
+//       }
+//     }
+
+//     if ((start && !end) || (!start && end)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Both start and end time are required together"
+//       });
+//     }
+
+//     let duration = null;
+
+//     if (start && end) {
+
+//       const startMinutes = convertToMinutes(start);
+//       const endMinutes = convertToMinutes(end);
+
+//       if (endMinutes <= startMinutes) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "End time must be greater than start time"
+//         });
+//       }
+
+//       duration = endMinutes - startMinutes;
+//     }
+
+//     const images = req.files?.map(file => file.filename) || [];
+
+//     const service = await Service.create({
+
+//       user: req.user._id,
+
+//       name,
+
+//       category,
+
+//       price: Number(price),
+
+//       priceType: priceType || "flat",
+
+//       duration,
+
+//       description,
+
+//       workingDays,
+
+//       workingHours: {
+//         start,
+//         end
+//       },
+
+//       media: {
+//         images
+//       },
+
+//       location: {
+//         city,
+//         state,
+//         country,
+//         coordinates: {
+//           type: "Point",
+//           coordinates: [longitude, latitude]
+//         }
+//       }
+
+//     });
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Service created successfully",
+//       data: service
+//     });
+
+//   } catch (error) {
+
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+
+//   }
+
+// };
+
+
+const createService = async (req, res) => {
+  try {
+
+    const {
+      name,
+      category,
+      price,
+      priceType,
+      description,
+      workingDays,
+      start,
+      end,
+      city,
+      state,
+      country,
+      lat,
+      lng
+    } = req.body;
+
+    if (!name || !category || !price || !lat || !lng) {
+      return res.status(400).json({
+        success: false,
+        message: "name, category, price, lat, lng are required"
+      });
+    }
+
+    // ✅ FILES FIX
+    const files = req.files || {};
+
+    const serviceMedia = files.serviceMedia || [];
+    const documentFile = files.document || [];
+
+    const images = serviceMedia.map(file => file.filename);
+
+    const document = documentFile.length ? documentFile[0].filename : null;
+
+    // ❗ Since schema requires document
+    if (!document) {
+      return res.status(400).json({
+        success: false,
+        message: "Document is required"
+      });
+    }
+
+    // ----------- VALIDATIONS (same as yours) -----------
+
+    if (isNaN(price) || Number(price) <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must be a valid positive number"
+      });
+    }
+
+    const validPriceTypes = ["per_person", "flat"];
+
+    if (priceType && !validPriceTypes.includes(priceType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid priceType"
+      });
+    }
+
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    if (
+      isNaN(latitude) || latitude < -90 || latitude > 90 ||
+      isNaN(longitude) || longitude < -180 || longitude > 180
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid latitude or longitude"
+      });
+    }
+
+    let duration = null;
+
+    if (start && end) {
+      const startMinutes = convertToMinutes(start);
+      const endMinutes = convertToMinutes(end);
+
+      if (endMinutes <= startMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: "End time must be greater than start time"
+        });
+      }
+
+      duration = endMinutes - startMinutes;
+    }
+
+    // ----------- CREATE SERVICE -----------
+
+    const service = await Service.create({
+
+      user: req.user._id,
+      name,
+      category,
+      price: Number(price),
+      priceType: priceType || "flat",
+      duration,
+      description,
+      workingDays,
+
+      document,
+
+      workingHours: {
+        start,
+        end
+      },
+
+      media: {
+        images
+      },
+
+      location: {
+        city,
+        state,
+        country,
+        coordinates: {
+          type: "Point",
+          coordinates: [longitude, latitude]
+        }
+      }
+
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Service created successfully",
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const getMyServices = async (req, res) => {
+  try {
+    const services = await Service.find({
+      user: req.user._id,
+      isDeleted: false
+    })
+      .populate("category", "name icon")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: services
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getSingleService = async (req, res) => {
+  try {
+
+    const service = await Service.findOne({
+      _id: req.params.id,
+      isDeleted: false
+    }).populate("category", "name icon")
+
+    if (!service) {
+      return res.status(404).json({ message: "Service not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// const updateService = async (req, res) => {
+//   try {
+
+//     const { id } = req.params;
+
+//     const service = await Service.findOne({
+//       _id: id,
+//       user: req.user._id,
+//       isDeleted: false
+//     });
+
+//     if (!service) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Service not found"
+//       });
+//     }
+
+//     const {
+//       name,
+//       category,
+//       price,
+//       priceType,
+//       description,
+//       workingDays,
+//       start,
+//       end,
+//       city,
+//       state,
+//       country,
+//       lat,
+//       lng
+//     } = req.body;
+
+//     // PRICE VALIDATION
+//     if (price && (isNaN(price) || Number(price) <= 0)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid price"
+//       });
+//     }
+
+//     // PRICETYPE VALIDATION
+//     const validPriceTypes = ["per_person", "flat"];
+
+//     if (priceType && !validPriceTypes.includes(priceType)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid priceType"
+//       });
+//     }
+
+//     // TIME VALIDATION
+//     if ((start && !end) || (!start && end)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Start and end time must be together"
+//       });
+//     }
+
+//     // LOCATION VALIDATION
+//     if ((lat && !lng) || (!lat && lng)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Both lat and lng are required"
+//       });
+//     }
+
+//     if (lat && lng) {
+//       const latitude = parseFloat(lat);
+//       const longitude = parseFloat(lng);
+
+//       if (
+//         isNaN(latitude) || latitude < -90 || latitude > 90 ||
+//         isNaN(longitude) || longitude < -180 || longitude > 180
+//       ) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Invalid coordinates"
+//         });
+//       }
+
+//       service.location.coordinates = {
+//         type: "Point",
+//         coordinates: [longitude, latitude]
+//       };
+//     }
+
+//     if (req.files && req.files.length > 0) {
+
+//       try {
+//         if (service.media?.images?.length) {
+
+//           service.media.images.forEach(img => {
+
+//             const filePath = path.join(
+//               __dirname,
+//               "../uploads/serviceMedia",
+//               img
+//             );
+
+//             if (fs.existsSync(filePath)) {
+//               fs.unlinkSync(filePath);
+//             }
+
+//           });
+
+//         }
+
+//       } catch (err) {
+//         console.log("File delete error:", err.message);
+//       }
+
+//       service.media.images = req.files.map(file => file.filename);
+//     }
+
+//     if (name) service.name = name.trim();
+//     if (category) service.category = category;
+//     if (price) service.price = Number(price);
+//     if (priceType) service.priceType = priceType;
+//     if (description) service.description = description.trim();
+
+//     if (workingDays) {
+
+//       const validDays = [
+//         "Monday",
+//         "Tuesday",
+//         "Wednesday",
+//         "Thursday",
+//         "Friday",
+//         "Saturday",
+//         "Sunday"
+//       ];
+
+//       const invalid = workingDays.filter(day => !validDays.includes(day));
+
+//       if (invalid.length > 0) {
+//         return res.status(400).json({
+//           success: false,
+//           message: `Invalid workingDays: ${invalid.join(", ")}`
+//         });
+//       }
+
+//       service.workingDays = workingDays;
+//     }
+
+//     if (start || end) {
+
+//       const newStart = start || service.workingHours.start;
+//       const newEnd = end || service.workingHours.end;
+
+//       const startMinutes = convertToMinutes(newStart);
+//       const endMinutes = convertToMinutes(newEnd);
+
+//       if (endMinutes <= startMinutes) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "End time must be greater than start time"
+//         });
+//       }
+
+//       service.workingHours.start = newStart;
+//       service.workingHours.end = newEnd;
+
+//       service.duration = endMinutes - startMinutes;
+//     }
+
+//     if (city) service.location.city = city;
+//     if (state) service.location.state = state;
+//     if (country) service.location.country = country;
+
+//     await service.save();
+
+//     res.json({
+//       success: true,
+//       message: "Service updated successfully",
+//       data: service
+//     });
+
+//   } catch (error) {
+
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+
+//   }
+// };
+
+const updateService = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const service = await Service.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    const {
+      name,
+      category,
+      price,
+      priceType,
+      description,
+      workingDays,
+      start,
+      end,
+      city,
+      state,
+      country,
+      lat,
+      lng
+    } = req.body;
+
+    // ✅ FILE HANDLING FIX
+    const files = req.files || {};
+    const serviceMedia = files.serviceMedia || [];
+    const documentFile = files.document || [];
+
+    // ---------------- VALIDATIONS ----------------
+
+    if (price && (isNaN(price) || Number(price) <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid price"
+      });
+    }
+
+    const validPriceTypes = ["per_person", "flat"];
+    if (priceType && !validPriceTypes.includes(priceType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid priceType"
+      });
+    }
+
+    if ((start && !end) || (!start && end)) {
+      return res.status(400).json({
+        success: false,
+        message: "Start and end time must be together"
+      });
+    }
+
+    if ((lat && !lng) || (!lat && lng)) {
+      return res.status(400).json({
+        success: false,
+        message: "Both lat and lng are required"
+      });
+    }
+
+    // ---------------- LOCATION UPDATE ----------------
+
+    if (lat && lng) {
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lng);
+
+      if (
+        isNaN(latitude) || latitude < -90 || latitude > 90 ||
+        isNaN(longitude) || longitude < -180 || longitude > 180
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid coordinates"
+        });
+      }
+
+      service.location.coordinates = {
+        type: "Point",
+        coordinates: [longitude, latitude]
+      };
+    }
+
+    // ---------------- IMAGE UPDATE ----------------
+
+    if (serviceMedia.length > 0) {
+      try {
+        if (service.media?.images?.length) {
+          service.media.images.forEach(img => {
+            const filePath = path.join(
+              __dirname,
+              "../uploads/serviceMedia",
+              img
+            );
+
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          });
+        }
+      } catch (err) {
+        console.log("Image delete error:", err.message);
+      }
+
+      service.media.images = serviceMedia.map(file => file.filename);
+    }
+
+    // ---------------- DOCUMENT UPDATE + RESET APPROVAL ----------------
+
+    if (documentFile.length > 0) {
+
+      try {
+        if (service.document) {
+          const oldPath = path.join(
+            __dirname,
+            "../uploads/propertyDocument",
+            service.document
+          );
+
+          if (fs.existsSync(oldPath)) {
+            fs.unlinkSync(oldPath);
+          }
+        }
+      } catch (err) {
+        console.log("Document delete error:", err.message);
+      }
+
+      service.document = documentFile[0].filename;
+
+      // 🔥 RESET APPROVAL
+      service.approvalStatus = "pending";
+      service.approvedBy = null;
+      service.approvedAt = null;
+      service.rejectionReason = null;
+    }
+
+    // ---------------- BASIC FIELD UPDATES ----------------
+
+    if (name) service.name = name.trim();
+    if (category) service.category = category;
+    if (price) service.price = Number(price);
+    if (priceType) service.priceType = priceType;
+    if (description) service.description = description.trim();
+
+    // ---------------- WORKING DAYS ----------------
+
+    if (workingDays) {
+      const validDays = [
+        "Monday", "Tuesday", "Wednesday",
+        "Thursday", "Friday", "Saturday", "Sunday"
+      ];
+
+      const invalid = workingDays.filter(day => !validDays.includes(day));
+
+      if (invalid.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid workingDays: ${invalid.join(", ")}`
+        });
+      }
+
+      service.workingDays = workingDays;
+    }
+
+    // ---------------- TIME + DURATION ----------------
+
+    if (start || end) {
+      const newStart = start || service.workingHours.start;
+      const newEnd = end || service.workingHours.end;
+
+      const startMinutes = convertToMinutes(newStart);
+      const endMinutes = convertToMinutes(newEnd);
+
+      if (endMinutes <= startMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: "End time must be greater than start time"
+        });
+      }
+
+      service.workingHours.start = newStart;
+      service.workingHours.end = newEnd;
+      service.duration = endMinutes - startMinutes;
+    }
+
+    // ---------------- LOCATION TEXT ----------------
+
+    if (city) service.location.city = city;
+    if (state) service.location.state = state;
+    if (country) service.location.country = country;
+
+    // ---------------- SAVE ----------------
+
+    await service.save();
+
+    res.json({
+      success: true,
+      message: "Service updated successfully",
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const deleteService = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const service = await Service.findOneAndUpdate(
+      { _id: id, user: req.user._id, isDeleted: false, },
+      {
+        isDeleted: true,
+        isActive: false
+      },
+      { new: true }
+    );
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Service deleted successfully"
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const toggleServiceStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const service = await Service.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found"
+      });
+    }
+
+    service.isActive = !service.isActive;
+    await service.save();
+
+    res.json({
+      success: true,
+      message: "Service status updated",
+      data: service
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const createPackage = async (req, res) => {
+  try {
+
+    const {
+      name,
+      property,
+      services,
+      basePrice,
+      description
+    } = req.body;
+
+    if (!name || !property) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and property are required"
+      });
+    }
+
+    const propertyData = await Properties.findById(property);
+
+    if (!propertyData) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    let serviceDocs = [];
+
+    if (services && Array.isArray(services) && services.length > 0) {
+
+      const serviceIds = services.map(s => s.serviceId);
+
+      const existingServices = await Service.find({
+        _id: { $in: serviceIds },
+        isDeleted: false,
+        isActive: true
+      }).select("_id");
+
+      const validServiceIds = existingServices.map(s => s._id.toString());
+
+      serviceDocs = services
+        .filter(s => validServiceIds.includes(s.serviceId))
+        .map(s => ({
+          service: s.serviceId,
+          price: s.price
+        }));
+
+    }
+
+    const pkg = await Package.create({
+      name,
+      user: req.user._id,
+      property,
+      services: serviceDocs,
+      basePrice: basePrice || 0,
+      description,
+      location: propertyData.address?.location
+    });
+
+    await Properties.findByIdAndUpdate(
+      property,
+      { $inc: { experienceCount: 1 } }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Package created successfully",
+      data: pkg
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const updatePackage = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const {
+      name,
+      property,
+      services,
+      basePrice,
+      description
+    } = req.body;
+
+    const existingPackage = await Package.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!existingPackage) {
+      return res.status(404).json({
+        success: false,
+        message: "Package not found"
+      });
+    }
+
+    let updateData = {};
+
+    if (name) updateData.name = name;
+    if (description) updateData.description = description;
+    if (basePrice !== undefined) updateData.basePrice = basePrice;
+
+    /* -------- PROPERTY UPDATE -------- */
+
+    if (property) {
+
+      const propertyData = await Properties.findById(property);
+
+      if (!propertyData) {
+        return res.status(404).json({
+          success: false,
+          message: "Property not found"
+        });
+      }
+
+      updateData.property = property;
+      updateData.location = propertyData.address?.location;
+
+    }
+
+    /* -------- SERVICES UPDATE -------- */
+
+    if (services && Array.isArray(services)) {
+
+      const serviceIds = services.map(s => s.serviceId);
+
+      const existingServices = await Service.find({
+        _id: { $in: serviceIds },
+        isDeleted: false,
+        isActive: true
+      }).select("_id");
+
+      const validServiceIds = existingServices.map(s => s._id.toString());
+
+      const serviceDocs = services
+        .filter(s => validServiceIds.includes(s.serviceId))
+        .map(s => ({
+          service: s.serviceId,
+          price: s.price
+        }));
+
+      updateData.services = serviceDocs;
+
+    }
+
+    const updatedPackage = await Package.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      message: "Package updated successfully",
+      data: updatedPackage
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getAllPackages = async (req, res) => {
+  try {
+
+    let { page = 1, limit = 10 } = req.query;
+
+    const pageNumber = parseInt(page);
+    const limitNumber = parseInt(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const filter = {
+      user: req.user._id,
+      isDeleted: false
+    };
+
+    const total = await Package.countDocuments(filter);
+
+    const packages = await Package.find(filter)
+      .populate({
+        path: "services.service",
+        select: "name"
+      })
+      .populate({
+        path: "property",
+        select: "name"
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNumber);
+
+    const totalPages = Math.ceil(total / limitNumber);
+
+    res.send({
+      success: true,
+      data: packages,
+      page: pageNumber,
+      limit: limitNumber,
+      total,
+      totalPages,
+      previousDisabled: pageNumber <= 1,
+      nextPage: pageNumber + 1,
+      previousPage: pageNumber - 1,
+      nextDisabled: pageNumber >= totalPages
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const getSinglePackage = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const pkg = await Package.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    })
+      .populate({
+        path: "services.service",
+        select: "name description"
+      })
+      .populate({
+        path: "property",
+        select: "name"
+      });
+
+    if (!pkg) {
+      return res.status(404).json({
+        success: false,
+        message: "Package not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: pkg
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+const togglePackageStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const pkg = await Package.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!pkg) {
+      return res.status(404).json({
+        success: false,
+        message: "Package not found"
+      });
+    }
+
+    pkg.isActive = !pkg.isActive;
+    await pkg.save();
+
+    res.json({
+      success: true,
+      message: "Package status updated",
+      data: pkg
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const deletePackage = async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const pkg = await Package.findOneAndUpdate(
+      {
+        _id: id,
+        user: req.user._id,
+        isDeleted: false
+      },
+      {
+        isDeleted: true,
+        isActive: false
+      },
+      { new: true }
+    );
+
+    if (!pkg) {
+      return res.status(404).json({
+        success: false,
+        message: "Package not found"
+      });
+    }
+
+    await Properties.findByIdAndUpdate(
+      pkg.property,
+      { $inc: { experienceCount: -1 } }
+    );
+
+    res.json({
+      success: true,
+      message: "Package deleted successfully"
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
 
 module.exports = {
   serviceLogin,
@@ -952,5 +2693,29 @@ module.exports = {
   getIncompleteProperty,
   getUpcomingBookings,
   getBookingHistory,
-  getBookingCalendar
+  getBookingCalendar,
+  addBankDetails,
+  getAllBanks,
+  getBankById,
+  updateBankDetails,
+  deleteBankDetails,
+  setPrimaryBank,
+  getWallet,
+  getWalletTransactions,
+  createWithdrawRequest,
+  getWithdrawHistory,
+  getServiceUserBookingDetail,
+  getActiveServiceCategories,
+  createService,
+  getMyServices,
+  getSingleService,
+  updateService,
+  deleteService,
+  toggleServiceStatus,
+  createPackage,
+  getAllPackages,
+  getSinglePackage,
+  togglePackageStatus,
+  deletePackage,
+  updatePackage
 };
