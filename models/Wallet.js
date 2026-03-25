@@ -1,30 +1,33 @@
 const mongoose = require("mongoose");
 
 const walletSchema = new mongoose.Schema(
-{
-    user: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "ServiceUser",
-        required: true,
-        unique: true
-    },
+    {
+        user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "ServiceUser",
+            required: true,
+            unique: true
+        },
 
-    balance: {
-        type: Number,
-        default: 0
-    },
+        balance: {
+            type: Number,
+            default: 0
+        },
+        holdBalance: {
+            type: Number,
+            default: 0
+        },
+        currency: {
+            type: String,
+            default: "SAR"
+        },
 
-    currency: {
-        type: String,
-        default: "SAR"
+        isActive: {
+            type: Boolean,
+            default: true
+        }
     },
-
-    isActive: {
-        type: Boolean,
-        default: true
-    }
-},
-{ timestamps: true }
+    { timestamps: true }
 );
 
 module.exports = mongoose.model("Wallet", walletSchema);

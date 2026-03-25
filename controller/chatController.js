@@ -1211,7 +1211,7 @@ exports.getServiceUserChats = async (req, res) => {
 exports.closeTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
-
+console.log("ticketId", ticketId)
     const ticket = await Ticket.findById(ticketId);
 
     if (!ticket) {

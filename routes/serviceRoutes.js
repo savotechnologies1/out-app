@@ -44,7 +44,8 @@ const {
   getSinglePackage,
   togglePackageStatus,
   deletePackage,
-  updatePackage
+  updatePackage,
+  getAllservicesForUser
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -53,6 +54,8 @@ const {
   userSignUpBody,
   verifyOtp,
 } = require("../validations/validator");
+const { getCancellationPolicies } = require("../controller/adminController");
+const { cancelBooking } = require("../controller/bookingController");
 
 const router = app.Router();
 
@@ -179,8 +182,12 @@ router.get("/getSinglePackage/:id", validateServiceToken, getSinglePackage)
 
 router.patch("/togglePackageStatus/:id", validateServiceToken, togglePackageStatus)
 
-router.put("/updatePackage/:id", validateServiceToken, updatePackage)
+router.put("/updatePackage/:id", validateServiceToken, updatePackage);
 
-router.delete("/deletePackage/:id", validateServiceToken, deletePackage)
+router.delete("/deletePackage/:id", validateServiceToken, deletePackage);
+
+router.get("/getCancellationPolicies", validateServiceToken, getCancellationPolicies);
+
+router.get("/getAllservicesForUser/:userId", validateServiceToken, getAllservicesForUser);
 
 module.exports = router;

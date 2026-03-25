@@ -22,7 +22,15 @@ const walletTransactionSchema = new mongoose.Schema(
             enum: ["credit", "debit"],
             required: true
         },
-
+        transactionType: {
+            type: String,
+            enum: [
+                "booking_hold",
+                "release_on_checkin",
+                "refund",
+                "withdraw"
+            ]
+        },
         amount: {
             type: Number,
             required: true

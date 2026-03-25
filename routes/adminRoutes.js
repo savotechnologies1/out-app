@@ -80,7 +80,10 @@ const {
   getPendingProperties,
   updatePropertyApproval,
   getPendingServices,
-  updateServiceApproval
+  updateServiceApproval,
+  upsertCancellationPolicies,
+  getCancellationPolicies,
+  getCancelledBookings,
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -90,6 +93,7 @@ const {
   resetPass,
   verifyOtp,
 } = require("../validations/validator");
+const { adminOverrideRefund } = require("../controller/bookingController");
 
 const router = app.Router();
 
@@ -247,8 +251,15 @@ router.get("/getPendingProperties", validateAdminToken, getPendingProperties);
 
 router.put("/updatePropertyApproval/:id", validateAdminToken, updatePropertyApproval)
 
-  router.get("/getPendingServices", validateAdminToken, getPendingServices);
+router.get("/getPendingServices", validateAdminToken, getPendingServices);
 
-router.put("/updateServiceApproval/:id", validateAdminToken, updateServiceApproval)
+router.put("/updateServiceApproval/:id", validateAdminToken, updateServiceApproval);
 
+router.post("/upsertCancellationPolicies", validateAdminToken, upsertCancellationPolicies);
+
+router.get("/getCancellationPolicies", validateAdminToken, getCancellationPolicies);
+
+router.post("/adminOverrideRefund/:bookingId", validateAdminToken, adminOverrideRefund);
+
+router.get("/getCancelledBookings",validateAdminToken, getCancelledBookings)
 module.exports = router;

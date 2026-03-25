@@ -7,6 +7,8 @@ const fs = require("fs");
 const helmet = require("helmet");
 const errorHandler = require("./middleware/errorHandler");
 const http = require("http");
+const cron = require("node-cron");
+const { releaseOnCheckIn } = require("./cron/working");
 
 connectDb();
 const app = express();
@@ -14,7 +16,10 @@ const server = http.createServer(app);
 app.use(cors({}));
 
 const port = process.env.PORT || 5000;
-
+cron.schedule("0 * * * *", async () => {
+  console.log("Running release cron...");
+  await releaseOnCheckIn();
+});
 // app.use(helmet());
 app.use(
   helmet({

@@ -23,4 +23,5 @@ router.post("/booking/cancel/:bookingId", validateToken, bookingController.cance
 
 router.post("/payment/webhook", validateToken, paymentController.paymentWebhook);
 
+
 module.exports = router;

@@ -40,6 +40,7 @@ const {
 } = require("../validations/validator");
 const { uploads } = require("../functions/upload");
 const { getAllCategories } = require("../controller/serviceController");
+const { cancelBooking } = require("../controller/bookingController");
 
 const router = app.Router();
 
@@ -97,5 +98,7 @@ router.get("/getServiceDetail/:serviceId", validateToken, getServiceDetail)
 router.post("/toggleFavorite",validateToken, toggleFavorite);
 
 router.get("/getUserFavorites", validateToken, getUserFavorites);
+
+router.post("/cancelBooking/:bookingId",validateToken, cancelBooking)
 
 module.exports = router;

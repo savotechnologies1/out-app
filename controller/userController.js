@@ -26,6 +26,35 @@ const PlatformFee = require("../models/PlatformFee");
 const Tax = require("../models/Tax");
 const Service = require("../models/Service");
 
+// const userLogin = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+
+//   const { mobile, mobileCode } = req.body;
+
+//   const user = await User.findOne({ phone: `${mobileCode}${mobile}` })
+//   if (!user.isActive) {
+//     res.status(403).json({ message: "Your account is suspended please contact the support" })
+//   }
+//   if (!user) return res.status(400).send({ message: "User not found" });
+
+//   const otp = generateRandomOTP();
+
+//   User.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+
+//   authenticaOTP(otp, user.email, user.phone);
+
+//   return res
+//     .status(200)
+//     .send({ data: { id: user._id }, message: "Login successfully" });
+// });
+
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
@@ -38,21 +67,33 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 
   const { mobile, mobileCode } = req.body;
 
-  const user = await User.findOne({ phone: `${mobileCode}${mobile}` })
-  if (!user.isActive) {
-    res.status(403).json({ message: "Your account is suspended please contact the support" })
+  const user = await User.findOne({
+    phone: `${mobileCode}${mobile}`,
+  });
+
+  if (!user) {
+    return res.status(400).send({ message: "User not found" });
   }
-  if (!user) return res.status(400).send({ message: "User not found" });
+
+  if (!user.isActive) {
+    return res.status(403).json({
+      message: "Your account is suspended please contact support",
+    });
+  }
 
   const otp = generateRandomOTP();
 
-  User.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+  await User.updateOne(
+    { _id: user._id },
+    { $set: { OTP: otp } }
+  );
 
-  authenticaOTP(otp, user.email, user.phone);
+  await authenticaOTP(otp, user.email, user.phone);
 
-  return res
-    .status(200)
-    .send({ data: { id: user._id }, message: "Login successfully" });
+  return res.status(200).send({
+    data: { id: user._id },
+    message: "OTP sent successfully",
+  });
 });
 
 const userSignUp = catchAsyncError(async (req, res, next) => {

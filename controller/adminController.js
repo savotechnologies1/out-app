@@ -37,6 +37,7 @@ const Wallet = require("../models/Wallet");
 const ServiceCategory = require("../models/ServiceCategory");
 const Service = require("../models/Service");
 const Package = require("../models/Package");
+const CancellationPolicy = require("../models/CancellationPolicy");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -3447,6 +3448,157 @@ const updateServiceApproval = async (req, res) => {
   }
 };
 
+
+const upsertCancellationPolicies = async (req, res) => {
+  try {
+
+    const policiesInput = req.body.policies;
+
+    if (!Array.isArray(policiesInput) || policiesInput.length !== 3) {
+      return res.status(400).send({
+        message: "You must provide exactly 3 policies"
+      });
+    }
+
+    const allowedPolicies = ["Flexible", "Moderate", "Strict"];
+
+    const results = [];
+
+    for (const policyData of policiesInput) {
+
+      if (!allowedPolicies.includes(policyData.name)) {
+        return res.status(400).send({
+          message: `Invalid policy name: ${policyData.name}`
+        });
+      }
+
+      const existing = await CancellationPolicy.findOne({
+        name: policyData.name
+      });
+
+      if (existing) {
+        const updated = await CancellationPolicy.findByIdAndUpdate(
+          existing._id,
+          policyData,
+          { new: true }
+        );
+
+        results.push(updated);
+
+      } else {
+        const created = await CancellationPolicy.create(policyData);
+        results.push(created);
+      }
+    }
+
+    return res.send({
+      message: "Policies upserted successfully",
+      data: results
+    });
+
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message
+    });
+  }
+};
+
+const getCancellationPolicies = async (req, res) => {
+  try {
+
+    const policies = await CancellationPolicy.find({
+      isActive: true
+    });
+
+    const order = ["Flexible", "Moderate", "Strict"];
+
+    const sortedPolicies = order.map(name =>
+      policies.find(p => p.name === name)
+    ).filter(Boolean);
+
+    return res.send({
+      message: "Policies fetched successfully",
+      data: sortedPolicies
+    });
+
+  } catch (err) {
+    return res.status(500).send({
+      message: err.message
+    });
+  }
+};
+
+const getCancelledBookings = async (req, res) => {
+  try {
+
+    let {
+      page = 1,
+      limit = 10,
+      isOverridden,   // true / false
+      search          // optional (orderId)
+    } = req.query;
+
+    page = Number(page);
+    limit = Number(limit);
+
+    const skip = (page - 1) * limit;
+
+    /* =============================
+       FILTER
+    ============================== */
+
+    const filter = {
+      bookingStatus: "cancelled"
+    };
+
+    // ✅ Admin override filter
+    if (isOverridden !== undefined) {
+      filter["adminOverride.isOverridden"] =
+        isOverridden === "true";
+    }
+
+    // ✅ Optional search (orderId)
+    if (search) {
+      filter.orderId = { $regex: search, $options: "i" };
+    }
+
+    /* =============================
+       QUERY
+    ============================== */
+
+    const [bookings, total] = await Promise.all([
+
+      Booking.find(filter)
+        .populate("user", "firstName lastName email")
+        .populate("property", "name location")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+
+      Booking.countDocuments(filter)
+    ]);
+
+    /* =============================
+       RESPONSE
+    ============================== */
+
+    return res.send({
+      message: "Cancelled bookings fetched successfully",
+      data: bookings,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).send({
+      message: error.message
+    });
+  }
+};
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -3527,6 +3679,9 @@ module.exports = {
   getPendingProperties,
   updatePropertyApproval,
   getPendingServices,
-  updateServiceApproval
+  updateServiceApproval,
+  upsertCancellationPolicies,
+  getCancellationPolicies,
+  getCancelledBookings
 };
 

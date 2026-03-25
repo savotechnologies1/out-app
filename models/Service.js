@@ -69,7 +69,11 @@ const serviceSchema = new mongoose.Schema(
         }
       }
     },
-
+    cancellationPolicy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CancellationPolicy",
+      required: true
+    },
     isActive: { type: Boolean, default: true },
 
     isDeleted: {

@@ -62,6 +62,11 @@ const propertiesSchema = new mongoose.Schema(
         partiesAllowed: { type: Boolean, default: false }
       }
     },
+    cancellationPolicy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CancellationPolicy",
+      required: true
+    },
     approvalStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],

@@ -26,6 +26,7 @@ const WithdrawRequest = require("../models/WithdrawRequest");
 const ServiceCategory = require("../models/ServiceCategory");
 const Service = require("../models/Service");
 const Package = require("../models/Package");
+const CancellationPolicy = require("../models/CancellationPolicy");
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -528,6 +529,17 @@ const addProperties = catchAsyncError(async (req, res, next) => {
 
   switch (incomingCount) {
     case 1:
+      const policy = await CancellationPolicy.findOne({
+        _id: req.body.cancellationPolicy,
+        isActive: true
+      });
+
+      if (!policy) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or inactive cancellation policy"
+        });
+      }
       obj.user = req.user._id;
       obj.name = req.body.name;
       obj.category = req.body.category;
@@ -544,6 +556,7 @@ const addProperties = catchAsyncError(async (req, res, next) => {
           partiesAllowed: req.body.partiesAllowed || false
         }
       };
+      obj.cancellationPolicy = policy._id;
       if (document?.length) {
         obj.document = document[0].filename;
       } else {
@@ -747,6 +760,17 @@ const editProperties = catchAsyncError(async (req, res, next) => {
 
   switch (incomingCount) {
     case 1:
+      const policy = await CancellationPolicy.findOne({
+        _id: req.body.cancellationPolicy,
+        isActive: true
+      });
+
+      if (!policy) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or inactive cancellation policy"
+        });
+      }
       obj.user = req.user._id;
       obj.name = req.body.name;
       obj.category = req.body.category;
@@ -763,6 +787,7 @@ const editProperties = catchAsyncError(async (req, res, next) => {
           partiesAllowed: req.body.partiesAllowed || false
         }
       };
+      obj.cancellationPolicy = policy._id;
       if (document?.length) {
         obj.document = document[0].filename;
         obj.approvalStatus = "pending";
@@ -888,8 +913,6 @@ const editProperties = catchAsyncError(async (req, res, next) => {
           ...bedroomImage.map((f) => f.filename),
         ];
       }
-
-      break;
 
       break;
 
@@ -1508,168 +1531,6 @@ function convertToMinutes(time) {
 
   return hours * 60 + minutes;
 }
-// const createService = async (req, res) => {
-
-//   try {
-
-//     const {
-//       name,
-//       category,
-//       price,
-//       priceType,
-//       description,
-//       workingDays,
-//       start,
-//       end,
-//       city,
-//       state,
-//       country,
-//       lat,
-//       lng
-//     } = req.body;
-
-//     if (!name || !category || !price || !lat || !lng) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "name, category, price, lat, lng are required"
-//       });
-//     }
-
-//     if (isNaN(price) || Number(price) <= 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Price must be a valid positive number"
-//       });
-//     }
-
-//     const validPriceTypes = ["per_person", "flat"];
-
-//     if (priceType && !validPriceTypes.includes(priceType)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid priceType"
-//       });
-//     }
-
-//     const latitude = parseFloat(lat);
-//     const longitude = parseFloat(lng);
-
-//     if (
-//       isNaN(latitude) || latitude < -90 || latitude > 90 ||
-//       isNaN(longitude) || longitude < -180 || longitude > 180
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid latitude or longitude"
-//       });
-//     }
-
-//     const validDays = [
-//       "Monday",
-//       "Tuesday",
-//       "Wednesday",
-//       "Thursday",
-//       "Friday",
-//       "Saturday",
-//       "Sunday"
-//     ];
-
-//     if (workingDays && Array.isArray(workingDays)) {
-
-//       const invalidDays = workingDays.filter(
-//         day => !validDays.includes(day)
-//       );
-
-//       if (invalidDays.length > 0) {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Invalid workingDays: ${invalidDays.join(", ")}`
-//         });
-//       }
-//     }
-
-//     if ((start && !end) || (!start && end)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Both start and end time are required together"
-//       });
-//     }
-
-//     let duration = null;
-
-//     if (start && end) {
-
-//       const startMinutes = convertToMinutes(start);
-//       const endMinutes = convertToMinutes(end);
-
-//       if (endMinutes <= startMinutes) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "End time must be greater than start time"
-//         });
-//       }
-
-//       duration = endMinutes - startMinutes;
-//     }
-
-//     const images = req.files?.map(file => file.filename) || [];
-
-//     const service = await Service.create({
-
-//       user: req.user._id,
-
-//       name,
-
-//       category,
-
-//       price: Number(price),
-
-//       priceType: priceType || "flat",
-
-//       duration,
-
-//       description,
-
-//       workingDays,
-
-//       workingHours: {
-//         start,
-//         end
-//       },
-
-//       media: {
-//         images
-//       },
-
-//       location: {
-//         city,
-//         state,
-//         country,
-//         coordinates: {
-//           type: "Point",
-//           coordinates: [longitude, latitude]
-//         }
-//       }
-
-//     });
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Service created successfully",
-//       data: service
-//     });
-
-//   } catch (error) {
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-
-//   }
-
-// };
-
 
 const createService = async (req, res) => {
   try {
@@ -1687,7 +1548,8 @@ const createService = async (req, res) => {
       state,
       country,
       lat,
-      lng
+      lng,
+      cancellationPolicy
     } = req.body;
 
     if (!name || !category || !price || !lat || !lng) {
@@ -1761,7 +1623,18 @@ const createService = async (req, res) => {
 
       duration = endMinutes - startMinutes;
     }
+    
+    const policy = await CancellationPolicy.findOne({
+        _id: cancellationPolicy,
+        isActive: true
+      });
 
+      if (!policy) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or inactive cancellation policy"
+        });
+      }
     // ----------- CREATE SERVICE -----------
 
     const service = await Service.create({
@@ -1776,7 +1649,7 @@ const createService = async (req, res) => {
       workingDays,
 
       document,
-
+      cancellationPolicy: policy._id,
       workingHours: {
         start,
         end
@@ -1853,194 +1726,6 @@ const getSingleService = async (req, res) => {
   }
 };
 
-// const updateService = async (req, res) => {
-//   try {
-
-//     const { id } = req.params;
-
-//     const service = await Service.findOne({
-//       _id: id,
-//       user: req.user._id,
-//       isDeleted: false
-//     });
-
-//     if (!service) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Service not found"
-//       });
-//     }
-
-//     const {
-//       name,
-//       category,
-//       price,
-//       priceType,
-//       description,
-//       workingDays,
-//       start,
-//       end,
-//       city,
-//       state,
-//       country,
-//       lat,
-//       lng
-//     } = req.body;
-
-//     // PRICE VALIDATION
-//     if (price && (isNaN(price) || Number(price) <= 0)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid price"
-//       });
-//     }
-
-//     // PRICETYPE VALIDATION
-//     const validPriceTypes = ["per_person", "flat"];
-
-//     if (priceType && !validPriceTypes.includes(priceType)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid priceType"
-//       });
-//     }
-
-//     // TIME VALIDATION
-//     if ((start && !end) || (!start && end)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Start and end time must be together"
-//       });
-//     }
-
-//     // LOCATION VALIDATION
-//     if ((lat && !lng) || (!lat && lng)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Both lat and lng are required"
-//       });
-//     }
-
-//     if (lat && lng) {
-//       const latitude = parseFloat(lat);
-//       const longitude = parseFloat(lng);
-
-//       if (
-//         isNaN(latitude) || latitude < -90 || latitude > 90 ||
-//         isNaN(longitude) || longitude < -180 || longitude > 180
-//       ) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Invalid coordinates"
-//         });
-//       }
-
-//       service.location.coordinates = {
-//         type: "Point",
-//         coordinates: [longitude, latitude]
-//       };
-//     }
-
-//     if (req.files && req.files.length > 0) {
-
-//       try {
-//         if (service.media?.images?.length) {
-
-//           service.media.images.forEach(img => {
-
-//             const filePath = path.join(
-//               __dirname,
-//               "../uploads/serviceMedia",
-//               img
-//             );
-
-//             if (fs.existsSync(filePath)) {
-//               fs.unlinkSync(filePath);
-//             }
-
-//           });
-
-//         }
-
-//       } catch (err) {
-//         console.log("File delete error:", err.message);
-//       }
-
-//       service.media.images = req.files.map(file => file.filename);
-//     }
-
-//     if (name) service.name = name.trim();
-//     if (category) service.category = category;
-//     if (price) service.price = Number(price);
-//     if (priceType) service.priceType = priceType;
-//     if (description) service.description = description.trim();
-
-//     if (workingDays) {
-
-//       const validDays = [
-//         "Monday",
-//         "Tuesday",
-//         "Wednesday",
-//         "Thursday",
-//         "Friday",
-//         "Saturday",
-//         "Sunday"
-//       ];
-
-//       const invalid = workingDays.filter(day => !validDays.includes(day));
-
-//       if (invalid.length > 0) {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Invalid workingDays: ${invalid.join(", ")}`
-//         });
-//       }
-
-//       service.workingDays = workingDays;
-//     }
-
-//     if (start || end) {
-
-//       const newStart = start || service.workingHours.start;
-//       const newEnd = end || service.workingHours.end;
-
-//       const startMinutes = convertToMinutes(newStart);
-//       const endMinutes = convertToMinutes(newEnd);
-
-//       if (endMinutes <= startMinutes) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "End time must be greater than start time"
-//         });
-//       }
-
-//       service.workingHours.start = newStart;
-//       service.workingHours.end = newEnd;
-
-//       service.duration = endMinutes - startMinutes;
-//     }
-
-//     if (city) service.location.city = city;
-//     if (state) service.location.state = state;
-//     if (country) service.location.country = country;
-
-//     await service.save();
-
-//     res.json({
-//       success: true,
-//       message: "Service updated successfully",
-//       data: service
-//     });
-
-//   } catch (error) {
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-
-//   }
-// };
 
 const updateService = async (req, res) => {
   try {
@@ -2072,7 +1757,8 @@ const updateService = async (req, res) => {
       state,
       country,
       lat,
-      lng
+      lng,
+      cancellationPolicy
     } = req.body;
 
     // ✅ FILE HANDLING FIX
@@ -2193,7 +1879,7 @@ const updateService = async (req, res) => {
     if (price) service.price = Number(price);
     if (priceType) service.priceType = priceType;
     if (description) service.description = description.trim();
-
+    
     // ---------------- WORKING DAYS ----------------
 
     if (workingDays) {
@@ -2240,7 +1926,20 @@ const updateService = async (req, res) => {
     if (city) service.location.city = city;
     if (state) service.location.state = state;
     if (country) service.location.country = country;
+    if(cancellationPolicy){
+      const policy = await CancellationPolicy.findOne({
+        _id: cancellationPolicy,
+        isActive: true
+      });
 
+      if (!policy) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or inactive cancellation policy"
+        });
+      }
+      service.cancellationPolicy = policy._id;
+    }
     // ---------------- SAVE ----------------
 
     await service.save();
@@ -2672,6 +2371,34 @@ const deletePackage = async (req, res) => {
   }
 };
 
+const getAllservicesForUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const filter = {
+      user: userId,
+      isDeleted: false,
+      approvalStatus: "approved"
+    };
+
+    const services = await Service.find(filter)
+      .populate("category", "name")
+      .sort({ createdAt: -1 });
+
+    return res.send({
+      success: true,
+      total: services.length,
+      data: services
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   serviceLogin,
   serviceSignUp,
@@ -2717,5 +2444,6 @@ module.exports = {
   getSinglePackage,
   togglePackageStatus,
   deletePackage,
-  updatePackage
+  updatePackage,
+  getAllservicesForUser
 };

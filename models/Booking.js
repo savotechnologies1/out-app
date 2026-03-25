@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema({
 
+  /* ========================
+     USER INFO
+  ======================== */
+
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -9,11 +13,19 @@ const bookingSchema = new mongoose.Schema({
     index: true
   },
 
+  /* ========================
+     BOOKING TYPE
+  ======================== */
+
   bookingType: {
     type: String,
     enum: ["PROPERTY", "SERVICE", "PACKAGE", "PROPERTY_SERVICE"],
     required: true
   },
+
+  /* ========================
+     RELATIONS
+  ======================== */
 
   property: {
     type: mongoose.Schema.Types.ObjectId,
@@ -35,7 +47,7 @@ const bookingSchema = new mongoose.Schema({
       ref: "Service",
       required: function () {
         return this.bookingType === "SERVICE" || this.bookingType === "PROPERTY_SERVICE";
-      },
+      }
     },
     price: {
       type: Number,
@@ -49,6 +61,10 @@ const bookingSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Coupon"
   },
+
+  /* ========================
+     DATE & GUESTS
+  ======================== */
 
   checkIn: {
     type: Date,
@@ -72,19 +88,14 @@ const bookingSchema = new mongoose.Schema({
     default: 0
   },
 
+  /* ========================
+     PRICE BREAKDOWN
+  ======================== */
+
   priceBreakdown: {
-    propertyPrice: {
-      type: Number,
-      default: 0
-    },
-    packagePrice: {
-      type: Number,
-      default: 0
-    },
-    servicePrice: {
-      type: Number,
-      default: 0
-    }
+    propertyPrice: { type: Number, default: 0 },
+    packagePrice: { type: Number, default: 0 },
+    servicePrice: { type: Number, default: 0 }
   },
 
   totalAmount: {
@@ -93,12 +104,32 @@ const bookingSchema = new mongoose.Schema({
   },
 
   commissionAmount: Number,
-
   providerAmount: Number,
-
   platformFee: Number,
-
   tax: Number,
+
+  /* ========================
+     🔥 PROVIDER BREAKDOWN (IMPORTANT)
+  ======================== */
+
+  providerBreakdown: [
+    {
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "ServiceUser"
+      },
+      amount: Number,
+      type: {
+        type: String,
+        enum: ["property", "service"]
+      },
+      referenceId: mongoose.Schema.Types.ObjectId // propertyId or serviceId
+    }
+  ],
+
+  /* ========================
+     PAYMENT
+  ======================== */
 
   orderId: {
     type: String,
@@ -123,16 +154,78 @@ const bookingSchema = new mongoose.Schema({
   webhookProcessed: {
     type: Boolean,
     default: false
+  },
+
+  /* ========================
+     🔥 CANCELLATION POLICY
+  ======================== */
+
+  cancellationPolicy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "CancellationPolicy"
+  },
+
+  policySnapshot: {
+    name: String,
+    rules: [
+      {
+        from: Number,
+        to: Number,
+        unit: String,
+        refundPercentage: Number
+      }
+    ],
+    cancellationFee: Number
+  },
+
+  /* ========================
+     REFUND INFO
+  ======================== */
+
+  cancellationDate: Date,
+
+  refundAmount: {
+    type: Number,
+    default: 0
+  },
+
+  refundPercentage: Number,
+
+  refundStatus: {
+    type: String,
+    enum: ["pending", "processed"],
+    default: "pending"
+  },
+
+  isCancelled: {
+    type: Boolean,
+    default: false
+  },
+
+  adminOverride: {
+    isOverridden: { type: Boolean, default: false },
+    refundAmount: Number,
+    reason: String
+  },
+  refundTransactionId: String,
+
+  /* ========================
+     🔥 WALLET RELEASE TRACKING
+  ======================== */
+
+  isAmountReleased: {
+    type: Boolean,
+    default: false
   }
 
 }, { timestamps: true });
 
-
 /* ========================
-   INDEXES FOR PERFORMANCE
+   INDEXES
 ======================== */
 
 bookingSchema.index({ property: 1, checkIn: 1, checkOut: 1 });
 bookingSchema.index({ user: 1, createdAt: -1 });
+bookingSchema.index({ bookingStatus: 1 });
 
 module.exports = mongoose.model("Booking", bookingSchema);
