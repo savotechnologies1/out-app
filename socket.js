@@ -6,6 +6,7 @@ const Ticket = require("./models/Ticket");
 module.exports = function (server) {
 
     const io = new Server(server, {
+        path: "/ws",
         cors: {
             origin: "*",
             methods: ["GET", "POST"],
