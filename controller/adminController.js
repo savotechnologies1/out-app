@@ -38,6 +38,7 @@ const ServiceCategory = require("../models/ServiceCategory");
 const Service = require("../models/Service");
 const Package = require("../models/Package");
 const CancellationPolicy = require("../models/CancellationPolicy");
+const Review = require("../models/Review");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -3599,6 +3600,51 @@ const getCancelledBookings = async (req, res) => {
     });
   }
 };
+
+const softDeleteReview = async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+
+    /* ========================
+       🔍 FIND REVIEW
+    ======================== */
+    const review = await Review.findById(reviewId);
+
+    if (!review) {
+      return res.status(404).json({
+        success: false,
+        message: "Review not found"
+      });
+    }
+
+    /* ========================
+       ❌ ALREADY DELETED
+    ======================== */
+    if (review.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: "Review already deleted"
+      });
+    }
+
+    /* ========================
+       🧹 SOFT DELETE
+    ======================== */
+    review.isDeleted = true;
+    await review.save();
+
+    res.json({
+      success: true,
+      message: "Review soft deleted successfully"
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -3682,6 +3728,7 @@ module.exports = {
   updateServiceApproval,
   upsertCancellationPolicies,
   getCancellationPolicies,
-  getCancelledBookings
+  getCancelledBookings,
+  softDeleteReview
 };
 

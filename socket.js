@@ -13,7 +13,6 @@ module.exports = function (server) {
         },
     });
 
-    // userId -> Set of socketIds
     const onlineUsers = new Map();
 
     io.on("connection", (socket) => {

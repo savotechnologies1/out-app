@@ -71,6 +71,11 @@ const bookingSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  reviewGiven: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
 
   checkOut: {
     type: Date,

@@ -29,7 +29,10 @@ const {
   getLatestServices,
   getServiceDetail,
   toggleFavorite,
-  getUserFavorites
+  getUserFavorites,
+  googleLogin,
+  createUserReview,
+  getReviews
 } = require("../controller/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 const {
@@ -99,6 +102,17 @@ router.post("/toggleFavorite",validateToken, toggleFavorite);
 
 router.get("/getUserFavorites", validateToken, getUserFavorites);
 
-router.post("/cancelBooking/:bookingId",validateToken, cancelBooking)
+router.post("/cancelBooking/:bookingId",validateToken, cancelBooking);
+
+router.post("/googleLogin", googleLogin);
+
+router.post(
+  "/createUserReview",
+  validateToken,
+  uploads.array("reviewImg", 5), 
+  createUserReview
+);
+
+router.get("/getReviews",validateToken, getReviews)
 
 module.exports = router;

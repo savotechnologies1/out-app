@@ -25,35 +25,11 @@ const Coupon = require("../models/Coupon");
 const PlatformFee = require("../models/PlatformFee");
 const Tax = require("../models/Tax");
 const Service = require("../models/Service");
+const { OAuth2Client } = require("google-auth-library");
+const Review = require("../models/Review");
+const path = require("path")
 
-// const userLogin = catchAsyncError(async (req, res, next) => {
-//   const errors = validationResult(req);
-//   const checkValid = await checkValidations(errors);
 
-//   if (checkValid.type === "error") {
-//     return res.status(400).send({
-//       message: checkValid.errors.msg,
-//     });
-//   }
-
-//   const { mobile, mobileCode } = req.body;
-
-//   const user = await User.findOne({ phone: `${mobileCode}${mobile}` })
-//   if (!user.isActive) {
-//     res.status(403).json({ message: "Your account is suspended please contact the support" })
-//   }
-//   if (!user) return res.status(400).send({ message: "User not found" });
-
-//   const otp = generateRandomOTP();
-
-//   User.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
-
-//   authenticaOTP(otp, user.email, user.phone);
-
-//   return res
-//     .status(200)
-//     .send({ data: { id: user._id }, message: "Login successfully" });
-// });
 
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -196,6 +172,108 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
     message: "OTP successfully verified",
   });
 });
+
+
+const client = new OAuth2Client();
+
+const googleLogin = async (req, res) => {
+  console.log("req.body", req.body);
+
+  try {
+    const { token, role } = req.body;
+
+    // ✅ check token
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Google token required",
+      });
+    }
+
+    // ✅ verify token (ANDROID CLIENT ID)
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: [process.env.GOOGLE_ANDROID_CLIENT_ID],
+    });
+
+    const payload = ticket.getPayload();
+
+    // ✅ check email
+    if (!payload.email) {
+      return res.status(400).json({
+        success: false,
+        message: "Google account email not found",
+      });
+    }
+
+    const email = payload.email;
+    const picture = payload.picture;
+    const googleId = payload.sub;
+
+    const Model = role === "service_user" ? ServiceUser : User;
+
+    // ✅ UPSERT (login + signup in one)
+    const user = await Model.findOneAndUpdate(
+      { email },
+      {
+        $set: {
+          email,
+          firstName: payload.given_name || "",
+          lastName: payload.family_name || "",
+          profile: picture,
+          googleId,
+          authProvider: "google",
+          isVerified: true,
+          role: role === "service_user" ? "service_user" : "user",
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+      }
+    );
+
+    // ✅ prepare jwt data
+    const userData = {
+      _id: user._id,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+    };
+
+    // ✅ generate token
+    const jwtToken = jwt.sign(
+      { user: userData },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    // ✅ save token (optional)
+    await Model.updateOne(
+      { _id: user._id },
+      {
+        $push: { tokens: jwtToken },
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      token: jwtToken,
+      role: user.role,
+      user,
+      message: "Google login successful",
+    });
+
+  } catch (error) {
+    console.error("Google Login Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Google login failed",
+      error: error.message,
+    });
+  }
+};
 
 const getUser = catchAsyncError(async (req, res, next) => {
   let user = await User.findOne(
@@ -1472,9 +1550,9 @@ const search = catchAsyncError(async (req, res) => {
                     { $eq: ["$isBooked", true] },
                     ...(checkIn && checkOut
                       ? [
-                          { $gte: ["$date", new Date(checkIn)] },
-                          { $lte: ["$date", new Date(checkOut)] }
-                        ]
+                        { $gte: ["$date", new Date(checkIn)] },
+                        { $lte: ["$date", new Date(checkOut)] }
+                      ]
                       : [])
                   ]
                 }
@@ -1953,6 +2031,235 @@ const getUserFavorites = async (req, res) => {
   }
 };
 
+const createUserReview = async (req, res) => {
+  try {
+    const { bookingId, reviewType, serviceId, ratingsBreakdown, comment, captions } = req.body;
+    let photos = [];
+    if ((req.files && req.files.length > 0) || req.file) {
+      const files = req.files?.length ? req.files : req.file ? [req.file] : [];
+      let captionsArray = [];
+      if (captions) {
+        try {
+          captionsArray = JSON.parse(captions);
+          if (!Array.isArray(captionsArray)) captionsArray = [];
+        } catch (err) {
+          captionsArray = [];
+        }
+      }
+      photos = files.map((file, i) => ({
+        url: path.relative(process.cwd(), file.path),
+        caption: captionsArray[i] || ""
+      }));
+    }
+
+    if (!["property", "service"].includes(reviewType)) {
+      return res.status(400).json({ message: "Invalid reviewType" });
+    }
+
+    const booking = await Booking.findById(bookingId)
+      .populate("property")
+      .populate("services.service");
+
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    if (booking.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    if (new Date() < new Date(booking.checkOut)) {
+      return res.status(400).json({ message: "Review allowed only after checkout" });
+    }
+
+    let reviewee, revieweeModel, property = null, service = null;
+
+    if (reviewType === "property") {
+      if (!booking.property) return res.status(400).json({ message: "No property in booking" });
+      reviewee = booking.property.user;
+      revieweeModel = "ServiceUser";
+      property = booking.property._id;
+    }
+
+    if (reviewType === "service") {
+      if (!serviceId) return res.status(400).json({ message: "serviceId required" });
+      const serviceItem = booking.services.find(s => s.service && s.service._id.toString() === serviceId);
+      if (!serviceItem) return res.status(400).json({ message: "Service not in booking" });
+      reviewee = serviceItem.service.user;
+      revieweeModel = "ServiceUser";
+      service = serviceId;
+    }
+
+    const exists = await Review.findOne({
+      booking: bookingId,
+      reviewer: req.user._id,
+      property: property || null,
+      service: service || null
+    });
+
+    if (exists) return res.status(400).json({ message: "Already reviewed" });
+
+    if (!ratingsBreakdown || Object.keys(ratingsBreakdown).length === 0) {
+      return res.status(400).json({ message: "ratingsBreakdown is required" });
+    }
+
+    const values = Object.values(ratingsBreakdown)
+      .map(v => Number(v))
+      .filter(v => !isNaN(v));
+
+    if (values.length === 0) return res.status(400).json({ message: "ratingsBreakdown must contain numbers" });
+
+    const finalRating = values.reduce((a, b) => a + b, 0) / values.length;
+
+    const review = await Review.create({
+      reviewer: req.user._id,
+      reviewerModel: "User",
+      reviewee,
+      revieweeModel,
+      booking: bookingId,
+      property,
+      service,
+      reviewType,
+      rating: finalRating,
+      ratingsBreakdown,
+      comment,
+      photos
+    });
+    await Booking.findByIdAndUpdate(bookingId, { reviewGiven: true });
+    return res.status(201).json({
+      success: true,
+      message: "Review created successfully",
+      data: review
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+
+const getReviews = async (req, res) => {
+  try {
+    const {
+      type, // property | service
+      id,
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    if (!type || !id) {
+      return res.status(400).json({
+        message: "type and id are required"
+      });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    /* ========================
+       🔥 BUILD MATCH
+    ======================== */
+    let match = {
+      isDeleted: false
+    };
+
+    if (type === "property") {
+      match.property = new mongoose.Types.ObjectId(id);
+    }
+
+    if (type === "service") {
+      match.service = new mongoose.Types.ObjectId(id);
+    }
+
+    /* ========================
+       🔥 FETCH REVIEWS
+    ======================== */
+    const reviews = await Review.find(match)
+      .populate("reviewer", "firstName lastName profile")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    /* ========================
+       🔥 TOTAL COUNT
+    ======================== */
+    const total = await Review.countDocuments(match);
+
+    /* ========================
+       ⭐ SUMMARY (AIRBNB STYLE)
+    ======================== */
+    const summaryAgg = await Review.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          avgRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 },
+
+          cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          service: { $avg: "$ratingsBreakdown.service" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          value: { $avg: "$ratingsBreakdown.value" },
+
+          ratings: { $push: "$rating" }
+        }
+      }
+    ]);
+
+    let summary = {
+      avgRating: 0,
+      totalReviews: 0,
+      breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+      categoryAvg: {}
+    };
+
+    if (summaryAgg.length) {
+      const data = summaryAgg[0];
+
+      // ⭐ rating distribution
+      const breakdown = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+      data.ratings.forEach(r => {
+        const rounded = Math.round(r);
+        breakdown[rounded]++;
+      });
+
+      summary = {
+        avgRating: Number(data.avgRating.toFixed(1)),
+        totalReviews: data.totalReviews,
+        breakdown,
+        categoryAvg: {
+          cleanliness: data.cleanliness || 0,
+          service: data.service || 0,
+          location: data.location || 0,
+          value: data.value || 0
+        }
+      };
+    }
+
+    /* ========================
+       🚀 RESPONSE
+    ======================== */
+    res.json({
+      success: true,
+
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+
+      ...summary,
+
+      data: reviews
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+
 module.exports = {
   userLogin,
   userSignUp,
@@ -1983,5 +2290,8 @@ module.exports = {
   getLatestServices,
   getServiceDetail,
   toggleFavorite,
-  getUserFavorites
+  getUserFavorites,
+  googleLogin,
+  createUserReview,
+  getReviews,
 };

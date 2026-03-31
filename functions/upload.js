@@ -18,7 +18,8 @@ const UPLOAD_PATHS = Object.freeze({
   bannerImg: "bannerImg",
   serviceIcon:"serviceIcon",
   serviceMedia:"serviceMedia",
-  ticketImage:"ticketImage"
+  ticketImage:"ticketImage",
+  reviewImg:"reviewImg"
 });
 
 const ensureDir = (dir) => {

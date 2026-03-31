@@ -84,6 +84,7 @@ const {
   upsertCancellationPolicies,
   getCancellationPolicies,
   getCancelledBookings,
+  softDeleteReview
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -94,6 +95,7 @@ const {
   verifyOtp,
 } = require("../validations/validator");
 const { adminOverrideRefund } = require("../controller/bookingController");
+const { getReviews } = require("../controller/userController");
 
 const router = app.Router();
 
@@ -261,5 +263,10 @@ router.get("/getCancellationPolicies", validateAdminToken, getCancellationPolici
 
 router.post("/adminOverrideRefund/:bookingId", validateAdminToken, adminOverrideRefund);
 
-router.get("/getCancelledBookings",validateAdminToken, getCancelledBookings)
+router.get("/getCancelledBookings", validateAdminToken, getCancelledBookings)
+
+router.get("/getReviews", validateAdminToken, getReviews);
+
+router.patch("/softDeleteReview/:reviewId", validateAdminToken, softDeleteReview);
+
 module.exports = router;

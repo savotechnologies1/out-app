@@ -34,7 +34,13 @@ const userSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending"
     },
-    rejectReason:{type: String, default: null},
+    rejectReason: { type: String, default: null },
+    googleId: { type: String, default: null },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local"
+    },
   },
   { timestamps: true }
 );

@@ -45,7 +45,9 @@ const {
   togglePackageStatus,
   deletePackage,
   updatePackage,
-  getAllservicesForUser
+  getAllservicesForUser,
+  createServiceUserReview,
+  getMyReviews
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -190,4 +192,12 @@ router.get("/getCancellationPolicies", validateServiceToken, getCancellationPoli
 
 router.get("/getAllservicesForUser/:userId", validateServiceToken, getAllservicesForUser);
 
+router.post(
+  "/createServiceUserReview",
+  validateServiceToken,
+  uploads.array("reviewImg", 5),
+  createServiceUserReview
+);
+
+router.get("/getMyReviews",validateServiceToken, getMyReviews)
 module.exports = router;

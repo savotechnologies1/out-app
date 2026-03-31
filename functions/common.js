@@ -66,6 +66,7 @@ module.exports.generateRandomOrderId = () => {
 };
 
 module.exports.codeRem = (phone) => {
+   if (!phone) return "";
   try {
     let phoneArray = [
       "+93",

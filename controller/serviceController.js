@@ -27,6 +27,7 @@ const ServiceCategory = require("../models/ServiceCategory");
 const Service = require("../models/Service");
 const Package = require("../models/Package");
 const CancellationPolicy = require("../models/CancellationPolicy");
+const Review = require("../models/Review");
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -127,9 +128,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   };
 
   const data = await ServiceUser.create(obj);
-  // await Wallet.create({
-  //   user: data._id
-  // });
+  
   return res
     .status(200)
     .send({ data: { otp, id: data._id }, message: "Please verify Email" });
@@ -2399,6 +2398,187 @@ const getAllservicesForUser = async (req, res) => {
   }
 };
 
+
+const createServiceUserReview = async (req, res) => {
+  try {
+    const { bookingId, ratingsBreakdown, comment, captions } = req.body;
+
+    // Fetch booking and populate property owner & user
+    const booking = await Booking.findById(bookingId).populate("user property");
+    if (!booking) return res.status(404).json({ message: "Booking not found" });
+
+    // Ensure reviewer is the property owner
+    if (!booking.property || booking.property.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You are not the owner of this property" });
+    }
+
+    // Ensure review is after checkout
+    if (new Date() < new Date(booking.checkOut)) {
+      return res.status(400).json({ message: "Review allowed only after checkout" });
+    }
+
+    // Check for duplicate review
+    const exists = await Review.findOne({
+      booking: bookingId,
+      reviewer: req.user._id,
+      reviewType: "user",
+    });
+    if (exists) return res.status(400).json({ message: "Already reviewed this user" });
+
+    // Handle photos + captions
+    let photos = [];
+    if ((req.files && req.files.length > 0) || req.file) {
+      const files = req.files?.length ? req.files : req.file ? [req.file] : [];
+
+      let captionsArray = [];
+      if (captions) {
+        try {
+          captionsArray = JSON.parse(captions);
+          if (!Array.isArray(captionsArray)) captionsArray = [];
+        } catch (err) {
+          captionsArray = [];
+        }
+      }
+
+      photos = files.map((file, i) => ({
+        url: path.relative(process.cwd(), file.path),
+        caption: captionsArray[i] || "",
+      }));
+    }
+
+    // Calculate average rating from ratingsBreakdown
+    if (!ratingsBreakdown || Object.keys(ratingsBreakdown).length === 0) {
+      return res.status(400).json({ message: "ratingsBreakdown is required" });
+    }
+
+    const values = Object.values(ratingsBreakdown)
+      .map(v => Number(v))
+      .filter(v => !isNaN(v));
+
+    if (values.length === 0) {
+      return res.status(400).json({ message: "ratingsBreakdown must contain numbers" });
+    }
+
+    const finalRating = values.reduce((a, b) => a + b, 0) / values.length;
+
+    // Create review
+    const review = await Review.create({
+      reviewer: req.user._id,
+      reviewerModel: "ServiceUser",
+      reviewee: booking.user._id,
+      revieweeModel: "User",
+      booking: bookingId,
+      reviewType: "user",
+      rating: finalRating,
+      ratingsBreakdown,
+      comment,
+      photos,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Guest reviewed successfully",
+      data: review,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+
+const getMyReviews = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const { type, page = 1, limit = 10 } = req.query;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+ 
+    const services = await Service.find({ user: userId }).select("_id");
+    const serviceIds = services.map(s => s._id);
+
+    const properties = await Properties.find({ user: userId }).select("_id");
+    const propertyIds = properties.map(p => p._id);
+
+    let match = {
+      isDeleted: false,
+      $or: [
+        { reviewee: userId }, // reviews about user
+        { service: { $in: serviceIds } }, // service reviews
+        { property: { $in: propertyIds } } // property reviews
+      ]
+    };
+
+    // ✅ filter by type (property | service | user)
+    if (type) {
+      match.reviewType = type;
+    }
+
+    const reviews = await Review.find(match)
+      .populate("reviewer", "firstName lastName profile")
+      .populate("service", "name")
+      .populate("property", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    /* ========================
+       🔥 TOTAL COUNT
+    ======================== */
+    const total = await Review.countDocuments(match);
+
+    /* ========================
+       🔥 SUMMARY (OPTIONAL)
+    ======================== */
+    const summaryAgg = await Review.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: null,
+          avgRating: { $avg: "$rating" },
+          totalReviews: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const summary = summaryAgg[0] || {
+      avgRating: 0,
+      totalReviews: 0
+    };
+
+    /* ========================
+       🚀 RESPONSE
+    ======================== */
+    res.json({
+      success: true,
+
+      // pagination
+      page: pageNum,
+      limit: limitNum,
+      total,
+      totalPages: Math.ceil(total / limitNum),
+
+      // summary
+      avgRating: Number(summary.avgRating?.toFixed(1)) || 0,
+      totalReviews: summary.totalReviews,
+
+      // data
+      data: reviews
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
 module.exports = {
   serviceLogin,
   serviceSignUp,
@@ -2445,5 +2625,7 @@ module.exports = {
   togglePackageStatus,
   deletePackage,
   updatePackage,
-  getAllservicesForUser
+  getAllservicesForUser,
+  createServiceUserReview,
+  getMyReviews
 };

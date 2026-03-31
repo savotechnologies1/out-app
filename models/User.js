@@ -21,6 +21,12 @@ const userSchema = new mongoose.Schema(
     isDeleted: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     tokens: { type: [String] },
+    googleId: { type: String, default: null },
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local"
+    },
   },
   { timestamps: true }
 );
