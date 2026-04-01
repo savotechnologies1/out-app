@@ -39,6 +39,9 @@ const Service = require("../models/Service");
 const Package = require("../models/Package");
 const CancellationPolicy = require("../models/CancellationPolicy");
 const Review = require("../models/Review");
+const { Parser } = require("json2csv");
+const PDFDocument = require("pdfkit");
+const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -539,12 +542,15 @@ const getAllProperties = catchAsyncError(async (req, res, next) => {
 
   const matchStage = { isDeleted: false };
 
-  // ✅ Total service users
-  const total = await ServiceUser.countDocuments(matchStage);
-
+  /* ========================
+     📦 MAIN AGGREGATION
+  ======================== */
   const users = await ServiceUser.aggregate([
     { $match: matchStage },
 
+    /* ========================
+       🏨 GET PROPERTIES
+    ======================== */
     {
       $lookup: {
         from: "properties",
@@ -557,12 +563,69 @@ const getAllProperties = catchAsyncError(async (req, res, next) => {
               approvalStatus: "approved"
             }
           },
+
+          /* ⭐ PROPERTY RATING */
+          {
+            $lookup: {
+              from: "reviews",
+              let: { propertyId: "$_id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ["$property", "$$propertyId"] },
+                    isDeleted: false,
+                    reviewType: "property"
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    avgRating: { $avg: "$rating" },
+                    totalReviews: { $sum: 1 }
+                  }
+                }
+              ],
+              as: "ratingData"
+            }
+          },
+
+          {
+            $addFields: {
+              avgRating: {
+                $ifNull: [
+                  { $round: [{ $arrayElemAt: ["$ratingData.avgRating", 0] }, 1] },
+                  0
+                ]
+              },
+              totalReviews: {
+                $ifNull: [
+                  { $arrayElemAt: ["$ratingData.totalReviews", 0] },
+                  0
+                ]
+              }
+            }
+          },
+
+          { $project: { ratingData: 0 } },
+
           { $sort: { createdAt: -1 } }
         ],
         as: "properties"
       }
     },
 
+    /* ========================
+       🔥 ONLY USERS WITH PROPERTIES
+    ======================== */
+    {
+      $match: {
+        "properties.0": { $exists: true }
+      }
+    },
+
+    /* ========================
+       👤 USER FORMAT
+    ======================== */
     {
       $project: {
         _id: 1,
@@ -577,19 +640,51 @@ const getAllProperties = catchAsyncError(async (req, res, next) => {
     { $limit: limit }
   ]);
 
+  /* ========================
+     📊 TOTAL COUNT (FIXED)
+  ======================== */
+  const totalResult = await ServiceUser.aggregate([
+    { $match: matchStage },
+    {
+      $lookup: {
+        from: "properties",
+        localField: "_id",
+        foreignField: "user",
+        pipeline: [
+          {
+            $match: {
+              isDeleted: false,
+              approvalStatus: "approved"
+            }
+          }
+        ],
+        as: "properties"
+      }
+    },
+    {
+      $match: {
+        "properties.0": { $exists: true }
+      }
+    },
+    { $count: "total" }
+  ]);
+
+  const total = totalResult[0]?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
+  /* ========================
+     📤 RESPONSE
+  ======================== */
   return res.status(200).json({
     message: "Service users with properties fetched successfully",
     data: users,
-
     page,
     limit,
     total,
     totalPages,
     previousDisabled: page <= 1,
-    nextPage: page + 1,
-    previousPage: page - 1,
+    nextPage: page < totalPages ? page + 1 : null,
+    previousPage: page > 1 ? page - 1 : null,
     nextDisabled: page >= totalPages
   });
 
@@ -2239,25 +2334,77 @@ const getAllBanners = async (req, res) => {
 
 const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
 
-  const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 10;
+  let { page = 1, limit = 10, type, paymentStatus, search } = req.query;
+  const { status } = req.params;
+
+  page = parseInt(page);
+  limit = parseInt(limit);
   const skip = (page - 1) * limit;
 
-  const filter = {
-    paymentStatus: "paid",
-    bookingStatus: { $in: ["confirmed", "cancelled"] }
-  };
+  /* ========================
+     📅 TODAY RANGE
+  ======================== */
+  const today = new Date();
+  const endOfToday = new Date();
+  endOfToday.setHours(23, 59, 59, 999);
 
+  /* ========================
+     🔍 FILTER
+  ======================== */
+  const filter = {};
+
+  /* ✅ STATUS FILTER */
+  if (status === "all") {
+    filter.bookingStatus = { $in: ["confirmed", "cancelled"] };
+
+  } else if (status === "completed") {
+    // ✅ COMPLETED BOOKINGS
+    filter.bookingStatus = "confirmed";
+    filter.checkOut = { $lte: endOfToday };
+
+  } else if (["confirmed", "cancelled", "pending"].includes(status)) {
+    filter.bookingStatus = status;
+
+  } else {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid booking status"
+    });
+  }
+
+  /* ✅ PAYMENT STATUS */
+  if (paymentStatus) {
+    filter.paymentStatus = paymentStatus;
+  } else {
+    filter.paymentStatus = "paid";
+  }
+
+  /* ✅ BOOKING TYPE */
+  if (type) {
+    filter.bookingType = type;
+  }
+
+  /* ✅ SEARCH */
+  if (search) {
+    filter.orderId = { $regex: search, $options: "i" };
+  }
+
+  /* ========================
+     📦 FETCH DATA
+  ======================== */
   const [bookings, total] = await Promise.all([
     Booking.find(filter)
       .populate({
         path: "property",
         select: "name price address"
       })
-      .populate("services.service", "name price")
+      .populate({
+        path: "services.service",
+        select: "name price"
+      })
       .populate({
         path: "user",
-        select: "name email phone"
+        select: "firstName lastName email phone"
       })
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -2269,15 +2416,19 @@ const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
 
   const totalPages = Math.ceil(total / limit);
 
-  return res.status(200).send({
+  /* ========================
+     📤 RESPONSE
+  ======================== */
+  return res.status(200).json({
+    success: true,
     data: bookings,
     page,
     limit,
     total,
     totalPages,
     previousDisabled: page <= 1,
-    nextPage: page + 1,
-    previousPage: page - 1,
+    nextPage: page < totalPages ? page + 1 : null,
+    previousPage: page > 1 ? page - 1 : null,
     nextDisabled: page >= totalPages,
     message: bookings.length
       ? "Bookings fetched successfully"
@@ -2474,122 +2625,177 @@ const getPlatformConfig = async (req, res) => {
 
 const getAllPaymentTransactions = async (req, res) => {
   try {
-
-    let { page = 1, limit = 10, search = "" } = req.query;
+    let { page = 1, limit = 10, search = "", type } = req.query;
 
     page = parseInt(page);
     limit = parseInt(limit);
 
     const skip = (page - 1) * limit;
 
-    // Search filter
+    /* ========================
+       🔍 SEARCH FILTER
+    ======================== */
     const filter = {};
 
     if (search) {
       filter.$or = [
         { orderId: { $regex: search, $options: "i" } },
-        { tapChargeId: { $regex: search, $options: "i" } },
-        { currency: { $regex: search, $options: "i" } }
+        { tapChargeId: { $regex: search, $options: "i" } }
       ];
     }
 
+    /* ========================
+       📊 TOTAL COUNT
+    ======================== */
     const total = await PaymentTransaction.countDocuments(filter);
 
+    /* ========================
+       📦 FETCH DATA
+    ======================== */
     const transactions = await PaymentTransaction.find(filter)
       .populate({
         path: "booking",
-        select: "orderId user hotel bookingStatus",
+        match: type ? { bookingType: type } : {}, // ✅ FILTER BY TYPE
+        select: "orderId user property services bookingStatus bookingType",
         populate: [
           {
             path: "user",
             select: "firstName lastName email"
           },
           {
-            path: "hotel",
+            path: "property",
             select: "title"
+          },
+          {
+            path: "services.service", // ✅ POPULATE SERVICES
+            select: "title price"
           }
         ]
       })
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
+
+    /* ========================
+       ⚠️ REMOVE NULL BOOKINGS
+    ======================== */
+    const filteredTransactions = transactions.filter(t => t.booking);
 
     const totalPages = Math.ceil(total / limit);
 
-    return res.status(200).send({
+    /* ========================
+       📤 RESPONSE
+    ======================== */
+    return res.status(200).json({
       success: true,
-      data: transactions,
+      data: filteredTransactions,
       page,
       limit,
-      total,
+      total: filteredTransactions.length, // better count after filter
       totalPages,
       previousDisabled: page === 1,
       nextPage: page < totalPages ? page + 1 : null,
-      previousPage: page > 1 ? page - 1 : 0,
+      previousPage: page > 1 ? page - 1 : null,
       nextDisabled: page >= totalPages
     });
 
   } catch (error) {
-
-    return res.status(500).send({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
-
   }
 };
 
 const getTransactionDetails = async (req, res) => {
   try {
-
     const { id } = req.params;
 
+    /* ========================
+       ✅ VALIDATE ID
+    ======================== */
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid transaction ID"
+      });
+    }
+
+    /* ========================
+       📦 FETCH TRANSACTION
+    ======================== */
     const transaction = await PaymentTransaction.findById(id)
       .populate({
         path: "booking",
+        select: `
+          orderId user property services bookingType bookingStatus
+          checkIn checkOut totalAmount
+        `,
         populate: [
+          /* 👤 CUSTOMER */
           {
-            path: "user", // customer
+            path: "user",
             model: "User",
             select: "firstName lastName email phone"
           },
+
+          /* 🏨 PROPERTY (FIXED) */
           {
-            path: "hotel",
+            path: "property",
             model: "Properties",
-            select: "name address user",
+            select: "title address user",
             populate: {
               path: "user", // property owner
               model: "ServiceUser",
               select: "firstName lastName email phone"
             }
           },
+
+          /* 🛠 SERVICES (NEW) */
+          {
+            path: "services.service",
+            model: "Service",
+            select: "title price category"
+          },
+
           {
             path: "couponId",
             model: "Coupon",
             select: "code discountType discountValue"
+          }, +
+          {
+            path: "providerBreakdown.user",
+            model: "ServiceUser",
+            select: "firstName lastName email"
           }
         ]
-      });
+      })
+      .lean();
 
+    /* ========================
+       ❌ NOT FOUND
+    ======================== */
     if (!transaction) {
-      return res.status(404).send({
+      return res.status(404).json({
         success: false,
         message: "Transaction not found"
       });
     }
 
-    return res.status(200).send({
+    /* ========================
+       📤 RESPONSE
+    ======================== */
+    return res.status(200).json({
       success: true,
       data: transaction
     });
 
   } catch (error) {
-
-    return res.status(500).send({
+    return res.status(500).json({
       success: false,
       message: error.message
     });
-
   }
 };
 
@@ -3031,53 +3237,194 @@ const getAllServiceCategories = async (req, res) => {
   }
 };
 
-const getAllServicesAdmin = async (req, res) => {
-  try {
-    let { page = 1, limit = 10 } = req.query;
+// const getAllServicesAdmin = async (req, res) => {
+//   try {
+//     let { page = 1, limit = 10 } = req.query;
 
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const skip = (pageNumber - 1) * limitNumber;
+//     const pageNumber = parseInt(page);
+//     const limitNumber = parseInt(limit);
+//     const skip = (pageNumber - 1) * limitNumber;
 
-    // ✅ Filter
-    const filter = {
-      isDeleted: false,
-      approvalStatus: "approved"
-    };;
+//     // ✅ Filter
+//     const filter = {
+//       isDeleted: false,
+//       approvalStatus: "approved"
+//     };;
 
-    // ✅ Total count
-    const total = await Service.countDocuments(filter);
+//     // ✅ Total count
+//     const total = await Service.countDocuments(filter);
 
-    // ✅ Fetch paginated data
-    const services = await Service.find(filter)
-      .populate("user", "firstName lastName profile email")
-      .populate("category", "name")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNumber);
+//     // ✅ Fetch paginated data
+//     const services = await Service.find(filter)
+//       .populate("user", "firstName lastName profile email")
+//       .populate("category", "name")
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limitNumber);
 
-    const totalPages = Math.ceil(total / limitNumber);
+//     const totalPages = Math.ceil(total / limitNumber);
 
-    res.send({
-      success: true,
-      data: services,
-      page: pageNumber,
-      limit: limitNumber,
-      total,
-      totalPages,
-      previousDisabled: pageNumber <= 1,
-      nextPage: pageNumber + 1,
-      previousPage: pageNumber - 1,
-      nextDisabled: pageNumber >= totalPages
-    });
+//     res.send({
+//       success: true,
+//       data: services,
+//       page: pageNumber,
+//       limit: limitNumber,
+//       total,
+//       totalPages,
+//       previousDisabled: pageNumber <= 1,
+//       nextPage: pageNumber + 1,
+//       previousPage: pageNumber - 1,
+//       nextDisabled: pageNumber >= totalPages
+//     });
 
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+const getAllServicesAdmin = catchAsyncError(async (req, res, next) => {
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  /* ========================
+     🔍 MATCH
+  ======================== */
+  const matchStage = {
+    isDeleted: false
+  };
+
+  /* ========================
+     📊 TOTAL COUNT
+  ======================== */
+  const total = await Service.countDocuments(matchStage);
+
+  /* ========================
+     📦 AGGREGATION
+  ======================== */
+  const services = await Service.aggregate([
+    { $match: matchStage },
+
+    /* ========================
+       👤 PROVIDER INFO
+    ======================== */
+    {
+      $lookup: {
+        from: "serviceusers",
+        localField: "user",
+        foreignField: "_id",
+        as: "provider"
+      }
+    },
+    {
+      $unwind: {
+        path: "$provider",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    /* ========================
+       ⭐ SERVICE REVIEWS
+    ======================== */
+    {
+      $lookup: {
+        from: "reviews",
+        let: { serviceId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ["$service", "$$serviceId"] },
+              isDeleted: false,
+              reviewType: "service"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              avgRating: { $avg: "$rating" },
+              totalReviews: { $sum: 1 }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+
+    /* ========================
+       🎯 FORMAT RATING
+    ======================== */
+    {
+      $addFields: {
+        avgRating: {
+          $ifNull: [
+            { $round: [{ $arrayElemAt: ["$ratingData.avgRating", 0] }, 1] },
+            0
+          ]
+        },
+        totalReviews: {
+          $ifNull: [
+            { $arrayElemAt: ["$ratingData.totalReviews", 0] },
+            0
+          ]
+        }
+      }
+    },
+
+    {
+      $project: {
+        ratingData: 0
+      }
+    },
+
+    /* ========================
+       📤 RESPONSE FORMAT
+    ======================== */
+    {
+      $project: {
+        _id: 1,
+        title: 1,
+        price: 1,
+        category: 1,
+        avgRating: 1,
+        totalReviews: 1,
+        provider: {
+          _id: "$provider._id",
+          name: {
+            $concat: ["$provider.firstName", " ", "$provider.lastName"]
+          },
+          email: "$provider.email"
+        }
+      }
+    },
+
+    { $sort: { createdAt: -1 } },
+    { $skip: skip },
+    { $limit: limit }
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  /* ========================
+     📤 FINAL RESPONSE
+  ======================== */
+  return res.status(200).json({
+    message: "Services fetched successfully",
+    data: services,
+    page,
+    limit,
+    total,
+    totalPages,
+    previousDisabled: page <= 1,
+    nextPage: page < totalPages ? page + 1 : null,
+    previousPage: page > 1 ? page - 1 : null,
+    nextDisabled: page >= totalPages
+  });
+
+});
 
 const getSingleServiceAdmin = async (req, res) => {
   try {
@@ -3645,6 +3992,987 @@ const softDeleteReview = async (req, res) => {
     });
   }
 };
+
+const getAdminDashboard = async (req, res) => {
+  try {
+
+    /* ========================
+       📅 TODAY RANGE
+    ======================== */
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    /* ========================
+       📊 TOTAL BOOKINGS (ALL TYPES)
+    ======================== */
+
+    const totalBookings = await Booking.countDocuments({
+      isCancelled: false
+    });
+
+    /* ========================
+       💰 REVENUE (ALL BOOKINGS)
+    ======================== */
+
+    const revenueResult = await Booking.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          isCancelled: false
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: "$totalAmount" }
+        }
+      }
+    ]);
+
+    const netRevenue = Math.round(revenueResult[0]?.totalRevenue || 0);
+
+    /* ========================
+       📊 BOOKING STATUS
+    ======================== */
+
+    const bookingStatusAgg = await Booking.aggregate([
+      {
+        $match: { isCancelled: false }
+      },
+      {
+        $group: {
+          _id: "$bookingStatus",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    let bookingStatus = {
+      confirmed: 0,
+      pending: 0,
+      cancelled: 0
+    };
+
+    bookingStatusAgg.forEach(item => {
+      bookingStatus[item._id] = item.count;
+    });
+
+    /* ========================
+       📈 REVENUE GRAPH
+    ======================== */
+
+    /* ========================
+   📈 REVENUE GRAPH (FIXED)
+======================== */
+
+    const revenueGraphAgg = await Booking.aggregate([
+      {
+        $match: {
+          paymentStatus: "paid",
+          isCancelled: false
+        }
+      },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          total: { $sum: "$totalAmount" }
+        }
+      }
+    ]);
+
+    const months = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    ];
+
+    const revenueGraph = months.map((month, index) => {
+      const found = revenueGraphAgg.find(m => m._id === index + 1);
+
+      return {
+        month,
+        revenue: found ? Math.round(found.total) : 0
+      };
+    });
+
+    /* ========================
+       📊 OCCUPANCY (REAL LOGIC)
+    ======================== */
+
+    const activeStays = await Booking.countDocuments({
+      checkIn: { $lte: new Date() },
+      checkOut: { $gte: new Date() },
+      isCancelled: false
+    });
+
+    const occupancyRate = totalBookings
+      ? Math.round((activeStays / totalBookings) * 100)
+      : 0;
+
+    /* ========================
+       📋 RECENT BOOKINGS (ALL)
+    ======================== */
+
+    const recentBookings = await Booking.find({
+      isCancelled: false
+    })
+      .populate("user", "firstName email")
+      .populate("property", "name")
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* ========================
+       📋 RECENT SERVICES (ONLY SERVICE BASED)
+    ======================== */
+
+    const recentServices = await Booking.find({
+      bookingType: { $in: ["SERVICE", "PROPERTY_SERVICE"] },
+      isCancelled: false
+    })
+      .populate("user", "firstName phone")
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* ========================
+       🏆 TOP PROPERTIES
+    ======================== */
+
+    const topProperties = await Booking.aggregate([
+      {
+        $match: {
+          property: { $ne: null },
+          isCancelled: false
+        }
+      },
+      {
+        $group: {
+          _id: "$property",
+          totalBookings: { $sum: 1 }
+        }
+      },
+      { $sort: { totalBookings: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "properties",
+          localField: "_id",
+          foreignField: "_id",
+          as: "property"
+        }
+      },
+      { $unwind: "$property" },
+      {
+        $project: {
+          name: "$property.name",
+          totalBookings: 1
+        }
+      }
+    ]);
+
+    /* ========================
+       📅 TODAY MOVEMENT
+    ======================== */
+
+    const arrivals = await Booking.find({
+      checkIn: { $gte: todayStart, $lte: todayEnd },
+      isCancelled: false
+    })
+      .populate("user", "firstName")
+      .populate("property", "name")
+      .limit(5);
+
+    const departures = await Booking.find({
+      checkOut: { $gte: todayStart, $lte: todayEnd },
+      isCancelled: false
+    })
+      .populate("user", "firstName")
+      .populate("property", "name")
+      .limit(5);
+
+    /* ========================
+       📦 FINAL RESPONSE
+    ======================== */
+
+    res.status(200).json({
+      success: true,
+      data: {
+        stats: {
+          totalBookings,
+          netRevenue,
+          occupancyRate
+        },
+        bookingStatus,
+        revenueGraph,
+        recentBookings,
+        recentServices,
+        topProperties,
+        todayMovement: {
+          arrivals,
+          departures
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Admin Dashboard Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong"
+    });
+  }
+};
+
+
+const getAdminReportsData = async (req) => {
+  const { filterType, startDate, endDate } = req.query;
+
+  let dateFilter = {};
+  let previousFilter = {};
+  let isFiltered = false;
+
+  const now = new Date();
+
+  /* ========================
+     📅 DATE FILTER
+  ======================== */
+
+  // ✅ NO FILTER → ALL DATA
+  if (!filterType) {
+    dateFilter = {};
+    previousFilter = {};
+    isFiltered = false;
+  }
+
+  // ✅ MONTH
+  else if (filterType === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date();
+
+    dateFilter = { createdAt: { $gte: start, $lte: end } };
+
+    const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    previousFilter = { createdAt: { $gte: prevStart, $lte: prevEnd } };
+    isFiltered = true;
+  }
+
+  // ✅ TODAY
+  else if (filterType === "today") {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    dateFilter = { createdAt: { $gte: start, $lte: end } };
+
+    const prevStart = new Date(start);
+    prevStart.setDate(prevStart.getDate() - 1);
+
+    const prevEnd = new Date(end);
+    prevEnd.setDate(prevEnd.getDate() - 1);
+
+    previousFilter = { createdAt: { $gte: prevStart, $lte: prevEnd } };
+    isFiltered = true;
+  }
+
+  // ✅ CUSTOM
+  else if (filterType === "custom" && startDate && endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    dateFilter = { createdAt: { $gte: start, $lte: end } };
+
+    const diff = end.getTime() - start.getTime();
+
+    const prevStart = new Date(start.getTime() - diff);
+    const prevEnd = new Date(start.getTime());
+
+    previousFilter = { createdAt: { $gte: prevStart, $lte: prevEnd } };
+    isFiltered = true;
+  }
+
+  /* ========================
+     📊 BOOKINGS
+  ======================== */
+
+  const totalBookings = await Booking.countDocuments({
+    ...dateFilter,
+    isCancelled: false
+  });
+
+  const previousBookings = isFiltered
+    ? await Booking.countDocuments({
+        ...previousFilter,
+        isCancelled: false
+      })
+    : 0;
+
+  /* ========================
+     💰 REVENUE
+  ======================== */
+
+  const revenueAgg = await Booking.aggregate([
+    {
+      $match: {
+        ...dateFilter,
+        paymentStatus: "paid",
+        isCancelled: false
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: "$totalAmount" }
+      }
+    }
+  ]);
+
+  const totalRevenue = Math.round(revenueAgg[0]?.total || 0);
+
+  const prevRevenueAgg = isFiltered
+    ? await Booking.aggregate([
+        {
+          $match: {
+            ...previousFilter,
+            paymentStatus: "paid",
+            isCancelled: false
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$totalAmount" }
+          }
+        }
+      ])
+    : [];
+
+  const previousRevenue = Math.round(prevRevenueAgg[0]?.total || 0);
+
+  /* ========================
+     📈 GROWTH
+  ======================== */
+
+  const revenueGrowthPercent = isFiltered
+    ? previousRevenue > 0
+      ? Number((((totalRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1))
+      : totalRevenue > 0
+      ? 100
+      : 0
+    : 0;
+
+  const bookingGrowthPercent = isFiltered
+    ? previousBookings > 0
+      ? Number((((totalBookings - previousBookings) / previousBookings) * 100).toFixed(1))
+      : totalBookings > 0
+      ? 100
+      : 0
+    : 0;
+
+  /* ========================
+     👥 USERS
+  ======================== */
+
+  const totalUsers = await ServiceUser.countDocuments({
+    isDeleted: false
+  });
+
+  /* ========================
+     📊 AVG BOOKING (FIXED)
+  ======================== */
+
+  const avgBooking = totalBookings
+    ? Math.round(totalRevenue / totalBookings)
+    : 0;
+
+  /* ========================
+     📈 REVENUE GRAPH
+  ======================== */
+
+  const revenueGraphAgg = await Booking.aggregate([
+    {
+      $match: {
+        paymentStatus: "paid",
+        isCancelled: false
+      }
+    },
+    {
+      $group: {
+        _id: { $month: "$createdAt" },
+        total: { $sum: "$totalAmount" }
+      }
+    }
+  ]);
+
+  const months = [
+    "Jan","Feb","Mar","Apr","May","Jun",
+    "Jul","Aug","Sep","Oct","Nov","Dec"
+  ];
+
+  const revenueGraph = months.map((month, index) => {
+    const found = revenueGraphAgg.find(m => m._id === index + 1);
+    return {
+      month,
+      revenue: found ? Math.round(found.total) : 0
+    };
+  });
+
+  /* ========================
+     📊 BOOKING STATUS
+  ======================== */
+
+  const bookingStatusAgg = await Booking.aggregate([
+    { $match: { isCancelled: false } },
+    {
+      $group: {
+        _id: "$bookingStatus",
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const bookingStatusChart = bookingStatusAgg.map(i => ({
+    name: i._id,
+    value: i.count
+  }));
+
+  /* ========================
+     🏷 PROPERTY CATEGORY (FIXED)
+  ======================== */
+
+  const categoryAgg = await Booking.aggregate([
+    {
+      $match: {
+        isCancelled: false,
+        property: { $ne: null }
+      }
+    },
+    {
+      $lookup: {
+        from: "properties",
+        localField: "property",
+        foreignField: "_id",
+        as: "property"
+      }
+    },
+    { $unwind: "$property" },
+    {
+      $lookup: {
+        from: "categories",
+        localField: "property.category",
+        foreignField: "_id",
+        as: "category"
+      }
+    },
+    { $unwind: "$category" },
+    {
+      $group: {
+        _id: "$category.category",
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const bookingsByCategory = categoryAgg.map(i => ({
+    name: i._id,
+    value: i.count
+  }));
+
+  /* ========================
+     📍 LOCATION
+  ======================== */
+
+  const locationAnalytics = await Booking.aggregate([
+    { $match: { isCancelled: false } },
+    {
+      $lookup: {
+        from: "properties",
+        localField: "property",
+        foreignField: "_id",
+        as: "property"
+      }
+    },
+    { $unwind: "$property" },
+    {
+      $group: {
+        _id: "$property.address.city",
+        totalBookings: { $sum: 1 }
+      }
+    }
+  ]);
+
+  /* ========================
+     🔁 RETENTION
+  ======================== */
+
+  const usersAgg = await Booking.aggregate([
+    { $match: { ...dateFilter, isCancelled: false } },
+    {
+      $group: {
+        _id: "$user",
+        bookings: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const repeatUsers = usersAgg.filter(u => u.bookings > 1).length;
+
+  const retentionRate = usersAgg.length
+    ? Math.round((repeatUsers / usersAgg.length) * 100)
+    : 0;
+
+  return {
+    stats: {
+      totalRevenue,
+      revenueGrowthPercent,
+      totalBookings,
+      bookingGrowthPercent,
+      totalUsers,
+      avgBooking
+    },
+    revenueGraph,
+    bookingStatusChart,
+    bookingsByCategory,
+    locationAnalytics,
+    retentionRate
+  };
+};
+
+const getAdminReports = async (req, res) => {
+  try {
+    const data = await getAdminReportsData(req);
+
+    res.status(200).json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false });
+  }
+};
+
+
+
+const width = 800;
+const height = 400;
+
+const chartCanvas = new ChartJSNodeCanvas({
+  width,
+  height,
+  backgroundColour: "white"
+});
+
+const exportReportPDF = async (req, res) => {
+  try {
+    const data = await getAdminReportsData(req);
+
+    const {
+      stats,
+      revenueGraph,
+      bookingStatusChart,
+      bookingsByCategory,
+      locationAnalytics,
+      retentionRate
+    } = data;
+
+    /* ========================
+       📈 REVENUE LINE CHART
+    ======================== */
+
+    const revenueChart = await chartCanvas.renderToBuffer({
+      type: "line",
+      data: {
+        labels: revenueGraph.map(i => i.month),
+        datasets: [
+          {
+            label: "Revenue",
+            data: revenueGraph.map(i => i.revenue)
+          }
+        ]
+      }
+    });
+
+    /* ========================
+       📊 STATUS PIE CHART
+    ======================== */
+
+    const statusChart = await chartCanvas.renderToBuffer({
+      type: "pie",
+      data: {
+        labels: bookingStatusChart.map(i => i.name),
+        datasets: [
+          {
+            data: bookingStatusChart.map(i => i.value)
+          }
+        ]
+      }
+    });
+
+    /* ========================
+       🏷 CATEGORY PIE CHART
+    ======================== */
+
+    const categoryChart = await chartCanvas.renderToBuffer({
+      type: "pie",
+      data: {
+        labels: bookingsByCategory.map(i => i.name),
+        datasets: [
+          {
+            data: bookingsByCategory.map(i => i.value)
+          }
+        ]
+      }
+    });
+
+    /* ========================
+       📄 CREATE PDF
+    ======================== */
+
+    const doc = new PDFDocument({ margin: 40 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=report.pdf");
+
+    doc.pipe(res);
+
+    /* ========================
+       🏷 HEADER
+    ======================== */
+
+    doc.fontSize(22).text("Admin Analytics Report", { align: "center" });
+    doc.moveDown();
+
+    /* ========================
+       📊 STATS
+    ======================== */
+
+    doc.fontSize(12);
+
+    doc.text(`Total Revenue: ₹${stats.totalRevenue}`);
+    doc.text(`Revenue Growth: ${stats.revenueGrowthPercent}%`);
+    doc.text(`Total Bookings: ${stats.totalBookings}`);
+    doc.text(`Booking Growth: ${stats.bookingGrowthPercent}%`);
+    doc.text(`Total Users: ${stats.totalUsers}`);
+    doc.text(`Average Booking: ₹${stats.avgBooking}`);
+    doc.text(`Retention Rate: ${retentionRate}%`);
+
+    doc.moveDown();
+
+    /* ========================
+       📈 REVENUE GRAPH
+    ======================== */
+
+    doc.fontSize(14).text("Revenue Trend");
+    doc.image(revenueChart, { fit: [500, 250] });
+
+    doc.addPage();
+
+    /* ========================
+       📊 STATUS CHART
+    ======================== */
+
+    doc.fontSize(14).text("Booking Status Distribution");
+    doc.image(statusChart, { fit: [300, 300], align: "center" });
+
+    doc.moveDown();
+
+    /* ========================
+       🏷 CATEGORY CHART
+    ======================== */
+
+    doc.text("Property Category Distribution");
+    doc.image(categoryChart, { fit: [300, 300], align: "center" });
+
+    doc.moveDown();
+
+    /* ========================
+       📍 LOCATION LIST
+    ======================== */
+
+    doc.text("Top Locations:");
+    locationAnalytics.forEach(loc => {
+      doc.text(`${loc._id}: ${loc.totalBookings}`);
+    });
+
+    doc.moveDown();
+
+    /* ========================
+       📄 FOOTER
+    ======================== */
+
+    doc.fontSize(10).text(
+      "Generated on: " + new Date().toLocaleString(),
+      { align: "right" }
+    );
+
+    doc.end();
+
+  } catch (error) {
+    console.error("PDF Error:", error);
+    res.status(500).json({ success: false });
+  }
+};
+
+
+
+const getAdminFinanceDashboardData = async (req) => {
+  const { view = "monthly", page = 1, limit = 10 } = req.query;
+  const skip = (page - 1) * limit;
+
+  const now = new Date();
+
+  /* ========================
+     📊 MAIN STATS
+  ======================== */
+
+  const payments = await PaymentTransaction.find({
+    status: "success"
+  });
+
+  let grossRevenue = 0;
+  let providerPayouts = 0;
+  let adminCommission = 0;
+  let platformFees = 0;
+  let taxExpenses = 0;
+
+  payments.forEach(p => {
+    grossRevenue += p.totalAmount || 0;
+    providerPayouts += p.providerAmount || 0;
+    adminCommission += p.commissionAmount || 0;
+    platformFees += p.platformFee || 0;
+    taxExpenses += p.tax || 0;
+  });
+
+  /* ========================
+     🔁 REFUND
+  ======================== */
+
+  const refundAgg = await Booking.aggregate([
+    { $match: { isCancelled: true } },
+    { $group: { _id: null, total: { $sum: "$refundAmount" } } }
+  ]);
+
+  const refundAmount = Math.round(refundAgg[0]?.total || 0);
+
+  /* ========================
+     📈 GRAPH
+  ======================== */
+
+  let graph = [];
+
+  if (view === "monthly") {
+    const graphAgg = await PaymentTransaction.aggregate([
+      {
+        $match: {
+          status: "success",
+          createdAt: {
+            $gte: new Date(now.getFullYear(), 0, 1),
+            $lte: new Date(now.getFullYear(), 11, 31)
+          }
+        }
+      },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          revenue: { $sum: "$totalAmount" },
+          payout: { $sum: "$providerAmount" },
+          commission: { $sum: "$commissionAmount" },
+          platformFee: { $sum: "$platformFee" }
+        }
+      }
+    ]);
+
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    graph = months.map((month, i) => {
+      const found = graphAgg.find(g => g._id === i + 1);
+      return {
+        label: month,
+        revenue: found ? Math.round(found.revenue) : 0,
+        payouts: found ? Math.round(found.payout) : 0,
+        netEarnings: found
+          ? Math.round((found.commission || 0) + (found.platformFee || 0))
+          : 0
+      };
+    });
+  }
+
+  else {
+    const graphAgg = await PaymentTransaction.aggregate([
+      { $match: { status: "success" } },
+      {
+        $group: {
+          _id: { $year: "$createdAt" },
+          revenue: { $sum: "$totalAmount" },
+          payout: { $sum: "$providerAmount" },
+          commission: { $sum: "$commissionAmount" },
+          platformFee: { $sum: "$platformFee" }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    graph = graphAgg.map(g => ({
+      label: g._id.toString(),
+      revenue: Math.round(g.revenue),
+      payouts: Math.round(g.payout),
+      netEarnings: Math.round((g.commission || 0) + (g.platformFee || 0))
+    }));
+  }
+
+  /* ========================
+     📋 TRANSACTIONS
+  ======================== */
+
+  const transactionsRaw = await PaymentTransaction.find({
+    status: "success"
+  })
+    .populate({
+      path: "booking",
+      select: "orderId isCancelled refundAmount"
+    })
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(parseInt(limit));
+
+  const transactions = transactionsRaw.map(p => ({
+    date: p.createdAt,
+    orderId: p.orderId || p.booking?.orderId,
+    gross: Math.round(p.totalAmount || 0),
+    refund: p.booking?.isCancelled ? Math.round(p.booking?.refundAmount || 0) : 0,
+    adminCommission: Math.round(p.commissionAmount || 0),
+    platformFee: Math.round(p.platformFee || 0),
+    tax: Math.round(p.tax || 0),
+    payout: Math.round(p.providerAmount || 0),
+    status: p.booking?.isCancelled ? "refunded" : "completed"
+  }));
+
+  const totalTransactions = await PaymentTransaction.countDocuments({
+    status: "success"
+  });
+
+  return {
+    stats: {
+      grossRevenue: Math.round(grossRevenue),
+      providerPayouts: Math.round(providerPayouts),
+      adminCommission: Math.round(adminCommission),
+      platformFees: Math.round(platformFees),
+      taxExpenses: Math.round(taxExpenses),
+      refundAmount
+    },
+    graph,
+    transactions,
+    pagination: {
+      total: totalTransactions,
+      page: Number(page),
+      limit: Number(limit)
+    }
+  };
+};
+
+
+const getAdminEarningsDashboard = async (req, res) => {
+  try {
+    const data = await getAdminFinanceDashboardData(req);
+
+    res.status(200).json({
+      success: true,
+      data
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false });
+  }
+};
+
+const exportEarningsCSV = async (req, res) => {
+  try {
+    const data = await getAdminFinanceDashboardData(req);
+
+    const parser = new Parser();
+    const csv = parser.parse(data.transactions);
+
+    res.header("Content-Type", "text/csv");
+    res.attachment("earnings.csv");
+
+    return res.send(csv);
+
+  } catch (error) {
+    res.status(500).json({ success: false });
+  }
+};
+
+
+const exportEarningsPDF = async (req, res) => {
+  try {
+    const data = await getAdminFinanceDashboardData(req);
+
+    const chartImage = await chartCanvas.renderToBuffer({
+      type: "bar",
+      data: {
+        labels: data.graph.map(g => g.label),
+        datasets: [
+          { label: "Revenue", data: data.graph.map(g => g.revenue) },
+          { label: "Payouts", data: data.graph.map(g => g.payouts) },
+          { label: "Net Earnings", data: data.graph.map(g => g.netEarnings) }
+        ]
+      }
+    });
+
+    const doc = new PDFDocument({ margin: 40 });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=earnings.pdf");
+
+    doc.pipe(res);
+
+    /* HEADER */
+    doc.fontSize(20).text("Earnings Report", { align: "center" });
+    doc.moveDown();
+
+    /* STATS */
+    const s = data.stats;
+    doc.fontSize(12);
+    doc.text(`Gross Revenue: ₹${s.grossRevenue}`);
+    doc.text(`Provider Payouts: ₹${s.providerPayouts}`);
+    doc.text(`Admin Commission: ₹${s.adminCommission}`);
+    doc.text(`Platform Fees: ₹${s.platformFees}`);
+    doc.text(`Tax: ₹${s.taxExpenses}`);
+    doc.text(`Refund: ₹${s.refundAmount}`);
+
+    doc.moveDown();
+
+    /* CHART */
+    doc.text("Revenue vs Payouts Trend");
+    doc.image(chartImage, { fit: [500, 250] });
+
+    doc.addPage();
+
+    /* TABLE */
+    doc.fontSize(14).text("Transactions");
+    doc.moveDown();
+
+    data.transactions.forEach(t => {
+      doc.fontSize(10).text(
+        `${t.orderId} | ₹${t.gross} | ₹${t.payout} | ${t.status}`
+      );
+    });
+
+    doc.end();
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false });
+  }
+};
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -3729,6 +5057,12 @@ module.exports = {
   upsertCancellationPolicies,
   getCancellationPolicies,
   getCancelledBookings,
-  softDeleteReview
+  softDeleteReview,
+  getAdminDashboard,
+  getAdminReports,
+  exportReportPDF,
+  getAdminEarningsDashboard,
+  exportEarningsCSV,
+  exportEarningsPDF
 };
 

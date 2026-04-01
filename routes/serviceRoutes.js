@@ -47,7 +47,8 @@ const {
   updatePackage,
   getAllservicesForUser,
   createServiceUserReview,
-  getMyReviews
+  getMyReviews,
+  getServiceProviderDashboard
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -199,5 +200,8 @@ router.post(
   createServiceUserReview
 );
 
-router.get("/getMyReviews",validateServiceToken, getMyReviews)
+router.get("/getMyReviews",validateServiceToken, getMyReviews);
+
+router.get("/getServiceProviderDashboard",validateServiceToken, getServiceProviderDashboard);
+
 module.exports = router;

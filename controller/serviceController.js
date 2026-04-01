@@ -28,6 +28,7 @@ const Service = require("../models/Service");
 const Package = require("../models/Package");
 const CancellationPolicy = require("../models/CancellationPolicy");
 const Review = require("../models/Review");
+const Conversation = require("../models/Conversation");
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -190,9 +191,15 @@ const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
   });
 });
 
+
 const getServiceUser = catchAsyncError(async (req, res, next) => {
+  const userId = new mongoose.Types.ObjectId(req.user._id);
+
+  /* ========================
+     👤 USER INFO
+  ======================== */
   const user = await ServiceUser.findOne(
-    { _id: req.user._id },
+    { _id: userId },
     {
       email: 1,
       role: 1,
@@ -202,13 +209,99 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
       phoneCode: 1,
       profile: 1,
       isVerified: 1,
+      createdAt: 1
     }
   ).lean();
-  if (!user) return res.status(400).send({ message: "Service user not found" });
+
+  if (!user) {
+    return res.status(400).send({ message: "Service user not found" });
+  }
 
   user["phone"] = await codeRem(user.phone);
 
-  return res.status(200).send({ data: user });
+  /* ========================
+     📊 TOTAL TRIPS
+  ======================== */
+  const totalTrips = await Booking.countDocuments({
+    "providerBreakdown.user": userId,
+    isCancelled: false
+  });
+
+  /* ========================
+     ⭐ REVIEWS + AVG RATING
+  ======================== */
+  const reviewStats = await Review.aggregate([
+    {
+      $match: {
+        reviewee: userId,
+        revieweeModel: "ServiceUser",
+        isDeleted: false
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalReviews: { $sum: 1 },
+        avgRating: { $avg: "$rating" }
+      }
+    }
+  ]);
+
+  const totalReviews = reviewStats[0]?.totalReviews || 0;
+  const avgRating = reviewStats[0]?.avgRating || 0;
+
+  /* ========================
+     💰 TOTAL EARNINGS
+  ======================== */
+  const earningsResult = await Booking.aggregate([
+    {
+      $match: {
+        "providerBreakdown.user": userId,
+        paymentStatus: "paid",
+        isCancelled: false
+      }
+    },
+    { $unwind: "$providerBreakdown" },
+    {
+      $match: {
+        "providerBreakdown.user": userId
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalEarnings: { $sum: "$providerBreakdown.amount" }
+      }
+    }
+  ]);
+
+  const totalEarnings = earningsResult[0]?.totalEarnings || 0;
+
+  /* ========================
+     📅 EXPERIENCE (MONTHS)
+  ======================== */
+  const createdDate = new Date(user.createdAt);
+  const now = new Date();
+
+  const months =
+    (now.getFullYear() - createdDate.getFullYear()) * 12 +
+    (now.getMonth() - createdDate.getMonth());
+
+  /* ========================
+     📦 FINAL RESPONSE
+  ======================== */
+  return res.status(200).send({
+    data: {
+      ...user,
+      stats: {
+        trips: totalTrips,
+        reviews: totalReviews,
+        avgRating: Number(avgRating.toFixed(1)), // ⭐ like 4.5
+        earnings: totalEarnings,
+        months: months < 0 ? 0 : months
+      }
+    }
+  });
 });
 
 const editServiceUser = catchAsyncError(async (req, res, next) => {
@@ -2579,6 +2672,182 @@ const getMyReviews = async (req, res) => {
 };
 
 
+const getServiceProviderDashboard = async (req, res) => {
+  try {
+    const userId = new mongoose.Types.ObjectId(req.user._id);
+
+    /* ========================
+       📅 DATE RANGE
+    ======================== */
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    /* ========================
+       📊 BOOKINGS
+    ======================== */
+    const totalBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      isCancelled: false
+    });
+
+    const todayBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      checkIn: { $gte: todayStart, $lte: todayEnd },
+      isCancelled: false
+    });
+
+    /* ========================
+       💬 CHATS
+    ======================== */
+    const activeChats = await Conversation.countDocuments({
+      serviceUserId: userId,
+      isDeleted: false,
+      isClosed: false
+    });
+
+    /* ========================
+       💰 EARNINGS
+    ======================== */
+    const earningsResult = await Booking.aggregate([
+      {
+        $match: {
+          "providerBreakdown.user": userId,
+          paymentStatus: "paid",
+          isCancelled: false
+        }
+      },
+      { $unwind: "$providerBreakdown" },
+      {
+        $match: {
+          "providerBreakdown.user": userId
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalEarnings: { $sum: "$providerBreakdown.amount" }
+        }
+      }
+    ]);
+
+    const totalEarnings = earningsResult[0]?.totalEarnings || 0;
+
+    /* ========================
+       🛠 SERVICES
+    ======================== */
+    const totalServices = await Service.countDocuments({
+      user: userId,
+      isDeleted: false
+    });
+
+    /* ========================
+       📦 SERVICE BOOKINGS
+    ======================== */
+    const totalServiceBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      "providerBreakdown.type": "service",
+      isCancelled: false
+    });
+
+    const todayServiceBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      "providerBreakdown.type": "service",
+      checkIn: { $gte: todayStart, $lte: todayEnd },
+      isCancelled: false
+    });
+
+    /* ========================
+       💳 TRANSACTIONS
+    ======================== */
+    const transactions = await WalletTransaction.find({
+      user: userId
+    })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* ========================
+       ⭐ REVIEWS
+    ======================== */
+    const reviews = await Review.find({
+      reviewee: userId,
+      revieweeModel: "ServiceUser",
+      isDeleted: false
+    })
+      .populate("reviewer", "firstName lastName profile")
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    /* ========================
+       👤 EXPERIENCE (FIXED)
+    ======================== */
+    const provider = await ServiceUser.findById(userId).select("createdAt");
+
+    let experienceMonths = 0;
+    let experienceText = "0 Months";
+
+    if (provider?.createdAt) {
+      const created = new Date(provider.createdAt);
+      const now = new Date();
+
+      experienceMonths =
+        (now.getFullYear() - created.getFullYear()) * 12 +
+        (now.getMonth() - created.getMonth());
+
+      if (experienceMonths < 0) experienceMonths = 0;
+
+      // format text
+      if (experienceMonths < 1) {
+        experienceText = "New";
+      } else if (experienceMonths < 12) {
+        experienceText = `${experienceMonths} Month${experienceMonths > 1 ? "s" : ""}`;
+      } else {
+        const years = Math.floor(experienceMonths / 12);
+        const months = experienceMonths % 12;
+
+        experienceText =
+          months === 0
+            ? `${years} Year${years > 1 ? "s" : ""}`
+            : `${years} Year${years > 1 ? "s" : ""} ${months} Month${months > 1 ? "s" : ""}`;
+      }
+    }
+
+    /* ========================
+       📦 RESPONSE
+    ======================== */
+    res.status(200).json({
+      success: true,
+      data: {
+        stats: {
+          totalBookings,
+          todayBookings,
+          activeChats,
+          totalEarnings,
+
+          experienceMonths, // 🔢 raw
+          experienceText,   // 🧾 UI ready
+
+          totalServices,
+          totalServiceBookings,
+          todayServiceBookings
+        },
+        transactions,
+        reviews
+      }
+    });
+
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong"
+    });
+  }
+};
+
+
 module.exports = {
   serviceLogin,
   serviceSignUp,
@@ -2627,5 +2896,6 @@ module.exports = {
   updatePackage,
   getAllservicesForUser,
   createServiceUserReview,
-  getMyReviews
+  getMyReviews,
+  getServiceProviderDashboard
 };

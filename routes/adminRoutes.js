@@ -84,7 +84,13 @@ const {
   upsertCancellationPolicies,
   getCancellationPolicies,
   getCancelledBookings,
-  softDeleteReview
+  softDeleteReview,
+  getAdminDashboard,
+  getAdminReports,
+  exportReportPDF,
+  getAdminEarningsDashboard,
+  exportEarningsCSV,
+  exportEarningsPDF
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -201,7 +207,7 @@ router.get(
   getAllBanners
 );
 
-router.get("/allBookings", validateAdminToken, getAllBookingsAdmin);
+router.get("/bookings/:status", getAllBookingsAdmin);
 
 router.get("/property-bookings/:propertyId", validateAdminToken, getBookingsByPropertyId);
 
@@ -268,5 +274,16 @@ router.get("/getCancelledBookings", validateAdminToken, getCancelledBookings)
 router.get("/getReviews", validateAdminToken, getReviews);
 
 router.patch("/softDeleteReview/:reviewId", validateAdminToken, softDeleteReview);
+
+router.get("/getAdminDashboard", validateAdminToken, getAdminDashboard)
+
+router.get("/getAdminReports", validateAdminToken, getAdminReports);
+
+router.get("/exportReportPDF", validateAdminToken, exportReportPDF);
+
+router.get("/getAdminEarningsDashboard", getAdminEarningsDashboard)
+
+router.get("/exportEarningsCSV", exportEarningsCSV)
+router.get("/exportEarningsPDF", exportEarningsPDF)
 
 module.exports = router;

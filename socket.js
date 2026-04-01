@@ -36,7 +36,6 @@ module.exports = function (server) {
 
             socket.userId = userId;
 
-            // Notify others
             io.emit("userOnline", userId);
         });
 
