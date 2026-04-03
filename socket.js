@@ -3,6 +3,8 @@ const Conversation = require("./models/Conversation");
 const Message = require("./models/Message");
 const Ticket = require("./models/Ticket");
 
+const { sendNotification } = require("./utils/notificationService");
+
 module.exports = function (server) {
 
     const io = new Server(server, {
@@ -19,11 +21,8 @@ module.exports = function (server) {
 
         console.log("User connected:", socket.id);
 
-        /* =====================================================
-           REGISTER USER
-        ===================================================== */
+        /* ================= REGISTER ================= */
         socket.on("registerUser", (userId) => {
-
             if (!userId) return;
 
             userId = userId.toString();
@@ -33,145 +32,21 @@ module.exports = function (server) {
             }
 
             onlineUsers.get(userId).add(socket.id);
-
             socket.userId = userId;
 
             io.emit("userOnline", userId);
         });
 
-
-        /* =====================================================
-           CHECK ONLINE STATUS (🔥 IMPORTANT FIX)
-        ===================================================== */
-        socket.on("checkOnlineStatus", (userId) => {
-
-            if (!userId) return;
-
-            const isOnline = onlineUsers.has(userId.toString());
-
-            socket.emit("onlineStatusResult", {
-                userId,
-                isOnline
-            });
-        });
-
-
-        /* =====================================================
-           JOIN ROOM
-        ===================================================== */
+        /* ================= JOIN ROOM ================= */
         socket.on("joinConversation", (conversationId) => {
             if (!conversationId) return;
             socket.join(conversationId);
         });
 
-
-        /* =====================================================
-           TYPING
-        ===================================================== */
-        socket.on("typing", ({ conversationId, senderId }) => {
-            socket.to(conversationId).emit("userTyping", { senderId });
-        });
-
-        socket.on("stopTyping", ({ conversationId, senderId }) => {
-            socket.to(conversationId).emit("userStopTyping", { senderId });
-        });
-
-
-        /* =====================================================
-           SEND MESSAGE
-        ===================================================== */
-        // socket.on("sendMessage", async (data) => {
-
-        //     try {
-
-        //         const {
-        //             conversationId,
-        //             senderId,
-        //             message,
-        //             messageType = "TEXT",
-        //         } = data;
-
-        //         if (!conversationId || !senderId) return;
-
-        //         const conversation = await Conversation.findById(conversationId);
-
-        //         if (!conversation) {
-        //             socket.emit("errorMessage", "Conversation not found");
-        //             return;
-        //         }
-
-        //         if (conversation.isClosed) {
-        //             socket.emit("errorMessage", "Chat is closed");
-        //             return;
-        //         }
-
-        //         // Save message
-        //         const newMessage = await Message.create({
-        //             conversationId,
-        //             senderId,
-        //             message,
-        //             messageType,
-        //         });
-
-        //         // Update last message
-        //         conversation.lastMessage = message;
-        //         conversation.lastMessageAt = new Date();
-
-        //         // Unread logic
-        //         if (conversation.userId?.toString() === senderId) {
-        //             conversation.serviceUserUnreadCount =
-        //                 (conversation.serviceUserUnreadCount || 0) + 1;
-        //         }
-        //         else if (conversation.serviceUserId?.toString() === senderId) {
-        //             conversation.userUnreadCount =
-        //                 (conversation.userUnreadCount || 0) + 1;
-        //         }
-
-        //         await conversation.save();
-
-        //         // Emit to room
-        //         io.to(conversationId).emit("receiveMessage", newMessage);
-
-        //         /* =====================================================
-        //            DIRECT NOTIFICATION FIX
-        //         ===================================================== */
-
-        //         const participants = [
-        //             conversation.userId?.toString(),
-        //             conversation.serviceUserId?.toString(),
-        //             conversation.adminId?.toString(),
-        //         ].filter(Boolean);
-
-        //         participants.forEach((participantId) => {
-
-        //             if (participantId !== senderId) {
-
-        //                 const userSockets = onlineUsers.get(participantId);
-
-        //                 if (userSockets) {
-        //                     userSockets.forEach((socketId) => {
-        //                         io.to(socketId).emit("newMessageNotification", {
-        //                             conversationId,
-        //                         });
-        //                     });
-        //                 }
-        //             }
-        //         });
-
-        //     } catch (err) {
-        //         console.log("SendMessage Error:", err.message);
-        //     }
-        // });
-
-
+        /* ================= SEND MESSAGE ================= */
         socket.on("sendMessage", async (data) => {
             try {
-                const {
-                    conversationId,
-                    senderId,
-                    message,
-                    messageType = "TEXT",
-                } = data;
+                const { conversationId, senderId, message, messageType = "TEXT" } = data;
 
                 if (!conversationId || !senderId) return;
 
@@ -182,33 +57,21 @@ module.exports = function (server) {
                     return;
                 }
 
-                // 🚫 Conversation closed
                 if (conversation.isClosed) {
                     socket.emit("errorMessage", "Chat is closed");
                     return;
                 }
 
-                /* =====================================================
-                   ✅ TICKET VALIDATION (NEW)
-                ===================================================== */
+                /* ===== TICKET CHECK ===== */
                 if (
                     conversation.chatType === "USER_SUPPORT" ||
                     conversation.chatType === "SERVICE_SUPPORT"
                 ) {
                     const ticket = await Ticket.findOne({ conversationId });
 
-                    if (!ticket) {
-                        socket.emit("errorMessage", "Ticket not found");
-                        return;
-                    }
+                    if (!ticket) return socket.emit("errorMessage", "Ticket not found");
+                    if (ticket.status === "CLOSED") return socket.emit("errorMessage", "Ticket is closed");
 
-                    // 🚫 Ticket closed
-                    if (ticket.status === "CLOSED") {
-                        socket.emit("errorMessage", "Ticket is closed");
-                        return;
-                    }
-
-                    // 🔄 Auto move to IN_PROGRESS when admin replies
                     if (
                         conversation.adminId?.toString() === senderId &&
                         ticket.status === "OPEN"
@@ -218,9 +81,7 @@ module.exports = function (server) {
                     }
                 }
 
-                /* =====================================================
-                   💬 SAVE MESSAGE
-                ===================================================== */
+                /* ===== SAVE MESSAGE ===== */
                 const newMessage = await Message.create({
                     conversationId,
                     senderId,
@@ -228,92 +89,82 @@ module.exports = function (server) {
                     messageType,
                 });
 
-                /* =====================================================
-                   🧠 UPDATE CONVERSATION
-                ===================================================== */
+                /* ===== UPDATE CONVERSATION ===== */
                 conversation.lastMessage = message;
                 conversation.lastMessageAt = new Date();
                 conversation.lastMessageSenderId = senderId;
 
-                // 🔔 Unread logic
                 if (conversation.userId?.toString() === senderId) {
                     conversation.serviceUserUnreadCount =
                         (conversation.serviceUserUnreadCount || 0) + 1;
                 } else if (conversation.serviceUserId?.toString() === senderId) {
                     conversation.userUnreadCount =
                         (conversation.userUnreadCount || 0) + 1;
-                } else if (conversation.adminId?.toString() === senderId) {
-                    if (conversation.userId)
-                        conversation.userUnreadCount =
-                            (conversation.userUnreadCount || 0) + 1;
-
-                    if (conversation.serviceUserId)
-                        conversation.serviceUserUnreadCount =
-                            (conversation.serviceUserUnreadCount || 0) + 1;
                 }
 
                 await conversation.save();
 
-                /* =====================================================
-                   📡 EMIT MESSAGE
-                ===================================================== */
-                io.to(conversationId).emit("receiveMessage", newMessage);
-
-                /* =====================================================
-                   🔔 DIRECT NOTIFICATION
-                ===================================================== */
+                /* ================= SEND LOGIC ================= */
                 const participants = [
                     conversation.userId?.toString(),
                     conversation.serviceUserId?.toString(),
                     conversation.adminId?.toString(),
                 ].filter(Boolean);
 
-                participants.forEach((participantId) => {
-                    if (participantId !== senderId) {
-                        const userSockets = onlineUsers.get(participantId);
+                for (const participantId of participants) {
 
-                        if (userSockets) {
-                            userSockets.forEach((socketId) => {
-                                io.to(socketId).emit("newMessageNotification", {
-                                    conversationId,
-                                });
-                            });
-                        }
+                    if (participantId === senderId) continue;
+
+                    const userSockets = onlineUsers.get(participantId);
+                    const isOnline = userSockets && userSockets.size > 0;
+
+                    // ✅ ONLINE → REAL-TIME CHAT
+                    if (isOnline) {
+                        userSockets.forEach((socketId) => {
+                            io.to(socketId).emit("receiveMessage", newMessage);
+                        });
                     }
-                });
+
+                    // ❌ OFFLINE → PUSH NOTIFICATION
+                    else {
+
+                        let model = "User";
+
+                        if (conversation.serviceUserId?.toString() === participantId) {
+                            model = "ServiceUser";
+                        } else if (conversation.adminId?.toString() === participantId) {
+                            model = "Admin";
+                        }
+
+                        // ✅ FIXED senderModel
+                        let senderModel = "User";
+
+                        if (conversation.serviceUserId?.toString() === senderId) {
+                            senderModel = "ServiceUser";
+                        } else if (conversation.adminId?.toString() === senderId) {
+                            senderModel = "Admin";
+                        }
+
+                        await sendNotification({
+                            receiverId: participantId,
+                            receiverModel: model,
+                            senderId,
+                            senderModel,
+                            title: "New Message 💬",
+                            body: message,
+                            type: "CHAT",
+                            referenceId: conversationId,
+                            referenceType: "Conversation",
+                        });
+                    }
+                }
 
             } catch (err) {
                 console.log("SendMessage Error:", err.message);
             }
         });
 
-        /* =====================================================
-           MARK AS READ
-        ===================================================== */
-        socket.on("markAsRead", async ({ conversationId, userId }) => {
-
-            try {
-
-                const conversation = await Conversation.findById(conversationId);
-                if (!conversation) return;
-
-                if (conversation.userId?.toString() === userId)
-                    conversation.userUnreadCount = 0;
-
-                if (conversation.serviceUserId?.toString() === userId)
-                    conversation.serviceUserUnreadCount = 0;
-
-                await conversation.save();
-
-            } catch (err) {
-                console.log("MarkAsRead Error:", err.message);
-            }
-        });
-
-
-        /* =====================================================
-           DISCONNECT
-        ===================================================== */
+        /* ================= DISCONNECT ================= */
         socket.on("disconnect", () => {
 
             if (socket.userId) {
@@ -321,7 +172,6 @@ module.exports = function (server) {
                 const userSockets = onlineUsers.get(socket.userId);
 
                 if (userSockets) {
-
                     userSockets.delete(socket.id);
 
                     if (userSockets.size === 0) {
@@ -335,6 +185,10 @@ module.exports = function (server) {
         });
 
     });
+
+    /* ================= CONNECT NOTIFICATION ================= */
+    const { initNotificationService } = require("./utils/notificationService");
+    initNotificationService(io, onlineUsers);
 
     return io;
 };

@@ -90,7 +90,11 @@ const {
   exportReportPDF,
   getAdminEarningsDashboard,
   exportEarningsCSV,
-  exportEarningsPDF
+  exportEarningsPDF,
+  getAdminNotifications,
+  getAllNotificationsAdmin,
+  getNotificationDetails,
+  adminDeleteNotifications
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -281,9 +285,17 @@ router.get("/getAdminReports", validateAdminToken, getAdminReports);
 
 router.get("/exportReportPDF", validateAdminToken, exportReportPDF);
 
-router.get("/getAdminEarningsDashboard", getAdminEarningsDashboard)
+router.get("/getAdminEarningsDashboard", validateAdminToken, getAdminEarningsDashboard)
 
-router.get("/exportEarningsCSV", exportEarningsCSV)
-router.get("/exportEarningsPDF", exportEarningsPDF)
+router.get("/exportEarningsCSV", validateAdminToken, exportEarningsCSV)
+router.get("/exportEarningsPDF", validateAdminToken, exportEarningsPDF)
+
+router.get("/getAdminNotifications", validateAdminToken, getAdminNotifications);
+
+router.get("/getAllNotificationsAdmin", validateAdminToken, getAllNotificationsAdmin)
+
+router.get("/getNotificationDetails/:id",validateAdminToken, getNotificationDetails);
+
+router.delete("/adminDeleteNotifications", validateAdminToken, adminDeleteNotifications)
 
 module.exports = router;

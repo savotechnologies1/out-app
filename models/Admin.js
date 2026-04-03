@@ -42,14 +42,16 @@ const adminSchema = new mongoose.Schema(
       type: String,
     },
     isDeleted: { type: Boolean, default: false },
-    
-   phone: {
+    fcmToken: {
+      type: String
+    },
+    phone: {
       type: String,
     },
-   profileImage: {
+    profileImage: {
       type: String,
-      default:null
-   },
+      default: null
+    },
   },
   {
     timestamps: true,

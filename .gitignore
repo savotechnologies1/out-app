@@ -13,7 +13,7 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
- 
+chat-test.html
 logs
 
 # =========================

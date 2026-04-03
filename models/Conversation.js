@@ -86,12 +86,6 @@ const conversationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// /*  Prevent duplicate conversations */
-// conversationSchema.index(
-//   { chatType: 1, userId: 1, serviceUserId: 1, adminId: 1 },
-//   { unique: true }
-// );
-
 /*  Fast query by participants */
 conversationSchema.index({ userId: 1, serviceUserId: 1 });
 conversationSchema.index({ userId: 1, adminId: 1 });

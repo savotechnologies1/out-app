@@ -59,6 +59,7 @@ const {
 } = require("../validations/validator");
 const { getCancellationPolicies } = require("../controller/adminController");
 const { cancelBooking } = require("../controller/bookingController");
+const { getNotifications, getSingleNotification, markAsRead, deleteNotification, markAllAsRead, deleteAllNotifications } = require("../controller/notificationController");
 
 const router = app.Router();
 
@@ -193,6 +194,7 @@ router.get("/getCancellationPolicies", validateServiceToken, getCancellationPoli
 
 router.get("/getAllservicesForUser/:userId", validateServiceToken, getAllservicesForUser);
 
+
 router.post(
   "/createServiceUserReview",
   validateServiceToken,
@@ -203,5 +205,17 @@ router.post(
 router.get("/getMyReviews",validateServiceToken, getMyReviews);
 
 router.get("/getServiceProviderDashboard",validateServiceToken, getServiceProviderDashboard);
+
+router.get("/getAllNotifications", validateServiceToken, getNotifications);
+
+router.get("/getSingleNotification/:id",validateServiceToken, getSingleNotification);
+
+router.patch("/markAsRead/:id", validateServiceToken, markAsRead);
+
+router.delete("/deleteNotification/:id", validateServiceToken, deleteNotification);
+
+router.patch("/markAllAsRead", validateServiceToken, markAllAsRead);
+
+router.delete("/deleteAllNotifications", validateServiceToken, deleteAllNotifications);
 
 module.exports = router;

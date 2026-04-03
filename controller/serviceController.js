@@ -30,6 +30,40 @@ const CancellationPolicy = require("../models/CancellationPolicy");
 const Review = require("../models/Review");
 const Conversation = require("../models/Conversation");
 
+// const serviceLogin = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+
+//   const { mobile, mobileCode } = req.body;
+
+//   const user = await ServiceUser.findOne({
+//     phone: `${mobileCode}${mobile}`,
+//   }).lean(true);
+
+//   if (!user) return res.status(400).send({ message: "Service user not found" });
+//   if (!user.isActive) {
+//     res.status(403).json({ message: "Your account is suspended please contact the support" })
+//   }
+//   const otp = generateRandomOTP();
+//   ServiceUser.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+//   const existingWallet = await Wallet.findOne({ user: user._id });
+
+//   if (!existingWallet) {
+//     await Wallet.create({
+//       user: user._id
+//     });
+//   }
+//   return res
+//     .status(200)
+//     .send({ data: { otp, id: user._id }, message: "Login successfully" });
+// });
+
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
@@ -40,29 +74,48 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  const { mobile, mobileCode } = req.body;
+  const { mobile, mobileCode, fcmToken } = req.body;
 
   const user = await ServiceUser.findOne({
     phone: `${mobileCode}${mobile}`,
-  }).lean(true);
+  });
 
-  if (!user) return res.status(400).send({ message: "Service user not found" });
-  if (!user.isActive) {
-    res.status(403).json({ message: "Your account is suspended please contact the support" })
+  if (!user) {
+    return res.status(400).send({ message: "Service user not found" });
   }
+
+  if (!user.isActive) {
+    return res.status(403).json({
+      message: "Your account is suspended please contact the support",
+    });
+  }
+
   const otp = generateRandomOTP();
-  ServiceUser.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+
+  await ServiceUser.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        OTP: otp,
+        ...(fcmToken && { fcmToken: fcmToken })
+      },
+    }
+  );
+
   const existingWallet = await Wallet.findOne({ user: user._id });
 
   if (!existingWallet) {
     await Wallet.create({
-      user: user._id
+      user: user._id,
     });
   }
-  return res
-    .status(200)
-    .send({ data: { otp, id: user._id }, message: "Login successfully" });
+
+  return res.status(200).send({
+    data: { otp, id: user._id },
+    message: "Login successfully",
+  });
 });
+
 
 const serviceSignUp = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);

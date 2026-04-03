@@ -42,6 +42,48 @@ const Review = require("../models/Review");
 const { Parser } = require("json2csv");
 const PDFDocument = require("pdfkit");
 const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
+const Notification = require("../models/Notification");
+
+// const adminLogin = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+//   let { email, password } = req.body;
+//   email = email.toLowerCase();
+//   const admin = await Admin.findOne({
+//     email: email,
+//     isDeleted: false,
+//   });
+//   if (!admin) return res.status(400).send({ message: "Invalid Credentials" });
+//   const isMatched = await admin.matchPassword(password);
+//   if (!isMatched)
+//     return res.status(400).send({ message: "Invalid Credentials" });
+
+//   const adminField = {
+//     _id: admin._id,
+//     firstName: admin.firstName,
+//     email: admin.email,
+//   };
+
+//   const token = jwt.sign({ user: adminField }, process.env.JWT_SECRET, {
+//     expiresIn: "30d",
+//   });
+
+//   await Admin.updateOne(
+//     { _id: admin._id, isDeleted: false },
+//     { $push: { tokens: token } }
+//   );
+
+//   return res.status(200).send({
+//     token,
+//     message: "Logged In Successfully",
+//   });
+// });
+
 
 const adminLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -51,13 +93,17 @@ const adminLogin = catchAsyncError(async (req, res, next) => {
       message: checkValid.errors.msg,
     });
   }
-  let { email, password } = req.body;
+
+  let { email, password, fcmToken } = req.body; // ✅ Accept fcmToken
   email = email.toLowerCase();
+
   const admin = await Admin.findOne({
     email: email,
     isDeleted: false,
   });
+
   if (!admin) return res.status(400).send({ message: "Invalid Credentials" });
+
   const isMatched = await admin.matchPassword(password);
   if (!isMatched)
     return res.status(400).send({ message: "Invalid Credentials" });
@@ -72,9 +118,15 @@ const adminLogin = catchAsyncError(async (req, res, next) => {
     expiresIn: "30d",
   });
 
+  // ✅ Update admin: push JWT token and save FCM token if provided
+  const updateData = { $push: { tokens: token } };
+  if (fcmToken) {
+    updateData.$set = { fcmToken: fcmToken };
+  }
+
   await Admin.updateOne(
     { _id: admin._id, isDeleted: false },
-    { $push: { tokens: token } }
+    updateData
   );
 
   return res.status(200).send({
@@ -82,6 +134,7 @@ const adminLogin = catchAsyncError(async (req, res, next) => {
     message: "Logged In Successfully",
   });
 });
+
 
 const sendForgotPasswordOTP = async (req, res) => {
   try {
@@ -2416,9 +2469,6 @@ const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
 
   const totalPages = Math.ceil(total / limit);
 
-  /* ========================
-     📤 RESPONSE
-  ======================== */
   return res.status(200).json({
     success: true,
     data: bookings,
@@ -4973,6 +5023,184 @@ const exportEarningsPDF = async (req, res) => {
   }
 };
 
+const getAdminNotifications = async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+
+    const receiverId = req.user._id;
+
+    const receiverModel = "Admin"; // ✅ FIXED (no dependency on role)
+
+    const skip = (page - 1) * limit;
+
+    const notifications = await Notification.find({
+      receiverId,
+      receiverModel,
+      isDeleted: false,
+    })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Notification.countDocuments({
+      receiverId,
+      receiverModel,
+      isDeleted: false,
+    });
+
+    res.status(200).json({
+      success: true,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      data: notifications,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getAllNotificationsAdmin = async (req, res) => {
+  try {
+    let { page = 1, limit = 10, type, isDeleted } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const skip = (page - 1) * limit;
+
+    /* =========================
+       FILTER
+    ========================= */
+    let filter = {};
+
+    // Optional filter by type
+    if (type) {
+      filter.referenceType = type;
+    }
+
+    // ✅ Include deleted or not
+    if (isDeleted !== undefined) {
+      filter.isDeleted = isDeleted === "true";
+    }
+
+    const notifications = await Notification.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Notification.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      data: notifications,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getNotificationDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const notification = await Notification.findById(id);
+
+    if (!notification || notification.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: notification,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const adminDeleteNotifications = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide ids array",
+      });
+    }
+
+    const notifications = await Notification.find({
+      _id: { $in: ids },
+    });
+
+    if (!notifications.length) {
+      return res.status(404).json({
+        success: false,
+        message: "No notifications found",
+      });
+    }
+
+    const deletable = [];
+    const skipped = [];
+
+    notifications.forEach((n) => {
+      if (n.receiverModel === "Admin") {
+        deletable.push(n._id);
+      } else if (n.isDeleted === true) {
+        deletable.push(n._id);
+      } else {
+        skipped.push({
+          id: n._id,
+          reason: "Not soft deleted",
+        });
+      }
+    });
+
+    let deletedCount = 0;
+
+    if (deletable.length) {
+      const result = await Notification.deleteMany({
+        _id: { $in: deletable },
+      });
+      deletedCount = result.deletedCount;
+    }
+
+    /* =========================
+       FRONTEND FRIENDLY RESPONSE
+    ========================= */
+    res.status(200).json({
+      success: true,
+      summary: {
+        totalRequested: ids.length,
+        deleted: deletedCount,
+        skipped: skipped.length,
+      },
+      data: {
+        deletedIds: deletable,
+        skipped, 
+      },
+      message:
+        deletedCount > 0
+          ? `${deletedCount} deleted, ${skipped.length} skipped`
+          : "No notifications deleted",
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -5063,6 +5291,10 @@ module.exports = {
   exportReportPDF,
   getAdminEarningsDashboard,
   exportEarningsCSV,
-  exportEarningsPDF
+  exportEarningsPDF,
+  getAdminNotifications,
+  getAllNotificationsAdmin,
+  getNotificationDetails,
+  adminDeleteNotifications
 };
 

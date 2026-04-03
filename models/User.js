@@ -17,6 +17,9 @@ const userSchema = new mongoose.Schema(
     zipCode: { type: String },
     country: { type: String },
     OTP: { type: String },
+    fcmToken: {
+      type: String
+    },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },

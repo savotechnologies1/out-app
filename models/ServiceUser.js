@@ -10,7 +10,9 @@ const userSchema = new mongoose.Schema(
     email: { type: String },
     profile: { type: String },
     phone: { type: String },
-
+    fcmToken: {
+      type: String
+    },
     // ✅ Correct address object
     address: {
       street: { type: String },

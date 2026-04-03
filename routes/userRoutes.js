@@ -44,6 +44,7 @@ const {
 const { uploads } = require("../functions/upload");
 const { getAllCategories } = require("../controller/serviceController");
 const { cancelBooking } = require("../controller/bookingController");
+const { getNotifications, getSingleNotification, markAsRead, deleteNotification, markAllAsRead, deleteAllNotifications } = require("../controller/notificationController");
 
 const router = app.Router();
 
@@ -98,21 +99,33 @@ router.get("/getLatestServices", validateToken, getLatestServices)
 
 router.get("/getServiceDetail/:serviceId", validateToken, getServiceDetail)
 
-router.post("/toggleFavorite",validateToken, toggleFavorite);
+router.post("/toggleFavorite", validateToken, toggleFavorite);
 
 router.get("/getUserFavorites", validateToken, getUserFavorites);
 
-router.post("/cancelBooking/:bookingId",validateToken, cancelBooking);
+router.post("/cancelBooking/:bookingId", validateToken, cancelBooking);
 
 router.post("/googleLogin", googleLogin);
 
 router.post(
   "/createUserReview",
   validateToken,
-  uploads.array("reviewImg", 5), 
+  uploads.array("reviewImg", 5),
   createUserReview
 );
 
-router.get("/getReviews",validateToken, getReviews)
+router.get("/getReviews", validateToken, getReviews);
+
+router.get("/getAllNotifications", validateToken, getNotifications);
+
+router.get("/getSingleNotification/:id", validateToken, getSingleNotification);
+
+router.patch("/markAsRead/:id", validateToken, markAsRead);
+
+router.delete("/deleteNotification/:id", validateToken, deleteNotification);
+
+router.patch("/markAllAsRead", validateToken, markAllAsRead);
+
+router.delete("/deleteAllNotifications", validateToken, deleteAllNotifications)
 
 module.exports = router;

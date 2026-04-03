@@ -31,6 +31,48 @@ const path = require("path")
 
 
 
+// const userLogin = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+
+//   const { mobile, mobileCode } = req.body;
+
+//   const user = await User.findOne({
+//     phone: `${mobileCode}${mobile}`,
+//   });
+
+//   if (!user) {
+//     return res.status(400).send({ message: "User not found" });
+//   }
+
+//   if (!user.isActive) {
+//     return res.status(403).json({
+//       message: "Your account is suspended please contact support",
+//     });
+//   }
+
+//   const otp = generateRandomOTP();
+
+//   await User.updateOne(
+//     { _id: user._id },
+//     { $set: { OTP: otp } }
+//   );
+
+//   await authenticaOTP(otp, user.email, user.phone);
+
+//   return res.status(200).send({
+//     data: { id: user._id },
+//     message: "OTP sent successfully",
+//   });
+// });
+
+
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
@@ -41,7 +83,7 @@ const userLogin = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  const { mobile, mobileCode } = req.body;
+  const { mobile, mobileCode, fcmToken } = req.body;
 
   const user = await User.findOne({
     phone: `${mobileCode}${mobile}`,
@@ -61,7 +103,12 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 
   await User.updateOne(
     { _id: user._id },
-    { $set: { OTP: otp } }
+    {
+      $set: {
+        OTP: otp,
+        ...(fcmToken && { fcmToken: fcmToken })
+      },
+    }
   );
 
   await authenticaOTP(otp, user.email, user.phone);
@@ -71,6 +118,7 @@ const userLogin = catchAsyncError(async (req, res, next) => {
     message: "OTP sent successfully",
   });
 });
+
 
 const userSignUp = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -177,12 +225,10 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
 const client = new OAuth2Client();
 
 const googleLogin = async (req, res) => {
-  console.log("req.body", req.body);
 
   try {
-    const { token, role } = req.body;
+    const { token, role, fcmToken } = req.body;
 
-    // ✅ check token
     if (!token) {
       return res.status(400).json({
         success: false,
@@ -190,7 +236,6 @@ const googleLogin = async (req, res) => {
       });
     }
 
-    // ✅ verify token (ANDROID CLIENT ID)
     const ticket = await client.verifyIdToken({
       idToken: token,
       audience: [process.env.GOOGLE_ANDROID_CLIENT_ID],
@@ -198,7 +243,6 @@ const googleLogin = async (req, res) => {
 
     const payload = ticket.getPayload();
 
-    // ✅ check email
     if (!payload.email) {
       return res.status(400).json({
         success: false,
@@ -212,7 +256,6 @@ const googleLogin = async (req, res) => {
 
     const Model = role === "service_user" ? ServiceUser : User;
 
-    // ✅ UPSERT (login + signup in one)
     const user = await Model.findOneAndUpdate(
       { email },
       {
@@ -233,7 +276,14 @@ const googleLogin = async (req, res) => {
       }
     );
 
-    // ✅ prepare jwt data
+    if (fcmToken) {
+      await Model.updateOne(
+        { _id: user._id },
+        {
+          $set: { fcmToken: fcmToken },
+        }
+      );
+    }
     const userData = {
       _id: user._id,
       email: user.email,
@@ -241,14 +291,12 @@ const googleLogin = async (req, res) => {
       role: user.role,
     };
 
-    // ✅ generate token
     const jwtToken = jwt.sign(
       { user: userData },
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
 
-    // ✅ save token (optional)
     await Model.updateOne(
       { _id: user._id },
       {
