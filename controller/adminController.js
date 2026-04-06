@@ -2683,6 +2683,12 @@ const getAllPaymentTransactions = async (req, res) => {
     const skip = (page - 1) * limit;
 
     /* ========================
+       🔧 HELPER (ROUNDING)
+    ======================== */
+    const formatAmount = (num) =>
+      typeof num === "number" ? Number(num.toFixed(2)) : num;
+
+    /* ========================
        🔍 SEARCH FILTER
     ======================== */
     const filter = {};
@@ -2690,14 +2696,9 @@ const getAllPaymentTransactions = async (req, res) => {
     if (search) {
       filter.$or = [
         { orderId: { $regex: search, $options: "i" } },
-        { tapChargeId: { $regex: search, $options: "i" } }
+        { tapChargeId: { $regex: search, $options: "i" } },
       ];
     }
-
-    /* ========================
-       📊 TOTAL COUNT
-    ======================== */
-    const total = await PaymentTransaction.countDocuments(filter);
 
     /* ========================
        📦 FETCH DATA
@@ -2705,22 +2706,22 @@ const getAllPaymentTransactions = async (req, res) => {
     const transactions = await PaymentTransaction.find(filter)
       .populate({
         path: "booking",
-        match: type ? { bookingType: type } : {}, // ✅ FILTER BY TYPE
+        match: type ? { bookingType: type } : {},
         select: "orderId user property services bookingStatus bookingType",
         populate: [
           {
             path: "user",
-            select: "firstName lastName email"
+            select: "firstName lastName email",
           },
           {
             path: "property",
-            select: "title"
+            select: "title",
           },
           {
-            path: "services.service", // ✅ POPULATE SERVICES
-            select: "title price"
-          }
-        ]
+            path: "services.service",
+            select: "title price",
+          },
+        ],
       })
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -2730,8 +2731,24 @@ const getAllPaymentTransactions = async (req, res) => {
     /* ========================
        ⚠️ REMOVE NULL BOOKINGS
     ======================== */
-    const filteredTransactions = transactions.filter(t => t.booking);
+    const filteredTransactions = transactions.filter((t) => t.booking);
 
+    /* ========================
+       💰 FORMAT AMOUNTS
+    ======================== */
+    const formattedTransactions = filteredTransactions.map((t) => ({
+      ...t,
+      totalAmount: formatAmount(t.totalAmount),
+      commissionAmount: formatAmount(t.commissionAmount),
+      providerAmount: formatAmount(t.providerAmount),
+      platformFee: formatAmount(t.platformFee),
+      tax: formatAmount(t.tax),
+    }));
+
+    /* ========================
+       📊 TOTAL COUNT (AFTER FILTER)
+    ======================== */
+    const total = await PaymentTransaction.countDocuments(filter);
     const totalPages = Math.ceil(total / limit);
 
     /* ========================
@@ -2739,21 +2756,20 @@ const getAllPaymentTransactions = async (req, res) => {
     ======================== */
     return res.status(200).json({
       success: true,
-      data: filteredTransactions,
+      data: formattedTransactions,
       page,
       limit,
-      total: filteredTransactions.length, // better count after filter
+      total: formattedTransactions.length, // filtered count
       totalPages,
       previousDisabled: page === 1,
       nextPage: page < totalPages ? page + 1 : null,
       previousPage: page > 1 ? page - 1 : null,
-      nextDisabled: page >= totalPages
+      nextDisabled: page >= totalPages,
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
