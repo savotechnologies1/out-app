@@ -84,7 +84,7 @@ const sendNotification = async ({
     else {
       const Model = getModel(receiverModel);
       const user = await Model.findById(receiverId);
-
+      console.log("user", user.fcmToken)
       if (user?.fcmToken) {
         await admin.messaging().send({
           token: user.fcmToken,

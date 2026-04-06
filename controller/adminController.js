@@ -3111,7 +3111,7 @@ const getAllUserBookingsAdmin = async (req, res) => {
 
     const bookings = await Booking.find(filter)
       .populate({
-        path: "hotel",
+        path: "property",
         select: "name address price"
       })
       .populate({
