@@ -29,6 +29,7 @@ const Package = require("../models/Package");
 const CancellationPolicy = require("../models/CancellationPolicy");
 const Review = require("../models/Review");
 const Conversation = require("../models/Conversation");
+const Admin = require("../models/Admin");
 
 // const serviceLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
@@ -182,7 +183,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   };
 
   const data = await ServiceUser.create(obj);
-  
+
   return res
     .status(200)
     .send({ data: { otp, id: data._id }, message: "Please verify Email" });
@@ -857,6 +858,25 @@ const addProperties = catchAsyncError(async (req, res, next) => {
   if (finalCount === 10) {
     updateData.is_completed = true;
     updateData.status = "completed";
+
+    const admins = await Admin.find({}, "_id");
+
+    for (let admin of admins) {
+      await sendNotification({
+        receiverId: admin._id,
+        receiverModel: "Admin",
+        senderId: req.user._id,
+        senderModel: "ServiceUser",
+        title: "New Property Submitted 🏠",
+        body: "A new property has been submitted for approval.",
+        type: "PROPERTY",
+        referenceId: updatedProperty._id,
+        referenceType: "Property",
+        data: {
+          propertyId: updatedProperty._id,
+        },
+      });
+    }
   }
 
   const [updatedProperty, _] = await Promise.all([
@@ -1070,7 +1090,26 @@ const editProperties = catchAsyncError(async (req, res, next) => {
   }
 
   await Properties.updateOne({ _id: id }, { $set: obj });
+  if (obj.approvalStatus === "pending") {
+    const admins = await Admin.find({}, "_id");
 
+    for (let admin of admins) {
+      await sendNotification({
+        receiverId: admin._id,
+        receiverModel: "Admin",
+        senderId: req.user._id,
+        senderModel: "ServiceUser",
+        title: "Property Updated for Review 🔄",
+        body: "A property has been updated and needs approval again.",
+        type: "PROPERTY",
+        referenceId: id,
+        referenceType: "Property",
+        data: {
+          propertyId: id,
+        },
+      });
+    }
+  }
   return res.status(200).send({
     message: "Property updated successfully",
     id,
@@ -1525,6 +1564,26 @@ const createWithdrawRequest = async (req, res) => {
       bankDetails: bank._id
     });
 
+    const admins = await Admin.find({}, "_id");
+
+    for (let admin of admins) {
+      await sendNotification({
+        receiverId: admin._id,
+        receiverModel: "Admin",
+        senderId: req.user._id,
+        senderModel: "ServiceUser", 
+        title: "New Withdraw Request 💰",
+        body: `A new withdraw request of ₹${amount} has been submitted.`,
+        type: "PAYMENT",
+        referenceId: withdraw._id,
+        referenceType: "Payment", 
+        data: {
+          withdrawId: withdraw._id,
+          amount,
+        },
+      });
+    }
+
     res.status(201).send({
       success: true,
       data: withdraw
@@ -1768,18 +1827,18 @@ const createService = async (req, res) => {
 
       duration = endMinutes - startMinutes;
     }
-    
-    const policy = await CancellationPolicy.findOne({
-        _id: cancellationPolicy,
-        isActive: true
-      });
 
-      if (!policy) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid or inactive cancellation policy"
-        });
-      }
+    const policy = await CancellationPolicy.findOne({
+      _id: cancellationPolicy,
+      isActive: true
+    });
+
+    if (!policy) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or inactive cancellation policy"
+      });
+    }
     // ----------- CREATE SERVICE -----------
 
     const service = await Service.create({
@@ -1815,6 +1874,25 @@ const createService = async (req, res) => {
       }
 
     });
+
+    const admins = await Admin.find({}, "_id");
+
+    for (let admin of admins) {
+      await sendNotification({
+        receiverId: admin._id,
+        receiverModel: "Admin",
+        senderId: req.user._id,
+        senderModel: "ServiceUser",
+        title: "New Service Added 🛠️",
+        body: "A new service has been submitted for approval.",
+        type: "SERVICE",
+        referenceId: service._id,
+        referenceType: "Service",
+        data: {
+          serviceId: service._id,
+        },
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -2024,7 +2102,7 @@ const updateService = async (req, res) => {
     if (price) service.price = Number(price);
     if (priceType) service.priceType = priceType;
     if (description) service.description = description.trim();
-    
+
     // ---------------- WORKING DAYS ----------------
 
     if (workingDays) {
@@ -2071,7 +2149,7 @@ const updateService = async (req, res) => {
     if (city) service.location.city = city;
     if (state) service.location.state = state;
     if (country) service.location.country = country;
-    if(cancellationPolicy){
+    if (cancellationPolicy) {
       const policy = await CancellationPolicy.findOne({
         _id: cancellationPolicy,
         isActive: true
@@ -2088,6 +2166,27 @@ const updateService = async (req, res) => {
     // ---------------- SAVE ----------------
 
     await service.save();
+
+    if (service.approvalStatus === "pending") {
+      const admins = await Admin.find({}, "_id");
+
+      for (let admin of admins) {
+        await sendNotification({
+          receiverId: admin._id,
+          receiverModel: "Admin",
+          senderId: req.user._id,
+          senderModel: "ServiceUser",
+          title: "Service Updated for Review 🔄",
+          body: "A service has been updated and needs approval again.",
+          type: "SERVICE",
+          referenceId: service._id,
+          referenceType: "Service",
+          data: {
+            serviceId: service._id,
+          },
+        });
+      }
+    }
 
     res.json({
       success: true,
@@ -2643,7 +2742,7 @@ const getMyReviews = async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
- 
+
     const services = await Service.find({ user: userId }).select("_id");
     const serviceIds = services.map(s => s._id);
 

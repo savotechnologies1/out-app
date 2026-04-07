@@ -43,6 +43,7 @@ const { Parser } = require("json2csv");
 const PDFDocument = require("pdfkit");
 const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 const Notification = require("../models/Notification");
+const { sendNotification } = require("../utils/notificationService");
 
 // const adminLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
@@ -1654,6 +1655,27 @@ const updateStatus = async (req, res) => {
 
     await user.save();
 
+    await sendNotification({
+      receiverId: user._id,
+      receiverModel: "ServiceUser",
+      senderId: req.user._id,
+      senderModel: "Admin",
+      title:
+        status === "approved"
+          ? "Account Approved ✅"
+          : "Account Rejected ❌",
+      body:
+        status === "approved"
+          ? "Your account has been approved by admin."
+          : `Your account has been rejected. Reason: ${rejectReason}`,
+      type: "SYSTEM",
+      data: {
+        status,
+        rejectReason: rejectReason || null,
+      },
+    });
+
+
     res.status(200).json({
       message: `User ${status} successfully`,
       data: user,
@@ -1701,6 +1723,20 @@ const blockUnblockServiceUser = catchAsyncError(async (req, res, next) => {
 
   user.isActive = isActive;
   await user.save();
+
+  await sendNotification({
+    receiverId: user._id,
+    receiverModel: type === "service" ? "ServiceUser" : "User",
+    senderId: req.user._id,
+    senderModel: "Admin",
+    title: isActive
+      ? "Account Activated ✅"
+      : "Account Blocked ❌",
+    body: isActive
+      ? "Your account has been activated by admin."
+      : "Your account has been blocked by admin.",
+    type: "SYSTEM",
+  });
 
   // Template naming logic (block/unblock)
   const templateName = isActive ? "user-unblock" : "user-block";
@@ -3091,6 +3127,29 @@ const updateWithdrawStatus = async (req, res) => {
 
     }
 
+    await sendNotification({
+      receiverId: request.user,
+      receiverModel: "ServiceUser", // ⚠️ change if needed (User/ServiceUser)
+      senderId: req.user._id,
+      senderModel: "Admin",
+      title:
+        status === "approved"
+          ? "Withdraw Approved ✅"
+          : "Withdraw Rejected ❌",
+      body:
+        status === "approved"
+          ? `Your withdraw request of ₹${request.amount} has been approved.`
+          : `Your withdraw request was rejected.`,
+      type: "WITHDRAW",
+      referenceId: request._id,
+      referenceType: "Withdraw",
+      data: {
+        status,
+        amount: request.amount,
+        rejectReason: rejectReason || null,
+      },
+    });
+
     res.send({
       success: true,
       data: request
@@ -3764,6 +3823,28 @@ const updatePropertyApproval = async (req, res) => {
 
     await property.save();
 
+    await sendNotification({
+      receiverId: property.user, // 👈 VERY IMPORTANT
+      receiverModel: "ServiceUser",
+      senderId: adminId,
+      senderModel: "Admin",
+      title:
+        action === "approve"
+          ? "Property Approved ✅"
+          : "Property Rejected ❌",
+      body:
+        action === "approve"
+          ? "Your property has been approved."
+          : "Your property has been rejected.",
+      type: "PROPERTY",
+      referenceId: property._id,
+      referenceType: "Property",
+      data: {
+        status: property.approvalStatus,
+        rejectionReason: reason || null,
+      },
+    });
+
     res.status(200).json({
       success: true,
       message: `Property ${property.approvalStatus} successfully`,
@@ -3847,6 +3928,28 @@ const updateServiceApproval = async (req, res) => {
     service.rejectionReason = action === "reject" ? reason : undefined;
 
     await service.save();
+
+    await sendNotification({
+      receiverId: service.user,
+      receiverModel: "ServiceUser",
+      senderId: adminId,
+      senderModel: "Admin",
+      title:
+        action === "approve"
+          ? "Service Approved ✅"
+          : "Service Rejected ❌",
+      body:
+        action === "approve"
+          ? "Your service has been approved."
+          : "Your service has been rejected.",
+      type: "SERVICE",
+      referenceId: service._id,
+      referenceType: "Service",
+      data: {
+        status: service.approvalStatus,
+        rejectionReason: reason || null,
+      },
+    });
 
     res.status(200).json({
       success: true,
@@ -4372,9 +4475,9 @@ const getAdminReportsData = async (req) => {
 
   const previousBookings = isFiltered
     ? await Booking.countDocuments({
-        ...previousFilter,
-        isCancelled: false
-      })
+      ...previousFilter,
+      isCancelled: false
+    })
     : 0;
 
   /* ========================
@@ -4401,20 +4504,20 @@ const getAdminReportsData = async (req) => {
 
   const prevRevenueAgg = isFiltered
     ? await Booking.aggregate([
-        {
-          $match: {
-            ...previousFilter,
-            paymentStatus: "paid",
-            isCancelled: false
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: "$totalAmount" }
-          }
+      {
+        $match: {
+          ...previousFilter,
+          paymentStatus: "paid",
+          isCancelled: false
         }
-      ])
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$totalAmount" }
+        }
+      }
+    ])
     : [];
 
   const previousRevenue = Math.round(prevRevenueAgg[0]?.total || 0);
@@ -4427,16 +4530,16 @@ const getAdminReportsData = async (req) => {
     ? previousRevenue > 0
       ? Number((((totalRevenue - previousRevenue) / previousRevenue) * 100).toFixed(1))
       : totalRevenue > 0
-      ? 100
-      : 0
+        ? 100
+        : 0
     : 0;
 
   const bookingGrowthPercent = isFiltered
     ? previousBookings > 0
       ? Number((((totalBookings - previousBookings) / previousBookings) * 100).toFixed(1))
       : totalBookings > 0
-      ? 100
-      : 0
+        ? 100
+        : 0
     : 0;
 
   /* ========================
@@ -4475,8 +4578,8 @@ const getAdminReportsData = async (req) => {
   ]);
 
   const months = [
-    "Jan","Feb","Mar","Apr","May","Jun",
-    "Jul","Aug","Sep","Oct","Nov","Dec"
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
   ];
 
   const revenueGraph = months.map((month, index) => {
@@ -4854,7 +4957,7 @@ const getAdminFinanceDashboardData = async (req) => {
       }
     ]);
 
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     graph = months.map((month, i) => {
       const found = graphAgg.find(g => g._id === i + 1);
@@ -5200,7 +5303,7 @@ const adminDeleteNotifications = async (req, res) => {
       },
       data: {
         deletedIds: deletable,
-        skipped, 
+        skipped,
       },
       message:
         deletedCount > 0

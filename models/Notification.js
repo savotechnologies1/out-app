@@ -37,7 +37,6 @@ const notificationSchema = new mongoose.Schema(
       required: true,
     },
 
-    // 📂 Type (VERY IMPORTANT)
     type: {
       type: String,
       enum: [
@@ -47,18 +46,21 @@ const notificationSchema = new mongoose.Schema(
         "REFUND",
         "REVIEW",
         "SYSTEM",
+        "SERVICE",
+        "WITHDRAW",
+        "PROPERTY", // ✅ ADD THIS
       ],
       required: true,
+    },
+
+    referenceType: {
+      type: String,
+      enum: ["Conversation", "Booking", "Payment", "Refund", "Property", "Service", "Withdraw"], // ✅ ADD THIS
     },
 
     // 🔗 Reference (for deep linking)
     referenceId: {
       type: mongoose.Schema.Types.ObjectId,
-    },
-
-    referenceType: {
-      type: String,
-      enum: ["Conversation", "Booking", "Payment", "Refund"],
     },
 
     // 📦 Extra data
