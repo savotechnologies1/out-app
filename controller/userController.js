@@ -352,30 +352,51 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
   const checkValid = await checkValidations(errors);
   if (checkValid.type === "error") {
     return res.status(400).send({
+      success: false,
+      data: null,
       message: checkValid.errors.msg,
     });
   }
 
-  const { mobile } = req.body;
+  const { mobile, mobileCode } = req.body;
+
+  // ✅ normalize number
+  let formattedMobile = mobile;
+  if (!String(mobile).startsWith("+")) {
+    formattedMobile = `${mobileCode}${mobile}`;
+  }
 
   const [user, serviceUser] = await Promise.all([
-    User.findOne({ phone: mobile }).lean(true),
-    ServiceUser.findOne({ phone: mobile }).lean(true),
+    User.findOne({ phone: formattedMobile }).lean(),
+    ServiceUser.findOne({ phone: formattedMobile }).lean(),
   ]);
 
-  if (!user && !serviceUser)
-    return res.status(400).send({ message: "User not found" });
+  if (!user && !serviceUser) {
+    return res.status(400).send({
+      success: false,
+      data: null,
+      message: "User not found",
+    });
+  }
 
   const otp = generateRandomOTP();
 
-  await Promise.all([
-    User.updateOne({ _id: user?._id }, { $set: { OTP: otp } }),
-    ServiceUser.updateOne({ _id: serviceUser?._id }, { $set: { OTP: otp } }),
-  ]);
+  if (user) {
+    await User.updateOne({ _id: user._id }, { $set: { OTP: otp } });
+  }
 
-  return res
-    .status(200)
-    .send({ data: { otp }, message: "Resent OTP successfully" });
+  if (serviceUser) {
+    await ServiceUser.updateOne(
+      { _id: serviceUser._id },
+      { $set: { OTP: otp } }
+    );
+  }
+
+  return res.status(200).send({
+    success: true,
+    data: { otp },
+    message: "Resent OTP successfully",
+  });
 });
 
 const logout = catchAsyncError(async (req, res, next) => {
