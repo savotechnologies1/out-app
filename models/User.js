@@ -24,7 +24,10 @@ const userSchema = new mongoose.Schema(
     isDeleted: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     tokens: { type: [String] },
-    googleId: { type: String, default: null },
+    googleId: {
+      type: String,
+      sparse: true   // 🔥 important
+    },
     authProvider: {
       type: String,
       enum: ["local", "google"],

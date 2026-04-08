@@ -13,8 +13,10 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-chat-test.html
+userchat.html
 logs
+sevice.html
+admin.html
 
 # =========================
 # Runtime data

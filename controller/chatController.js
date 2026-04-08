@@ -193,8 +193,8 @@ exports.createConversation = async (req, res) => {
         status: { $ne: "CLOSED" },
       });
 
-      const ticketImage = req.file.filename;
-
+      // const ticketImage = req.file.filename;
+        const ticketImage = null;
       if (existingTicket) {
         // ✅ Update only if new image comes
         if (ticketImage) {
