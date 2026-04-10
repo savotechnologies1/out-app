@@ -48,7 +48,8 @@ const {
   getAllservicesForUser,
   createServiceUserReview,
   getMyReviews,
-  getServiceProviderDashboard
+  getServiceProviderDashboard,
+  getAllCommissionsForServiceUser
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -218,4 +219,5 @@ router.patch("/markAllAsRead", validateServiceToken, markAllAsRead);
 
 router.delete("/deleteAllNotifications", validateServiceToken, deleteAllNotifications);
 
+router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser)
 module.exports = router;

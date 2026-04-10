@@ -133,7 +133,7 @@ exports.releaseOnCheckIn = async () => {
             bookingId: booking._id,
             referenceId: provider.referenceId,
             description: "Amount released on check-in",
-            transactionType: "release",
+            transactionType: "release_on_checkin",
           });
 
           /* =============================

@@ -357,7 +357,6 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
       message: checkValid.errors.msg,
     });
   }
-
   const { mobile, mobileCode } = req.body;
 
   // ✅ normalize number

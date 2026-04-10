@@ -19,11 +19,17 @@ module.exports = function (server) {
 
     io.on("connection", (socket) => {
 
-        console.log("User connected:", socket.id);
+        console.log("🔌 User connected:", socket.id);
 
         /* ================= REGISTER ================= */
         socket.on("registerUser", (userId) => {
-            if (!userId) return;
+
+            console.log("📥 REGISTER REQUEST:", userId);
+
+            if (!userId) {
+                console.log("❌ registerUser called without userId");
+                return;
+            }
 
             userId = userId.toString();
 
@@ -34,6 +40,9 @@ module.exports = function (server) {
             onlineUsers.get(userId).add(socket.id);
             socket.userId = userId;
 
+            console.log("✅ USER REGISTERED:", userId);
+            console.log("🟢 ONLINE USERS:", [...onlineUsers.keys()]);
+
             io.emit("userOnline", userId);
         });
 
@@ -43,9 +52,49 @@ module.exports = function (server) {
             socket.join(conversationId);
         });
 
+        /* ================= TYPING ================= */
+        socket.on("typing", ({ conversationId, senderId }) => {
+            socket.to(conversationId).emit("userTyping", {
+                senderId,
+                conversationId
+            });
+        });
+
+        socket.on("stopTyping", ({ conversationId, senderId }) => {
+            socket.to(conversationId).emit("userStopTyping", {
+                senderId,
+                conversationId
+            });
+        });
+
+        /* ================= CHECK ONLINE ================= */
+        socket.on("checkOnlineStatus", (userId) => {
+
+            console.log("🔍 CHECK STATUS FOR:", userId);
+
+            if (!userId) {
+                console.log("❌ checkOnlineStatus called with undefined");
+                return;
+            }
+
+            userId = userId.toString();
+
+            const isOnline =
+                onlineUsers.has(userId) &&
+                onlineUsers.get(userId).size > 0;
+
+            console.log(`📊 STATUS: ${userId} → ${isOnline}`);
+
+            socket.emit("onlineStatusResult", {
+                userId,
+                isOnline
+            });
+        });
+
         /* ================= SEND MESSAGE ================= */
         socket.on("sendMessage", async (data) => {
             try {
+
                 const { conversationId, senderId, message, messageType = "TEXT" } = data;
 
                 if (!conversationId || !senderId) return;
@@ -116,40 +165,20 @@ module.exports = function (server) {
                     if (participantId === senderId) continue;
 
                     const userSockets = onlineUsers.get(participantId);
-                    const isOnline = userSockets && userSockets.size > 0;
 
-                    // ✅ ONLINE → REAL-TIME CHAT
+                    const isOnline =
+                        userSockets && userSockets.size > 0;
+
                     if (isOnline) {
                         userSockets.forEach((socketId) => {
                             io.to(socketId).emit("receiveMessage", newMessage);
                         });
-                    }
-
-                    // ❌ OFFLINE → PUSH NOTIFICATION
-                    else {
-
-                        let model = "User";
-
-                        if (conversation.serviceUserId?.toString() === participantId) {
-                            model = "ServiceUser";
-                        } else if (conversation.adminId?.toString() === participantId) {
-                            model = "Admin";
-                        }
-
-                        // ✅ FIXED senderModel
-                        let senderModel = "User";
-
-                        if (conversation.serviceUserId?.toString() === senderId) {
-                            senderModel = "ServiceUser";
-                        } else if (conversation.adminId?.toString() === senderId) {
-                            senderModel = "Admin";
-                        }
-
+                    } else {
                         await sendNotification({
                             receiverId: participantId,
-                            receiverModel: model,
+                            receiverModel: "User",
                             senderId,
-                            senderModel,
+                            senderModel: "User",
                             title: "New Message 💬",
                             body: message,
                             type: "CHAT",
@@ -160,7 +189,7 @@ module.exports = function (server) {
                 }
 
             } catch (err) {
-                console.log("SendMessage Error:", err.message);
+                console.log("❌ SendMessage Error:", err.message);
             }
         });
 
@@ -172,6 +201,7 @@ module.exports = function (server) {
                 const userSockets = onlineUsers.get(socket.userId);
 
                 if (userSockets) {
+
                     userSockets.delete(socket.id);
 
                     if (userSockets.size === 0) {
@@ -181,12 +211,11 @@ module.exports = function (server) {
                 }
             }
 
-            console.log("User disconnected:", socket.id);
+            console.log("🔌 User disconnected:", socket.id);
         });
 
     });
 
-    /* ================= CONNECT NOTIFICATION ================= */
     const { initNotificationService } = require("./utils/notificationService");
     initNotificationService(io, onlineUsers);
 

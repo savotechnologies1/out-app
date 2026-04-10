@@ -189,7 +189,7 @@ exports.createConversation = async (req, res) => {
 
       // 🔍 Check existing OPEN ticket
       const existingTicket = await Ticket.findOne({
-        serviceUserId,
+        userId,
         status: { $ne: "CLOSED" },
       });
 
@@ -224,7 +224,7 @@ exports.createConversation = async (req, res) => {
       const admin = await Admin.findOne();
 
       const ticket = await Ticket.create({
-        serviceUserId,
+        userId,
         adminId: admin?._id,
         subject,
         Image: ticketImage,

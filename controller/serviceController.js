@@ -31,6 +31,7 @@ const Review = require("../models/Review");
 const Conversation = require("../models/Conversation");
 const Admin = require("../models/Admin");
 const { sendNotification } = require("../utils/notificationService");
+const Commission = require("../models/Commission");
 
 // const serviceLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
@@ -480,6 +481,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 });
 
 const getAllCategories = catchAsyncError(async (req, res, next) => {
+  // 1. Get all categories
   const categories = await Category.find(
     { isDeleted: false },
     {
@@ -487,11 +489,39 @@ const getAllCategories = catchAsyncError(async (req, res, next) => {
       updatedAt: 0,
       __v: 0,
     }
-  ).lean(true);
+  ).lean();
+
+  // 2. Get all active commissions
+  const commissions = await Commission.find({
+    isActive: true,
+    isDeleted: false,
+  }).lean();
+
+  // 3. Separate global & category commissions
+  const globalCommission = commissions.find(c => c.scope === "GLOBAL");
+
+  const categoryCommissionMap = {};
+  commissions.forEach(c => {
+    if (c.scope === "CATEGORY" && c.categoryId) {
+      categoryCommissionMap[c.categoryId.toString()] = c;
+    }
+  });
+
+  // 4. Attach commission to each category
+  const updatedCategories = categories.map(cat => {
+    const categoryCommission =
+      categoryCommissionMap[cat._id.toString()] || null;
+
+    return {
+      ...cat,
+      commission: categoryCommission || globalCommission || null,
+    };
+  });
+
   return res.status(200).send({
-    data: categories,
+    data: updatedCategories,
     message: categories.length
-      ? "Categories received successfully"
+      ? "Categories with commission fetched successfully"
       : "No categories found",
   });
 });
@@ -614,6 +644,288 @@ const propertyDetail = catchAsyncError(async (req, res) => {
   });
 });
 
+// const addProperties = catchAsyncError(async (req, res, next) => {
+//   const { id } = req.body;
+//   const incomingCount = Number(req.body?.count) || 1;
+
+//   const serviceUser = await ServiceUser.findById(req.user._id, {
+//     isApproved: 1,
+//   });
+
+//   if (!serviceUser) {
+//     return res.status(400).json({ message: "Service User not found" });
+//   }
+
+//   if (serviceUser.isApproved !== "approved") {
+//     return res.status(403).json({
+//       message: `Your account is ${serviceUser.isApproved}. You cannot add properties.`,
+//     });
+//   }
+
+//   const existingIncomplete = await Properties.findOne({
+//     user: req.user._id,
+//     is_completed: false,
+//     isDeleted: false,
+//   }).select("_id count name");
+
+//   if (!id && existingIncomplete) {
+//     return res.status(400).json({
+//       success: false,
+//       message:
+//         "You must complete your existing property before creating a new one.",
+//       propertyId: existingIncomplete._id,
+//       currentStep: existingIncomplete.count,
+//       data: existingIncomplete,
+//     });
+//   }
+
+//   let property = null;
+//   let existingCount = 0;
+
+//   if (id) {
+//     property = await Properties.findOne(
+//       { _id: id, isDeleted: false },
+//       { count: 1 }
+//     );
+
+//     if (!property) {
+//       return res.status(400).json({ message: "Property not found" });
+//     }
+
+//     existingCount = property.count || 0;
+//   }
+
+//   const files = req.files || {};
+//   const mainImage = files?.mainImage;
+//   const bedroom = files?.bedroom;
+//   const pool = files?.pool;
+//   const bathroom = files?.bathroom;
+//   const document = files.document;
+
+//   let obj = {};
+
+//   switch (incomingCount) {
+//     case 1:
+//       const policy = await CancellationPolicy.findOne({
+//         _id: req.body.cancellationPolicy,
+//         isActive: true
+//       });
+
+//       if (!policy) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Invalid or inactive cancellation policy"
+//         });
+//       }
+//       obj.user = req.user._id;
+//       obj.name = req.body.name;
+//       obj.category = req.body.category;
+//       obj.status = "draft";
+//       obj.price = req.body.price;
+//       obj.maxGuests = req.body.maxGuests;
+//       obj.policies = {
+//         checkInTime: req.body.checkInTime,
+//         checkOutTime: req.body.checkOutTime,
+//         additionalPolicies: req.body.additionalPolicies || [],
+//         houseRules: {
+//           petsAllowed: req.body.petsAllowed || false,
+//           smokingAllowed: req.body.smokingAllowed || false,
+//           partiesAllowed: req.body.partiesAllowed || false
+//         }
+//       };
+//       obj.cancellationPolicy = policy._id;
+//       if (document?.length) {
+//         obj.document = document[0].filename;
+//       } else {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Document is required in step 1"
+//         });
+//       }
+//       break;
+
+//     case 2:
+//       const lat = parseFloat(req.body.lat);
+//       const lng = parseFloat(req.body.lng);
+
+//       if (isNaN(lat) || isNaN(lng)) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Latitude and Longitude are required and must be valid numbers"
+//         });
+//       }
+//       obj.address = {
+//         fullAddress: req.body.fullAddress,
+//         country: req.body.country,
+//         state: req.body.state,
+//         city: req.body.city,
+//         pincode: req.body.pincode,
+
+//         location: {
+//           type: "Point",
+//           coordinates: [lng, lat]
+//         }
+//       };
+//       break;
+
+//     case 3:
+//       obj.area = req.body.area;
+//       if (req.body.mainAmenities) {
+//         obj.mainAmenities = req.body.mainAmenities.split(",");
+//       }
+//       break;
+
+//     case 4:
+//       obj.bedRoom = {
+//         numBedroom: req.body.numBedroom,
+//         numSingleBed: req.body.numSingleBed,
+//         numMasterBed: req.body.numMasterBed,
+//       };
+//       break;
+
+//     case 5:
+//       obj.pool = {
+//         dimension: {
+//           height: req.body.height,
+//           width: req.body.width,
+//         },
+//         gradient: {
+//           type: req.body.gradient?.type,
+//         },
+//       };
+
+//       if (req.body.additional) {
+//         obj.pool.additional = req.body.additional.split(",");
+//       }
+
+//       if (req.body.gradient?.type === "tiered") {
+//         obj.pool.gradient.feet1 = req.body.gradient.feet1;
+//         obj.pool.gradient.feet2 = req.body.gradient.feet2;
+//       }
+//       break;
+
+//     case 6:
+//       obj.restRoom = {
+//         numBathroom: req.body.numBathroom,
+//         facilities: req.body.facilities
+//           ? req.body.facilities
+//             .split(",")
+//             .map(id => new mongoose.Types.ObjectId(id.trim()))
+//           : [],
+//       };
+//       break;
+
+//     case 7:
+//       if (req.body.propertyAmenities) {
+//         obj.propertyAmenities = req.body.propertyAmenities
+//           .split(",")
+//           .map(id => new mongoose.Types.ObjectId(id.trim()));
+//       }
+//       break;
+
+//     case 8:
+//       if (req.body.propertyFeatures) {
+//         obj.propertyFeatures = req.body.propertyFeatures
+//           .split(",")
+//           .map(id => new mongoose.Types.ObjectId(id.trim()));
+//       }
+//       break;
+
+//     case 9:
+//       obj.description = req.body.description;
+//       break;
+
+//     case 10:
+//       obj.media = {};
+
+//       if (mainImage?.length) {
+//         obj.media.mainImage = mainImage.map((file) => file.filename);
+//       }
+
+//       if (pool?.length) {
+//         obj.media.pool = pool.map((file) => file.filename);
+//       }
+
+//       if (bathroom?.length) {
+//         obj.media.bathroom = bathroom.map((file) => file.filename);
+//       }
+
+//       if (bedroom?.length) {
+//         obj.media.bedroom = bedroom.map((file) => file.filename);
+//       }
+//       break;
+
+//     default:
+//       return res.status(400).json({ message: "Invalid count step" });
+//   }
+
+//   let hotelId = id ? id : null
+
+//   if (!id) {
+//     const newProperty = await Properties.create({
+//       ...obj,
+//       count: 1,
+//       user: req.user._id,
+//       status: "draft",
+//     });
+
+//     hotelId = newProperty._id
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Property added successfully",
+//       data: newProperty,
+//     });
+//   }
+
+//   const finalCount =
+//     incomingCount > existingCount ? incomingCount : existingCount;
+
+//   const updateData = {
+//     ...obj,
+//     count: finalCount,
+//   };
+
+//   if (finalCount === 10) {
+//     updateData.is_completed = true;
+//     updateData.status = "completed";
+
+//     const admins = await Admin.find({}, "_id");
+
+//     for (let admin of admins) {
+//       await sendNotification({
+//         receiverId: admin._id,
+//         receiverModel: "Admin",
+//         senderId: req.user._id,
+//         senderModel: "ServiceUser",
+//         title: "New Property Submitted 🏠",
+//         body: "A new property has been submitted for approval.",
+//         type: "PROPERTY",
+//         referenceId: updatedProperty._id,
+//         referenceType: "Property",
+//         data: {
+//           propertyId: updatedProperty._id,
+//         },
+//       });
+//     }
+//   }
+
+//   const [updatedProperty, _] = await Promise.all([
+//     Properties.findOneAndUpdate(
+//       { _id: id },
+//       { $set: updateData },
+//       { new: true }
+//     ),
+//     generateAvailability(hotelId)
+//   ])
+
+//   return res.status(200).json({
+//     success: true,
+//     message: "Property updated successfully",
+//     data: updatedProperty
+//   });
+// });
+
 const addProperties = catchAsyncError(async (req, res, next) => {
   const { id } = req.body;
   const incomingCount = Number(req.body?.count) || 1;
@@ -665,78 +977,86 @@ const addProperties = catchAsyncError(async (req, res, next) => {
     existingCount = property.count || 0;
   }
 
+  // FILES
   const files = req.files || {};
   const mainImage = files?.mainImage;
   const bedroom = files?.bedroom;
   const pool = files?.pool;
   const bathroom = files?.bathroom;
-  const document = files.document;
+  const document = files?.document;
 
   let obj = {};
 
   switch (incomingCount) {
-    case 1:
+    case 1: {
       const policy = await CancellationPolicy.findOne({
         _id: req.body.cancellationPolicy,
-        isActive: true
+        isActive: true,
       });
 
       if (!policy) {
         return res.status(400).json({
           success: false,
-          message: "Invalid or inactive cancellation policy"
+          message: "Invalid or inactive cancellation policy",
         });
       }
-      obj.user = req.user._id;
-      obj.name = req.body.name;
-      obj.category = req.body.category;
-      obj.status = "draft";
-      obj.price = req.body.price;
-      obj.maxGuests = req.body.maxGuests;
-      obj.policies = {
-        checkInTime: req.body.checkInTime,
-        checkOutTime: req.body.checkOutTime,
-        additionalPolicies: req.body.additionalPolicies || [],
-        houseRules: {
-          petsAllowed: req.body.petsAllowed || false,
-          smokingAllowed: req.body.smokingAllowed || false,
-          partiesAllowed: req.body.partiesAllowed || false
-        }
+
+      obj = {
+        user: req.user._id,
+        name: req.body.name,
+        category: req.body.category,
+        status: "draft",
+        price: req.body.price,
+        maxGuests: req.body.maxGuests,
+        policies: {
+          checkInTime: req.body.checkInTime,
+          checkOutTime: req.body.checkOutTime,
+          additionalPolicies: req.body.additionalPolicies || [],
+          houseRules: {
+            petsAllowed: req.body.petsAllowed || false,
+            smokingAllowed: req.body.smokingAllowed || false,
+            partiesAllowed: req.body.partiesAllowed || false,
+          },
+        },
+        cancellationPolicy: policy._id,
       };
-      obj.cancellationPolicy = policy._id;
+
       if (document?.length) {
         obj.document = document[0].filename;
       } else {
         return res.status(400).json({
           success: false,
-          message: "Document is required in step 1"
+          message: "Document is required in step 1",
         });
       }
       break;
+    }
 
-    case 2:
+    case 2: {
       const lat = parseFloat(req.body.lat);
       const lng = parseFloat(req.body.lng);
 
       if (isNaN(lat) || isNaN(lng)) {
         return res.status(400).json({
           success: false,
-          message: "Latitude and Longitude are required and must be valid numbers"
+          message:
+            "Latitude and Longitude are required and must be valid numbers",
         });
       }
+
       obj.address = {
         fullAddress: req.body.fullAddress,
         country: req.body.country,
         state: req.body.state,
         city: req.body.city,
         pincode: req.body.pincode,
-
         location: {
           type: "Point",
-          coordinates: [lng, lat]
-        }
+          coordinates: [lng, lat],
+        },
       };
       break;
+    }
 
     case 3:
       obj.area = req.body.area;
@@ -779,8 +1099,8 @@ const addProperties = catchAsyncError(async (req, res, next) => {
         numBathroom: req.body.numBathroom,
         facilities: req.body.facilities
           ? req.body.facilities
-            .split(",")
-            .map(id => new mongoose.Types.ObjectId(id.trim()))
+              .split(",")
+              .map((id) => new mongoose.Types.ObjectId(id.trim()))
           : [],
       };
       break;
@@ -789,7 +1109,7 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       if (req.body.propertyAmenities) {
         obj.propertyAmenities = req.body.propertyAmenities
           .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
+          .map((id) => new mongoose.Types.ObjectId(id.trim()));
       }
       break;
 
@@ -797,7 +1117,7 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       if (req.body.propertyFeatures) {
         obj.propertyFeatures = req.body.propertyFeatures
           .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
+          .map((id) => new mongoose.Types.ObjectId(id.trim()));
       }
       break;
 
@@ -809,19 +1129,16 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       obj.media = {};
 
       if (mainImage?.length) {
-        obj.media.mainImage = mainImage.map((file) => file.filename);
+        obj.media.mainImage = mainImage.map((f) => f.filename);
       }
-
       if (pool?.length) {
-        obj.media.pool = pool.map((file) => file.filename);
+        obj.media.pool = pool.map((f) => f.filename);
       }
-
       if (bathroom?.length) {
-        obj.media.bathroom = bathroom.map((file) => file.filename);
+        obj.media.bathroom = bathroom.map((f) => f.filename);
       }
-
       if (bedroom?.length) {
-        obj.media.bedroom = bedroom.map((file) => file.filename);
+        obj.media.bedroom = bedroom.map((f) => f.filename);
       }
       break;
 
@@ -829,8 +1146,9 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       return res.status(400).json({ message: "Invalid count step" });
   }
 
-  let hotelId = id ? id : null
+  let hotelId = id || null;
 
+  // CREATE NEW PROPERTY
   if (!id) {
     const newProperty = await Properties.create({
       ...obj,
@@ -839,8 +1157,6 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       status: "draft",
     });
 
-    hotelId = newProperty._id
-
     return res.status(200).json({
       success: true,
       message: "Property added successfully",
@@ -848,6 +1164,7 @@ const addProperties = catchAsyncError(async (req, res, next) => {
     });
   }
 
+  // UPDATE FLOW
   const finalCount =
     incomingCount > existingCount ? incomingCount : existingCount;
 
@@ -859,7 +1176,20 @@ const addProperties = catchAsyncError(async (req, res, next) => {
   if (finalCount === 10) {
     updateData.is_completed = true;
     updateData.status = "completed";
+  }
 
+  // ✅ FIRST update DB
+  const [updatedProperty, _] = await Promise.all([
+    Properties.findOneAndUpdate(
+      { _id: id },
+      { $set: updateData },
+      { new: true }
+    ),
+    generateAvailability(hotelId),
+  ]);
+
+  // ✅ THEN send notifications
+  if (finalCount === 10) {
     const admins = await Admin.find({}, "_id");
 
     for (let admin of admins) {
@@ -880,19 +1210,10 @@ const addProperties = catchAsyncError(async (req, res, next) => {
     }
   }
 
-  const [updatedProperty, _] = await Promise.all([
-    Properties.findOneAndUpdate(
-      { _id: id },
-      { $set: updateData },
-      { new: true }
-    ),
-    generateAvailability(hotelId)
-  ])
-
   return res.status(200).json({
     success: true,
     message: "Property updated successfully",
-    data: updatedProperty
+    data: updatedProperty,
   });
 });
 
@@ -3000,6 +3321,36 @@ const getServiceProviderDashboard = async (req, res) => {
   }
 };
 
+const getAllCommissionsForServiceUser = catchAsyncError(async (req, res, next) => {
+  try {
+    // Get global commission
+    const globalCommission = await Commission.findOne({
+      scope: "GLOBAL",
+      isActive: true,
+      isDeleted: false,
+    }).lean();
+
+    // Get category commissions
+    const categoryCommissions = await Commission.find({
+      scope: "CATEGORY",
+      isActive: true,
+      isDeleted: false,
+    })
+      .populate("categoryId", "category") // optional (if you have category collection)
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      message: "Commissions fetched successfully",
+      data: {
+        global: globalCommission || null,
+        categories: categoryCommissions || [],
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 module.exports = {
   serviceLogin,
@@ -3050,5 +3401,6 @@ module.exports = {
   getAllservicesForUser,
   createServiceUserReview,
   getMyReviews,
-  getServiceProviderDashboard
+  getServiceProviderDashboard,
+  getAllCommissionsForServiceUser
 };
