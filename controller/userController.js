@@ -236,14 +236,13 @@ const googleLogin = async (req, res) => {
         message: "Google token required",
       });
     }
-
+ 
     const ticket = await client.verifyIdToken({
       idToken: token,
-      audience: [process.env.GOOGLE_ANDROID_CLIENT_ID],
+      audience: process.env.GOOGLE_ANDROID_CLIENT_ID,
     });
-
+  
     const payload = ticket.getPayload();
-
     if (!payload.email) {
       return res.status(400).json({
         success: false,
