@@ -249,7 +249,7 @@ const googleLogin = async (req, res) => {
         message: "Google account email not found",
       });
     }
-
+console.log("TOKEN AUD:", payload.aud);
     const email = payload.email;
     const picture = payload.picture;
     const googleId = payload.sub;
