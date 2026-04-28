@@ -63,11 +63,6 @@ const userSignUpBody = [
     .withMessage("Please enter the last name")
     .matches(/^[a-zA-Z ]{2,30}$/)
     .withMessage("Please enter valid last name"),
-  body("email")
-    .exists({ checkFalsy: true })
-    .withMessage("Please enter the email")
-    .matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
-    .withMessage("Please enter valid email Id"),
   body("mobile")
     .exists({ checkFalsy: true })
     .withMessage("Mobile number is required"),

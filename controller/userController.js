@@ -121,47 +121,109 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 });
 
 
+// const userSignUp = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+
+//   const { salutation, firstName, lastName, email, mobile, mobileCode } =
+//     req.body;
+
+//   const userExist = await User.countDocuments({
+//     $or: [{ email: email }, { phone: `${mobileCode}${mobile}` }],
+//   });
+
+//   if (userExist) {
+//     return res
+//       .status(400)
+//       .send({ message: "User already exist with this email or mobile" });
+//   }
+
+//   const otp = generateRandomOTP();
+//   const randomId = generateRandomId();
+
+//   const user = await User.create({
+//     salutation,
+//     firstName,
+//     userId: `UID-${randomId}`,
+//     lastName,
+//     email,
+//     phone: `${mobileCode}${mobile}`,
+//     phoneCode: mobileCode,
+//     OTP: otp,
+//   });
+
+//   authenticaOTP(otp, user.email, user.phone);
+
+//   return res.status(200).send({
+//     data: { id: user._id, mobile: user.phone },
+//     message: "Please verify OTP",
+//   });
+// });
+
+
 const userSignUp = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
 
-  if (checkValid.type === "error") {
+  // Validation check
+  if (checkValid?.type === "error") {
     return res.status(400).send({
-      message: checkValid.errors.msg,
+      message: checkValid.errors?.msg || "Validation failed",
     });
   }
 
   const { salutation, firstName, lastName, email, mobile, mobileCode } =
     req.body;
 
-  const userExist = await User.countDocuments({
-    $or: [{ email: email }, { phone: `${mobileCode}${mobile}` }],
+  // Basic required field check (extra safety)
+  if (!mobile || !mobileCode) {
+    return res.status(400).send({
+      message: "Email and mobile are required",
+    });
+  }
+
+  // Check existing user
+  const userExist = await User.exists({
+    $or: [{ email }, { phone: `${mobileCode}${mobile}` }],
   });
 
   if (userExist) {
-    return res
-      .status(400)
-      .send({ message: "User already exist with this email or mobile" });
+    return res.status(400).send({
+      message: "User already exists with this email or mobile",
+    });
   }
 
+  // Generate OTP & ID
   const otp = generateRandomOTP();
   const randomId = generateRandomId();
 
+  // Create user
   const user = await User.create({
     salutation,
     firstName,
-    userId: `UID-${randomId}`,
     lastName,
+    userId: `UID-${randomId}`,
     email,
     phone: `${mobileCode}${mobile}`,
     phoneCode: mobileCode,
     OTP: otp,
   });
 
-  authenticaOTP(otp, user.email, user.phone);
+  // Send OTP (make sure function name is correct)
+  await authenticaOTP(otp, user.email, user.phone);
 
-  return res.status(200).send({
-    data: { id: user._id, mobile: user.phone },
+  return res.status(201).send({
+    data: {
+      id: user._id,
+      mobile: user.phone,
+      otp
+    },
     message: "Please verify OTP",
   });
 });
@@ -249,7 +311,7 @@ const googleLogin = async (req, res) => {
         message: "Google account email not found",
       });
     }
-console.log("TOKEN AUD:", payload.aud);
+
     const email = payload.email;
     const picture = payload.picture;
     const googleId = payload.sub;

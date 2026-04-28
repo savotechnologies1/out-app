@@ -32,6 +32,7 @@ const Conversation = require("../models/Conversation");
 const Admin = require("../models/Admin");
 const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
+const { authenticaOTP } = require("../functions/authentica");
 
 // const serviceLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
@@ -94,7 +95,7 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   }
 
   const otp = generateRandomOTP();
-
+await authenticaOTP(otp, user.email, user.phone);
   await ServiceUser.updateOne(
     { _id: user._id },
     {
@@ -114,7 +115,7 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   }
 
   return res.status(200).send({
-    data: { otp, id: user._id },
+    data: { id: user._id },
     message: "Login successfully",
   });
 });
@@ -161,6 +162,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
 
   const otp = generateRandomOTP();
   const randomId = generateRandomId();
+  await authenticaOTP(otp, email, `${mobileCode}${mobile}`);
 
   let obj = {
     salutation,
@@ -185,10 +187,9 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   };
 
   const data = await ServiceUser.create(obj);
-
   return res
     .status(200)
-    .send({ data: { otp, id: data._id }, message: "Please verify Email" });
+    .send({ data: { id: data._id }, message: "Account has been successfully created please login." });
 });
 
 const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
@@ -1099,8 +1100,8 @@ const addProperties = catchAsyncError(async (req, res, next) => {
         numBathroom: req.body.numBathroom,
         facilities: req.body.facilities
           ? req.body.facilities
-              .split(",")
-              .map((id) => new mongoose.Types.ObjectId(id.trim()))
+            .split(",")
+            .map((id) => new mongoose.Types.ObjectId(id.trim()))
           : [],
       };
       break;
@@ -1893,12 +1894,12 @@ const createWithdrawRequest = async (req, res) => {
         receiverId: admin._id,
         receiverModel: "Admin",
         senderId: req.user._id,
-        senderModel: "ServiceUser", 
+        senderModel: "ServiceUser",
         title: "New Withdraw Request 💰",
         body: `A new withdraw request of ₹${amount} has been submitted.`,
         type: "PAYMENT",
         referenceId: withdraw._id,
-        referenceType: "Payment", 
+        referenceType: "Payment",
         data: {
           withdrawId: withdraw._id,
           amount,
