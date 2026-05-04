@@ -3,6 +3,9 @@ require("dotenv").config();
 
 module.exports.authenticaOTP = async (OTP, email, phone) => {
     try {
+        // console.log("otp", OTP)
+        // console.log("phone", phone)
+        // console.log("email", email)
         const response = await axios.post(
             "https://api.authentica.sa/api/v2/send-otp",
             {

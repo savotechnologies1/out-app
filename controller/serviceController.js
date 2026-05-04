@@ -95,7 +95,7 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   }
 
   const otp = generateRandomOTP();
-await authenticaOTP(otp, user.email, user.phone);
+  await authenticaOTP(otp, user.email, user.phone);
   await ServiceUser.updateOne(
     { _id: user._id },
     {
@@ -121,9 +121,82 @@ await authenticaOTP(otp, user.email, user.phone);
 });
 
 
+// const serviceSignUp = catchAsyncError(async (req, res, next) => {
+//   const errors = validationResult(req);
+//   const checkValid = await checkValidations(errors);
+//   if (checkValid.type === "error") {
+//     return res.status(400).send({
+//       message: checkValid.errors.msg,
+//     });
+//   }
+
+//   const { salutation, firstName, lastName, email, mobile, mobileCode } =
+//     req.body;
+
+//   const userExist = await ServiceUser.countDocuments({
+//     $or: [{ email: email }, { phone: `${mobileCode}${mobile}` }],
+//   });
+
+//   if (userExist) {
+//     return res.status(400).send({
+//       message: "Service user already exist with this email or mobile",
+//     });
+//   }
+
+//   const files = { ...req.files };
+
+//   const userProfileFiles = files?.userProfile;
+//   const userDocuments = files?.docs;
+
+//   if (
+//     (!userProfileFiles && !userProfileFiles?.length) ||
+//     (!userDocuments && !userDocuments?.length)
+//   ) {
+//     return res.status(400).send({
+//       message:
+//         !userProfileFiles && !userProfileFiles?.length
+//           ? "Please upload profile image"
+//           : "Please upload identity proof",
+//     });
+//   }
+
+//   const otp = generateRandomOTP();
+//   const randomId = generateRandomId();
+//   await authenticaOTP(otp, email, `${mobileCode}${mobile}`);
+
+//   let obj = {
+//     salutation,
+//     firstName,
+//     lastName,
+//     userId: `SID-${randomId}`,
+//     email,
+//     phone: `${mobileCode}${mobile}`,
+//     phoneCode: mobileCode,
+//     OTP: otp,
+//     profile: userProfileFiles?.[0]?.filename,
+//     docs: userDocuments?.[0]?.filename,
+//     address: {
+//       street: req.body.street,
+//       city: req.body.city,
+//       state: req.body.state,
+//       zipCode: req.body.zipCode,
+//       country: req.body.country,
+//       latitude: req.body.latitude,
+//       longitude: req.body.longitude,
+//     },
+//   };
+
+//   const data = await ServiceUser.create(obj);
+//   return res
+//     .status(200)
+//     .send({ data: { id: data._id }, message: "Account has been successfully created please login." });
+// });
+
+
 const serviceSignUp = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
+
   if (checkValid.type === "error") {
     return res.status(400).send({
       message: checkValid.errors.msg,
@@ -133,14 +206,33 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   const { salutation, firstName, lastName, email, mobile, mobileCode } =
     req.body;
 
-  const userExist = await ServiceUser.countDocuments({
-    $or: [{ email: email }, { phone: `${mobileCode}${mobile}` }],
-  });
+  const phone = `${mobileCode}${mobile}`;
 
-  if (userExist) {
+  // ✅ Validate email only if provided
+  if (email && email.trim() !== "") {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).send({
+        message: "Invalid email format",
+      });
+    }
+  }
+
+  // ✅ Separate duplicate checks
+  const mobileExist = await ServiceUser.findOne({ phone });
+  if (mobileExist) {
     return res.status(400).send({
-      message: "Service user already exist with this email or mobile",
+      message: "Mobile number already exists",
     });
+  }
+
+  if (email && email.trim() !== "") {
+    const emailExist = await ServiceUser.findOne({ email });
+    if (emailExist) {
+      return res.status(400).send({
+        message: "Email already exists",
+      });
+    }
   }
 
   const files = { ...req.files };
@@ -148,6 +240,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   const userProfileFiles = files?.userProfile;
   const userDocuments = files?.docs;
 
+  // ✅ File validation
   if (
     (!userProfileFiles && !userProfileFiles?.length) ||
     (!userDocuments && !userDocuments?.length)
@@ -160,19 +253,24 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  const otp = generateRandomOTP();
+  // const otp = generateRandomOTP();
   const randomId = generateRandomId();
-  await authenticaOTP(otp, email, `${mobileCode}${mobile}`);
+
+  // await authenticaOTP(
+  //   otp,
+  //   email && email.trim() !== "" ? email : null,
+  //   phone
+  // );
 
   let obj = {
     salutation,
     firstName,
     lastName,
     userId: `SID-${randomId}`,
-    email,
-    phone: `${mobileCode}${mobile}`,
+    email: email && email.trim() !== "" ? email : null, // ✅ optional email
+    phone,
     phoneCode: mobileCode,
-    OTP: otp,
+    OTP: null,
     profile: userProfileFiles?.[0]?.filename,
     docs: userDocuments?.[0]?.filename,
     address: {
@@ -187,10 +285,13 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   };
 
   const data = await ServiceUser.create(obj);
-  return res
-    .status(200)
-    .send({ data: { id: data._id }, message: "Account has been successfully created please login." });
+
+  return res.status(200).send({
+    data: { id: data._id },
+    message: "Account has been successfully created please login.",
+  });
 });
+
 
 const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
   if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -427,7 +528,6 @@ const getIncompleteProperty = catchAsyncError(async (req, res) => {
     data: property,
   });
 });
-
 
 
 const getPropertyById = catchAsyncError(async (req, res) => {
