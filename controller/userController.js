@@ -967,13 +967,159 @@ const getHomeProperties = catchAsyncError(async (req, res) => {
   });
 });
 
+// const getDashboard = catchAsyncError(async (req, res) => {
+//   const { lastId } = req.query;
+
+//   const matchStage = {
+//     is_completed: true,
+//     isDeleted: false,
+//     approvalStatus: "approved"
+//   };
+
+//   if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
+//     matchStage._id = { $lt: new mongoose.Types.ObjectId(lastId) };
+//   }
+
+//   const data = await Properties.aggregate([
+
+//     {
+//       $match: matchStage
+//     },
+
+//     {
+//       $sort: { createdAt: -1 }
+//     },
+
+//     {
+//       $lookup: {
+//         from: "categories",
+//         localField: "category",
+//         foreignField: "_id",
+//         as: "categoryData"
+//       }
+//     },
+
+//     {
+//       $unwind: "$categoryData"
+//     },
+
+//     {
+//       $lookup: {
+//         from: "amenities",
+//         localField: "propertyAmenities",
+//         foreignField: "_id",
+//         as: "propertyAmenities"
+//       }
+//     },
+
+//     {
+//       $lookup: {
+//         from: "features",
+//         localField: "propertyFeatures",
+//         foreignField: "_id",
+//         as: "propertyFeatures"
+//       }
+//     },
+
+//     {
+//       $lookup: {
+//         from: "restrooms",
+//         localField: "restRoom.facilities",
+//         foreignField: "_id",
+//         as: "facilityData"
+//       }
+//     },
+
+//     {
+//       $addFields: {
+//         "restRoom.facilities": "$facilityData"
+//       }
+//     },
+
+//     {
+//       $lookup: {
+//         from: "bookmarks",
+//         let: { propertyId: "$_id" },
+//         pipeline: [
+//           {
+//             $match: {
+//               $expr: {
+//                 $and: [
+//                   { $eq: ["$property", "$$propertyId"] },
+//                   { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+//                   { $eq: ["$isDeleted", false] }
+//                 ]
+//               }
+//             }
+//           }
+//         ],
+//         as: "bookmarkData"
+//       }
+//     },
+
+//     {
+//       $addFields: {
+//         isFavorite: {
+//           $cond: {
+//             if: { $gt: [{ $size: "$bookmarkData" }, 0] },
+//             then: true,
+//             else: false
+//           }
+//         }
+//       }
+//     },
+
+//     {
+//       $project: {
+//         bookmarkData: 0
+//       }
+//     },
+
+//     // Group by category
+//     {
+//       $group: {
+//         _id: "$categoryData._id",
+//         categoryName: { $first: "$categoryData.category" },
+//         properties: { $push: "$$ROOT" }
+//       }
+//     },
+
+//     // Limit 5 properties per category
+//     {
+//       $project: {
+//         _id: 0,
+//         categoryId: "$_id",
+//         categoryName: 1,
+//         properties: { $slice: ["$properties", 5] }
+//       }
+//     }
+
+//   ]).allowDiskUse(true);
+
+//   // Pagination cursor
+//   let nextCursor = null;
+
+//   if (data.length > 0) {
+//     const lastCategory = data[data.length - 1];
+//     const lastProperty = lastCategory.properties[lastCategory.properties.length - 1];
+//     nextCursor = lastProperty?._id || null;
+//   }
+
+//   return res.status(200).json({
+//     success: true,
+//     nextCursor,
+//     data
+//   });
+// });
+
+
 const getDashboard = catchAsyncError(async (req, res) => {
   const { lastId } = req.query;
 
   const matchStage = {
     is_completed: true,
     isDeleted: false,
-    // approvalStatus: "approved"
+    approvalStatus: "approved"
   };
 
   if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
@@ -981,7 +1127,6 @@ const getDashboard = catchAsyncError(async (req, res) => {
   }
 
   const data = await Properties.aggregate([
-
     {
       $match: matchStage
     },
@@ -990,6 +1135,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       $sort: { createdAt: -1 }
     },
 
+    // Category Lookup
     {
       $lookup: {
         from: "categories",
@@ -1003,6 +1149,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       $unwind: "$categoryData"
     },
 
+    // Amenities Lookup
     {
       $lookup: {
         from: "amenities",
@@ -1012,6 +1159,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
+    // Features Lookup
     {
       $lookup: {
         from: "features",
@@ -1021,6 +1169,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
+    // Restroom Facilities Lookup
     {
       $lookup: {
         from: "restrooms",
@@ -1036,6 +1185,44 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
+    // Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              userId: 1,
+              role: 1,
+              email: 1,
+              profile: 1,
+              phone: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    // Bookmark Lookup
     {
       $lookup: {
         from: "bookmarks",
@@ -1046,7 +1233,12 @@ const getDashboard = catchAsyncError(async (req, res) => {
               $expr: {
                 $and: [
                   { $eq: ["$property", "$$propertyId"] },
-                  { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+                  {
+                    $eq: [
+                      "$user",
+                      new mongoose.Types.ObjectId(req.user._id)
+                    ]
+                  },
                   { $eq: ["$isDeleted", false] }
                 ]
               }
@@ -1057,6 +1249,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
+    // Add Favorite Field
     {
       $addFields: {
         isFavorite: {
@@ -1069,13 +1262,15 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
+    // Remove Bookmark Data
     {
       $project: {
-        bookmarkData: 0
+        bookmarkData: 0,
+        facilityData: 0
       }
     },
 
-    // Group by category
+    // Group By Category
     {
       $group: {
         _id: "$categoryData._id",
@@ -1084,7 +1279,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
       }
     },
 
-    // Limit 5 properties per category
+    // Limit 5 Properties Per Category
     {
       $project: {
         _id: 0,
@@ -1096,12 +1291,15 @@ const getDashboard = catchAsyncError(async (req, res) => {
 
   ]).allowDiskUse(true);
 
-  // Pagination cursor
+  // Pagination Cursor
   let nextCursor = null;
 
   if (data.length > 0) {
     const lastCategory = data[data.length - 1];
-    const lastProperty = lastCategory.properties[lastCategory.properties.length - 1];
+
+    const lastProperty =
+      lastCategory.properties[lastCategory.properties.length - 1];
+
     nextCursor = lastProperty?._id || null;
   }
 
@@ -1111,6 +1309,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
     data
   });
 });
+
 
 const getUserBanners = async (req, res) => {
   try {
@@ -1147,6 +1346,106 @@ const getUserBanners = async (req, res) => {
 };
 
 
+// const getPropertyDetail = catchAsyncError(async (req, res) => {
+
+//   const data = (await Properties.aggregate([
+
+//     {
+//       $match: {
+//         isDeleted: false,
+//         _id: new mongoose.Types.ObjectId(req.params.id)
+//       }
+//     },
+
+//     // Category lookup
+//     {
+//       $lookup: {
+//         from: "categories",
+//         let: { categoryId: "$category" },
+//         pipeline: [
+//           {
+//             $match: {
+//               $expr: {
+//                 $and: [
+//                   { $eq: ["$_id", "$$categoryId"] },
+//                   { $eq: ["$isDeleted", false] }
+//                 ]
+//               }
+//             }
+//           },
+//           {
+//             $project: {
+//               category: 1
+//             }
+//           }
+//         ],
+//         as: "categoryData"
+//       }
+//     },
+
+//     {
+//       $addFields: {
+//         category: { $arrayElemAt: ["$categoryData.category", 0] }
+//       }
+//     },
+
+//     {
+//       $project: {
+//         categoryData: 0
+//       }
+//     },
+
+//     // 🔥 Bookmark lookup
+//     {
+//       $lookup: {
+//         from: "bookmarks",
+//         let: { propertyId: "$_id" },
+//         pipeline: [
+//           {
+//             $match: {
+//               $expr: {
+//                 $and: [
+//                   { $eq: ["$property", "$$propertyId"] },
+//                   { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+//                   { $eq: ["$isDeleted", false] }
+//                 ]
+//               }
+//             }
+//           }
+//         ],
+//         as: "bookmarkData"
+//       }
+//     },
+
+//     // Add isFavorite flag
+//     {
+//       $addFields: {
+//         isFavorite: {
+//           $cond: {
+//             if: { $gt: [{ $size: "$bookmarkData" }, 0] },
+//             then: true,
+//             else: false
+//           }
+//         }
+//       }
+//     },
+
+//     // Clean response
+//     {
+//       $project: {
+//         bookmarkData: 0
+//       }
+//     }
+
+//   ]))[0];
+
+//   return res.status(200).send({
+//     data,
+//     message: data ? "Property detail received successfully" : "No property found",
+//   });
+// });
+
+
 const getPropertyDetail = catchAsyncError(async (req, res) => {
 
   const data = (await Properties.aggregate([
@@ -1154,11 +1453,15 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
     {
       $match: {
         isDeleted: false,
+        approvalStatus: "approved",
         _id: new mongoose.Types.ObjectId(req.params.id)
       }
     },
 
-    // Category lookup
+    // =====================================================
+    // CATEGORY LOOKUP
+    // =====================================================
+
     {
       $lookup: {
         from: "categories",
@@ -1196,7 +1499,50 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
       }
     },
 
-    // 🔥 Bookmark lookup
+    // =====================================================
+    // SERVICE USER LOOKUP
+    // =====================================================
+
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              userId: 1,
+              role: 1,
+              email: 1,
+              profile: 1,
+              phone: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    // =====================================================
+    // BOOKMARK LOOKUP
+    // =====================================================
+
     {
       $lookup: {
         from: "bookmarks",
@@ -1207,7 +1553,12 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
               $expr: {
                 $and: [
                   { $eq: ["$property", "$$propertyId"] },
-                  { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+                  {
+                    $eq: [
+                      "$user",
+                      new mongoose.Types.ObjectId(req.user._id)
+                    ]
+                  },
                   { $eq: ["$isDeleted", false] }
                 ]
               }
@@ -1218,7 +1569,10 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
       }
     },
 
-    // Add isFavorite flag
+    // =====================================================
+    // ADD FAVORITE FLAG
+    // =====================================================
+
     {
       $addFields: {
         isFavorite: {
@@ -1231,7 +1585,10 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
       }
     },
 
-    // Clean response
+    // =====================================================
+    // CLEAN RESPONSE
+    // =====================================================
+
     {
       $project: {
         bookmarkData: 0
@@ -1242,9 +1599,13 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
 
   return res.status(200).send({
     data,
-    message: data ? "Property detail received successfully" : "No property found",
+    message: data
+      ? "Property detail received successfully"
+      : "No property found",
   });
+
 });
+
 
 const createToken = catchAsyncError(async (req, res) => {
 
@@ -1386,261 +1747,6 @@ const getPlatformCharges = async (req, res) => {
     });
   }
 };
-
-
-// const search = catchAsyncError(async (req, res) => {
-
-//   const {
-//     type,
-//     searchMode = "NEARBY",
-//     lat,
-//     lng,
-//     totalGuest = 1,
-//     checkIn,
-//     checkOut,
-//   } = req.body;
-
-//   if (!lat || !lng) {
-//     return res.status(400).json({
-//       success: false,
-//       message: "Latitude and longitude required"
-//     });
-//   }
-
-//   const coordinates = [Number(lng), Number(lat)];
-
-//   // ---------------- Radius Logic ----------------
-//   let radius = 50000;
-
-//   if (searchMode === "CITY") radius = 30000;
-//   if (searchMode === "ANYWHERE") radius = 200000;
-
-//   // =========================================================
-//   // ================= PROPERTY SEARCH =======================
-//   // =========================================================
-
-//   if (type === "PROPERTY") {
-
-//     const properties = await Properties.aggregate([
-
-//       {
-//         $geoNear: {
-//           near: {
-//             type: "Point",
-//             coordinates
-//           },
-//           distanceField: "distance",
-//           spherical: true,
-//           key: "address.location.coordinates", // FIXED
-//           maxDistance: radius,
-//           distanceMultiplier: 0.001
-//         }
-//       },
-
-//       {
-//         $match: {
-//           isDeleted: false,
-//           is_completed: true,
-//           approvalStatus: "approved",
-//           maxGuests: { $gte: Number(totalGuest) } // ADDED
-//         }
-//       },
-
-//       {
-//         $lookup: {
-//           from: "hotelavailabilities",
-//           let: { propertyId: "$_id" },
-//           pipeline: [
-//             {
-//               $match: {
-//                 $expr: {
-//                   $and: [
-//                     { $eq: ["$hotel", "$$propertyId"] },
-//                     { $eq: ["$isBooked", true] },
-
-//                     ...(checkIn && checkOut
-//                       ? [
-//                         { $gte: ["$date", new Date(checkIn)] },
-//                         { $lte: ["$date", new Date(checkOut)] }
-//                       ]
-//                       : [])
-//                   ]
-//                 }
-//               }
-//             }
-//           ],
-//           as: "bookedDates"
-//         }
-//       },
-
-//       {
-//         $match: {
-//           bookedDates: { $size: 0 }
-//         }
-//       },
-
-//       {
-//         $project: {
-//           name: 1,
-//           price: 1,
-//           maxGuests: 1,
-//           address: 1,
-//           media: 1,
-//           distance: { $round: ["$distance", 2] }
-//         }
-//       },
-
-//       { $limit: 20 }
-
-//     ]);
-
-//     return res.json({
-//       success: true,
-//       type: "PROPERTY",
-//       count: properties.length,
-//       data: properties
-//     });
-
-//   }
-
-//   // =========================================================
-//   // ================= SERVICE SEARCH ========================
-//   // =========================================================
-
-//   if (type === "SERVICE") {
-
-//     if (!checkIn || !checkOut) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "date is required"
-//       });
-//     }
-
-//     if (!checkIn || !checkOut) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "checkIn and checkOut are required"
-//       });
-//     }
-
-//     const coordinates = [Number(lng), Number(lat)];
-
-//     // ---------------- Radius Logic ----------------
-//     let radius = 50000;
-//     if (searchMode === "CITY") radius = 30000;
-//     if (searchMode === "ANYWHERE") radius = 200000;
-
-//     // ✅ DATE RANGE
-//     const startDate = new Date(checkIn);
-//     startDate.setHours(0, 0, 0, 0);
-
-//     const endDate = new Date(checkOut);
-//     endDate.setHours(23, 59, 59, 999);
-
-//     // ✅ OPTIONAL: get all days in range
-//     const daysArray = [];
-//     let current = new Date(startDate);
-
-//     while (current <= endDate) {
-//       daysArray.push(
-//         current.toLocaleString("en-US", { weekday: "long" })
-//       );
-//       current.setDate(current.getDate() + 1);
-//     }
-
-//     const services = await Service.aggregate([
-
-//       {
-//         $geoNear: {
-//           near: {
-//             type: "Point",
-//             coordinates
-//           },
-//           distanceField: "distance",
-//           spherical: true,
-//           key: "location.coordinates",
-//           maxDistance: radius,
-//           distanceMultiplier: 0.001
-//         }
-//       },
-
-//       {
-//         $match: {
-//           isDeleted: false,
-//           isActive: true,
-//           approvalStatus: "approved",
-//           workingDays: { $in: daysArray }
-//         }
-//       },
-
-//       {
-//         $lookup: {
-//           from: "serviceavailabilities",
-//           let: { serviceId: "$_id" },
-//           pipeline: [
-//             {
-//               $match: {
-//                 $expr: {
-//                   $and: [
-
-//                     {
-//                       $eq: [
-//                         { $toString: "$service" },
-//                         { $toString: "$$serviceId" }
-//                       ]
-//                     },
-
-//                     { $eq: ["$isBooked", true] },
-
-//                     // ✅ DATE RANGE CHECK
-//                     { $gte: ["$date", startDate] },
-//                     { $lte: ["$date", endDate] }
-
-//                   ]
-//                 }
-//               }
-//             }
-//           ],
-//           as: "bookedSlots"
-//         }
-//       },
-
-//       {
-//         $match: {
-//           bookedSlots: { $size: 0 }
-//         }
-//       },
-
-//       {
-//         $project: {
-//           name: 1,
-//           price: 1,
-//           location: 1,
-//           media: 1,
-//           workingDays: 1,
-//           distance: { $round: ["$distance", 2] }
-//         }
-//       },
-
-//       { $limit: 20 }
-
-//     ]);
-
-//     return res.json({
-//       success: true,
-//       type: "SERVICE",
-//       count: services.length,
-//       data: services
-//     });
-
-//   }
-
-//   return res.status(400).json({
-//     success: false,
-//     message: "Invalid type"
-//   });
-
-// });
 
 
 const search = catchAsyncError(async (req, res) => {
@@ -2039,12 +2145,13 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
     const service = await Service.findOne({
       _id: serviceId,
       isDeleted: false,
-      isActive: true
+      isActive: true,
+      approvalStatus: "approved"
     })
       .populate({
         path: "user",
         model: "ServiceUser",
-        select: "name email phone profile"
+        select: "firstName lastName userId role email phone profile"
       })
       .populate({
         path: "category",
@@ -2418,7 +2525,221 @@ const getReviews = async (req, res) => {
   }
 };
 
+const getServiceUser = catchAsyncError(async (req, res, next) => {
 
+  const { userId } = req.params;
+
+  /* ========================
+     👤 USER INFO
+  ======================== */
+
+  const user = await ServiceUser.findOne(
+    { _id: userId },
+    {
+      email: 1,
+      role: 1,
+      firstName: 1,
+      lastName: 1,
+      phone: 1,
+      phoneCode: 1,
+      profile: 1,
+      isVerified: 1,
+      createdAt: 1,
+      address: 1
+    }
+  ).lean();
+
+  if (!user) {
+    return res.status(400).send({
+      message: "Service user not found"
+    });
+  }
+
+  user["phone"] = await codeRem(user.phone);
+
+  /* ========================
+     📊 TOTAL TRIPS
+  ======================== */
+
+  const totalTrips = await Booking.countDocuments({
+    "providerBreakdown.user": userId,
+    isCancelled: false
+  });
+
+  /* ========================
+     ⭐ REVIEWS + AVG RATING
+  ======================== */
+
+  const reviewStats = await Review.aggregate([
+    {
+      $match: {
+        reviewee: new mongoose.Types.ObjectId(userId),
+        revieweeModel: "ServiceUser",
+        isDeleted: false
+      }
+    },
+
+    {
+      $group: {
+        _id: null,
+        totalReviews: { $sum: 1 },
+        avgRating: { $avg: "$rating" }
+      }
+    }
+
+  ]);
+
+  const totalReviews = reviewStats[0]?.totalReviews || 0;
+
+  const avgRating = reviewStats[0]?.avgRating || 0;
+
+  /* ========================
+     💰 TOTAL EARNINGS
+  ======================== */
+
+  const earningsResult = await Booking.aggregate([
+
+    {
+      $match: {
+        "providerBreakdown.user": userId,
+        paymentStatus: "paid",
+        isCancelled: false
+      }
+    },
+
+    {
+      $unwind: "$providerBreakdown"
+    },
+
+    {
+      $match: {
+        "providerBreakdown.user": userId
+      }
+    },
+
+    {
+      $group: {
+        _id: null,
+        totalEarnings: {
+          $sum: "$providerBreakdown.amount"
+        }
+      }
+    }
+
+  ]);
+
+  const totalEarnings = earningsResult[0]?.totalEarnings || 0;
+
+  /* ========================
+     📅 EXPERIENCE (MONTHS)
+  ======================== */
+
+  const createdDate = new Date(user.createdAt);
+
+  const now = new Date();
+
+  const months =
+    (now.getFullYear() - createdDate.getFullYear()) * 12 +
+    (now.getMonth() - createdDate.getMonth());
+
+  /* ========================
+     🏠 LATEST PROPERTY DESCRIPTION
+  ======================== */
+
+  const latestProperty = await Properties.findOne(
+    {
+      user: userId,
+      isDeleted: false,
+      approvalStatus: "approved"
+    },
+    {
+      description: 1
+    }
+  )
+    .sort({ createdAt: -1 })
+    .lean();
+
+  /* ========================
+     ⭐ REVIEW LIST (LAST 10)
+  ======================== */
+
+  const reviewList = await Review.aggregate([
+
+    {
+      $match: {
+        reviewee: new mongoose.Types.ObjectId(userId),
+        revieweeModel: "ServiceUser",
+        isDeleted: false
+      }
+    },
+
+    {
+      $sort: {
+        createdAt: -1
+      }
+    },
+
+    {
+      $limit: 10
+    },
+
+    // Reviewer Details
+    {
+      $lookup: {
+        from: "users",
+        localField: "reviewer",
+        foreignField: "_id",
+        as: "reviewerData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$reviewerData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    {
+      $project: {
+        rating: 1,
+        review: 1,
+        createdAt: 1,
+
+        reviewer: {
+          _id: "$reviewerData._id",
+          firstName: "$reviewerData.firstName",
+          lastName: "$reviewerData.lastName",
+          profile: "$reviewerData.profile"
+        }
+      }
+    }
+
+  ]);
+
+  /* ========================
+     📦 FINAL RESPONSE
+  ======================== */
+
+  return res.status(200).send({
+    data: {
+      ...user,
+
+      stats: {
+        trips: totalTrips,
+        reviews: totalReviews,
+        avgRating: Number(avgRating.toFixed(1)),
+        earnings: totalEarnings,
+        months: months < 0 ? 0 : months
+      },
+
+      propertyDescription: latestProperty?.description || "",
+
+      reviewList
+    }
+  });
+
+});
 
 module.exports = {
   userLogin,
@@ -2454,4 +2775,5 @@ module.exports = {
   googleLogin,
   createUserReview,
   getReviews,
+  getServiceUser
 };

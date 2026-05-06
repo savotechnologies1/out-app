@@ -34,6 +34,7 @@ const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
 const { authenticaOTP } = require("../functions/authentica");
 
+
 // const serviceLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
 //   const checkValid = await checkValidations(errors);
@@ -44,29 +45,50 @@ const { authenticaOTP } = require("../functions/authentica");
 //     });
 //   }
 
-//   const { mobile, mobileCode } = req.body;
+//   const { mobile, mobileCode, fcmToken } = req.body;
 
 //   const user = await ServiceUser.findOne({
 //     phone: `${mobileCode}${mobile}`,
-//   }).lean(true);
+//   });
 
-//   if (!user) return res.status(400).send({ message: "Service user not found" });
+//   if (!user) {
+//     return res.status(400).send({ message: "Service user not found" });
+//   }
+
 //   if (!user.isActive) {
-//     res.status(403).json({ message: "Your account is suspended please contact the support" })
+//     return res.status(403).json({
+//       message: "Your account is suspended please contact the support",
+//     });
+//   }
+//   if (user.isDeleted) {
+//     return res.status(403).send({ message: "Your account is permanent deleted." })
 //   }
 //   const otp = generateRandomOTP();
-//   ServiceUser.updateOne({ _id: user._id }, { $set: { OTP: otp } }).then();
+//   await authenticaOTP(otp, user.email, user.phone);
+//   await ServiceUser.updateOne(
+//     { _id: user._id },
+//     {
+//       $set: {
+//         OTP: otp,
+//         ...(fcmToken && { fcmToken: fcmToken })
+//       },
+//     }
+//   );
+
 //   const existingWallet = await Wallet.findOne({ user: user._id });
 
 //   if (!existingWallet) {
 //     await Wallet.create({
-//       user: user._id
+//       user: user._id,
 //     });
 //   }
-//   return res
-//     .status(200)
-//     .send({ data: { otp, id: user._id }, message: "Login successfully" });
+
+//   return res.status(200).send({
+//     data: { id: user._id },
+//     message: "Login successfully",
+//   });
 // });
+
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -85,30 +107,65 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   });
 
   if (!user) {
-    return res.status(400).send({ message: "Service user not found" });
-  }
-
-  if (!user.isActive) {
-    return res.status(403).json({
-      message: "Your account is suspended please contact the support",
+    return res.status(400).send({
+      message: "Service user not found",
     });
   }
-  if (user.isDeleted) {
-    return res.status(403).send({ message: "Your account is permanent deleted." })
+
+  // Account suspended
+  if (!user.isActive) {
+    return res.status(403).json({
+      message: "Your account is suspended please contact support",
+    });
   }
+
+  // Account deleted
+  if (user.isDeleted) {
+    return res.status(403).send({
+      message: "Your account is permanently deleted.",
+    });
+  }
+
+  // Approval status check
+  if (user.isApproved === "pending") {
+    return res.status(403).send({
+      message: "Admin has not approved your request yet.",
+    });
+  }
+
+  if (user.isApproved === "rejected") {
+    return res.status(403).send({
+      message:
+        user.rejectReason && user.rejectReason.trim() !== ""
+          ? user.rejectReason
+          : "Admin has rejected your request.",
+    });
+  }
+
+  // Only approved users can login
+  if (user.isApproved !== "approved") {
+    return res.status(403).send({
+      message: "You are not allowed to login.",
+    });
+  }
+
   const otp = generateRandomOTP();
+
   await authenticaOTP(otp, user.email, user.phone);
+
   await ServiceUser.updateOne(
     { _id: user._id },
     {
       $set: {
         OTP: otp,
-        ...(fcmToken && { fcmToken: fcmToken })
+        ...(fcmToken && { fcmToken }),
       },
     }
   );
 
-  const existingWallet = await Wallet.findOne({ user: user._id });
+  const existingWallet = await Wallet.findOne({
+    user: user._id,
+  });
 
   if (!existingWallet) {
     await Wallet.create({

@@ -32,7 +32,8 @@ const {
   getUserFavorites,
   googleLogin,
   createUserReview,
-  getReviews
+  getReviews,
+  getServiceUser
 } = require("../controller/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 const {
@@ -126,6 +127,8 @@ router.delete("/deleteNotification/:id", validateToken, deleteNotification);
 
 router.patch("/markAllAsRead", validateToken, markAllAsRead);
 
-router.delete("/deleteAllNotifications", validateToken, deleteAllNotifications)
+router.delete("/deleteAllNotifications", validateToken, deleteAllNotifications);
+
+router.get("/getServiceUser/:userId", validateToken, getServiceUser);
 
 module.exports = router;
