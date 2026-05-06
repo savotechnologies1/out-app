@@ -45,6 +45,7 @@ const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 const Notification = require("../models/Notification");
 const { sendNotification } = require("../utils/notificationService");
 
+
 // const adminLogin = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
 //   const checkValid = await checkValidations(errors);
@@ -1757,6 +1758,74 @@ const blockUnblockServiceUser = catchAsyncError(async (req, res, next) => {
 });
 
 
+const softDeleteServiceUser = catchAsyncError(async (req, res, next) => {
+  const { userId, type } = req.params;
+  const { isDeleted } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({
+      message: "Invalid userId",
+    });
+  }
+
+  if (typeof isDeleted !== "boolean") {
+    return res.status(400).json({
+      message: "isDeleted must be true or false",
+    });
+  }
+
+  if (!["service", "user"].includes(type)) {
+    return res.status(400).json({
+      message: "Type must be either 'service' or 'user'",
+    });
+  }
+
+  const Model = type === "service" ? ServiceUser : User;
+
+  // 🔥 IMPORTANT: remove isDeleted filter to allow restore
+  const user = await Model.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({
+      message: `${type === "service" ? "Service user" : "User"} not found`,
+    });
+  }
+
+  user.isDeleted = isDeleted;
+  await user.save();
+
+  // 🔔 Notification
+  await sendNotification({
+    receiverId: user._id,
+    receiverModel: type === "service" ? "ServiceUser" : "User",
+    senderId: req.user._id,
+    senderModel: "Admin",
+    title: isDeleted ? "Account Deleted ❌" : "Account Restored ✅",
+    body: isDeleted
+      ? "Your account has been removed by admin."
+      : "Your account has been restored by admin.",
+    type: "SYSTEM",
+  });
+
+  // 📧 Email Template
+  // const templateName = isDeleted ? "user-delete" : "user-restore";
+
+  // await sendMail(
+  //   templateName,
+  //   {
+  //     "%name%": `${user.firstName || ""} ${user.lastName || ""}`,
+  //   },
+  //   user.email
+  // );
+
+  return res.status(200).json({
+    success: true,
+    message: `${type === "service" ? "Service user" : "User"} ${
+      isDeleted ? "deleted" : "restored"
+    } successfully`,
+  });
+});
+
 const getPropertyDetailsForAdmin = catchAsyncError(async (req, res) => {
   const { propertyId } = req.params;
 
@@ -2421,104 +2490,292 @@ const getAllBanners = async (req, res) => {
 };
 
 
+// const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
+
+//   let { page = 1, limit = 10, type, paymentStatus, search } = req.query;
+//   const { status } = req.params;
+
+//   page = parseInt(page);
+//   limit = parseInt(limit);
+//   const skip = (page - 1) * limit;
+
+//   /* ========================
+//      📅 TODAY RANGE
+//   ======================== */
+//   const today = new Date();
+//   const endOfToday = new Date();
+//   endOfToday.setHours(23, 59, 59, 999);
+
+//   /* ========================
+//      🔍 FILTER
+//   ======================== */
+//   const filter = {};
+
+//   /* ✅ STATUS FILTER */
+//   if (status === "all") {
+//     filter.bookingStatus = { $in: ["confirmed", "cancelled"] };
+
+//   } else if (status === "completed") {
+//     // ✅ COMPLETED BOOKINGS
+//     filter.bookingStatus = "confirmed";
+//     filter.checkOut = { $lte: endOfToday };
+
+//   } else if (["confirmed", "cancelled", "pending"].includes(status)) {
+//     filter.bookingStatus = status;
+
+//   } else {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Invalid booking status"
+//     });
+//   }
+
+//   /* ✅ PAYMENT STATUS */
+//   if (paymentStatus) {
+//     filter.paymentStatus = paymentStatus;
+//   } else {
+//     filter.paymentStatus = "paid";
+//   }
+
+//   /* ✅ BOOKING TYPE */
+//   if (type) {
+//     filter.bookingType = type;
+//   }
+
+//   /* ✅ SEARCH */
+//   if (search) {
+//     filter.orderId = { $regex: search, $options: "i" };
+//   }
+
+//   /* ========================
+//      📦 FETCH DATA
+//   ======================== */
+//   const [bookings, total] = await Promise.all([
+//     Booking.find(filter)
+//       .populate({
+//         path: "property",
+//         select: "name price address"
+//       })
+//       .populate({
+//         path: "services.service",
+//         select: "name price"
+//       })
+//       .populate({
+//         path: "user",
+//         select: "firstName lastName email phone"
+//       })
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limit)
+//       .lean(),
+
+//     Booking.countDocuments(filter)
+//   ]);
+
+//   const totalPages = Math.ceil(total / limit);
+
+//   return res.status(200).json({
+//     success: true,
+//     data: bookings,
+//     page,
+//     limit,
+//     total,
+//     totalPages,
+//     previousDisabled: page <= 1,
+//     nextPage: page < totalPages ? page + 1 : null,
+//     previousPage: page > 1 ? page - 1 : null,
+//     nextDisabled: page >= totalPages,
+//     message: bookings.length
+//       ? "Bookings fetched successfully"
+//       : "No bookings found"
+//   });
+
+// });
+
+
 const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
 
-  let { page = 1, limit = 10, type, paymentStatus, search } = req.query;
+  let {
+    page = 1,
+    limit = 10,
+    type,
+    paymentStatus,
+    search
+  } = req.query;
+
   const { status } = req.params;
 
   page = parseInt(page);
   limit = parseInt(limit);
+
   const skip = (page - 1) * limit;
 
   /* ========================
      📅 TODAY RANGE
   ======================== */
-  const today = new Date();
+
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
   /* ========================
      🔍 FILTER
   ======================== */
-  const filter = {};
 
-  /* ✅ STATUS FILTER */
+  const filter = {
+    isDeleted: false
+  };
+
+  /* ========================
+     ✅ STATUS FILTER
+  ======================== */
+
   if (status === "all") {
-    filter.bookingStatus = { $in: ["confirmed", "cancelled"] };
 
-  } else if (status === "completed") {
-    // ✅ COMPLETED BOOKINGS
+    filter.bookingStatus = {
+      $in: ["confirmed", "cancelled", "pending"]
+    };
+
+  }
+
+  else if (status === "completed") {
+
     filter.bookingStatus = "confirmed";
-    filter.checkOut = { $lte: endOfToday };
 
-  } else if (["confirmed", "cancelled", "pending"].includes(status)) {
+    filter.checkOut = {
+      $lte: endOfToday
+    };
+
+  }
+
+  else if (
+    ["confirmed", "cancelled", "pending"].includes(status)
+  ) {
+
     filter.bookingStatus = status;
 
-  } else {
+  }
+
+  else {
+
     return res.status(400).json({
       success: false,
       message: "Invalid booking status"
     });
+
   }
 
-  /* ✅ PAYMENT STATUS */
+  /* ========================
+     ✅ PAYMENT STATUS
+  ======================== */
+
   if (paymentStatus) {
+
     filter.paymentStatus = paymentStatus;
-  } else {
-    filter.paymentStatus = "paid";
+
   }
 
-  /* ✅ BOOKING TYPE */
+  /* ========================
+     ✅ BOOKING TYPE
+  ======================== */
+
   if (type) {
+
     filter.bookingType = type;
+
   }
 
-  /* ✅ SEARCH */
+  /* ========================
+     ✅ SEARCH
+  ======================== */
+
   if (search) {
-    filter.orderId = { $regex: search, $options: "i" };
+
+    filter.$or = [
+      {
+        orderId: {
+          $regex: search,
+          $options: "i"
+        }
+      }
+    ];
+
   }
 
   /* ========================
      📦 FETCH DATA
   ======================== */
+
   const [bookings, total] = await Promise.all([
+
     Booking.find(filter)
+
       .populate({
         path: "property",
         select: "name price address"
       })
+
       .populate({
         path: "services.service",
         select: "name price"
       })
+
       .populate({
         path: "user",
         select: "firstName lastName email phone"
       })
+
       .sort({ createdAt: -1 })
+
       .skip(skip)
+
       .limit(limit)
+
       .lean(),
 
     Booking.countDocuments(filter)
+
   ]);
+
+  /* ========================
+     📄 PAGINATION
+  ======================== */
 
   const totalPages = Math.ceil(total / limit);
 
+  /* ========================
+     ✅ RESPONSE
+  ======================== */
+
   return res.status(200).json({
+
     success: true,
+
     data: bookings,
+
     page,
+
     limit,
+
     total,
+
     totalPages,
+
     previousDisabled: page <= 1,
-    nextPage: page < totalPages ? page + 1 : null,
-    previousPage: page > 1 ? page - 1 : null,
+
+    nextPage: page < totalPages
+      ? page + 1
+      : null,
+
+    previousPage: page > 1
+      ? page - 1
+      : null,
+
     nextDisabled: page >= totalPages,
+
     message: bookings.length
       ? "Bookings fetched successfully"
       : "No bookings found"
+
   });
 
 });
@@ -3584,50 +3841,120 @@ const getSingleServiceAdmin = async (req, res) => {
 };
 
 const getServicesByUserAdmin = async (req, res) => {
+
   try {
+
     const { userId } = req.params;
+    let {
+      page = 1,
+      limit = 10
+    } = req.query;
 
-    let { page = 1, limit = 10 } = req.query;
+    page = parseInt(page);
+    limit = parseInt(limit);
 
-    const pageNumber = parseInt(page);
-    const limitNumber = parseInt(limit);
-    const skip = (pageNumber - 1) * limitNumber;
+    const skip = (page - 1) * limit;
+
+    /* ========================
+       VALIDATE USER ID
+    ======================== */
+
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user id"
+      });
+
+    }
+
+    /* ========================
+       FILTER
+    ======================== */
 
     const filter = {
       user: userId,
       isDeleted: false,
-      approvalStatus: "approved"
+      // approvalStatus: "approved"
     };
+    /* ========================
+       FETCH DATA
+    ======================== */
 
-    const total = await Service.countDocuments(filter);
+    const [services, total] = await Promise.all([
 
-    const services = await Service.find(filter)
-      .populate("category", "name")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNumber);
+      Service.find(filter)
 
-    const totalPages = Math.ceil(total / limitNumber);
+        .populate({
+          path: "category",
+          select: "name"
+        })
 
-    res.send({
+        .sort({ createdAt: -1 })
+
+        .skip(skip)
+
+        .limit(limit)
+
+        .lean(),
+
+      Service.countDocuments(filter)
+
+    ]);
+
+    /* ========================
+       PAGINATION
+    ======================== */
+
+    const totalPages = Math.ceil(total / limit);
+
+    /* ========================
+       RESPONSE
+    ======================== */
+
+    return res.status(200).json({
+
       success: true,
+
       data: services,
-      page: pageNumber,
-      limit: limitNumber,
+
+      page,
+
+      limit,
+
       total,
+
       totalPages,
-      previousDisabled: pageNumber <= 1,
-      nextPage: pageNumber + 1,
-      previousPage: pageNumber - 1,
-      nextDisabled: pageNumber >= totalPages
+
+      previousDisabled: page <= 1,
+
+      nextPage: page < totalPages
+        ? page + 1
+        : null,
+
+      previousPage: page > 1
+        ? page - 1
+        : null,
+
+      nextDisabled: page >= totalPages,
+
+      message: services.length
+        ? "Services fetched successfully"
+        : "No services found"
+
     });
 
-  } catch (error) {
-    res.status(500).json({
+  }
+
+  catch (error) {
+
+    return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
+
 };
 
 const getAllPackagesAdmin = async (req, res) => {
@@ -5319,6 +5646,105 @@ const adminDeleteNotifications = async (req, res) => {
   }
 };
 
+const logout = catchAsyncError(async (req, res, next) => {
+  if (!req?.headers?.authorization) {
+    return res.status(400).send({
+      message: "Token not found",
+    });
+  }
+
+  const { 1: authToken } = req.headers.authorization.split(" ");
+
+  try {
+    const decoded = jwt.verify(authToken, process.env.JWT_SECRET);
+
+    await Admin.updateOne(
+      { _id: decoded.user._id },
+      { $pull: { tokens: authToken } }
+    );
+
+    return res.status(200).send({
+      message: "Logout Successfully",
+    });
+  } catch (error) {
+    return res.status(401).send({
+      message: "Invalid or expired token",
+    });
+  }
+});
+
+
+const softDeleteProperty = catchAsyncError(async (req, res, next) => {
+  const { propertyId } = req.params;
+  const { isDeleted } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(propertyId)) {
+    return res.status(400).json({
+      message: "Invalid propertyId",
+    });
+  }
+
+  if (typeof isDeleted !== "boolean") {
+    return res.status(400).json({
+      message: "isDeleted must be true or false",
+    });
+  }
+
+  const property = await Properties.findById(propertyId);
+
+  if (!property) {
+    return res.status(404).json({
+      message: "Property not found",
+    });
+  }
+
+  property.isDeleted = isDeleted;
+  await property.save();
+
+  return res.status(200).json({
+    success: true,
+    message: `Property ${isDeleted ? "deleted" : "restored"} successfully`,
+  });
+});
+
+const softDeleteService = catchAsyncError(async (req, res, next) => {
+  const { serviceId } = req.params;
+  const { isDeleted } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+    return res.status(400).json({
+      message: "Invalid serviceId",
+    });
+  }
+
+  if (typeof isDeleted !== "boolean") {
+    return res.status(400).json({
+      message: "isDeleted must be true or false",
+    });
+  }
+
+  const service = await Service.findById(serviceId);
+
+  if (!service) {
+    return res.status(404).json({
+      message: "Service not found",
+    });
+  }
+
+  service.isDeleted = isDeleted;
+
+  // 🔥 Important: also disable service if deleted
+  if (isDeleted) {
+    service.isActive = false;
+  }
+
+  await service.save();
+
+  return res.status(200).json({
+    success: true,
+    message: `Service ${isDeleted ? "deleted" : "restored"} successfully`,
+  });
+});
 
 module.exports = {
   adminLogin,
@@ -5414,6 +5840,10 @@ module.exports = {
   getAdminNotifications,
   getAllNotificationsAdmin,
   getNotificationDetails,
-  adminDeleteNotifications
+  adminDeleteNotifications,
+  logout,
+  softDeleteServiceUser,
+  softDeleteService,
+  softDeleteProperty
 };
 

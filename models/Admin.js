@@ -26,9 +26,6 @@ const adminSchema = new mongoose.Schema(
     dob: {
       type: Date,
     },
-    phone: {
-      type: String,
-    },
     password: {
       type: String,
     },

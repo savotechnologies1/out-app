@@ -20,6 +20,7 @@ cron.schedule("0 * * * *", async () => {
   console.log("Running release cron...");
   await releaseOnCheckIn();
 });
+require("./cron/pendingBookingCleanup");
 // app.use(helmet());
 app.use(
   helmet({

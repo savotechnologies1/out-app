@@ -93,7 +93,9 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
       message: "Your account is suspended please contact the support",
     });
   }
-
+  if (user.isDeleted) {
+    return res.status(403).send({ message: "Your account is permanent deleted." })
+  }
   const otp = generateRandomOTP();
   await authenticaOTP(otp, user.email, user.phone);
   await ServiceUser.updateOne(

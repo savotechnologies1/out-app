@@ -99,7 +99,9 @@ const userLogin = catchAsyncError(async (req, res, next) => {
       message: "Your account is suspended please contact support",
     });
   }
-
+  if (user.isDeleted) {
+    return res.status(403).send({ message: "Your account is permanent deleted." })
+  }
   const otp = generateRandomOTP();
 
   await User.updateOne(
@@ -234,7 +236,7 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
 
   // Generate ID
   const randomId = generateRandomId();
-
+  const otp = generateRandomOTP();
   // Create user
   const user = await User.create({
     salutation,
@@ -244,9 +246,9 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
     email: email && email.trim() !== "" ? email : null, // ✅ optional email
     phone,
     phoneCode: mobileCode,
-    OTP: null,
+    OTP: otp,
   });
-
+  await authenticaOTP(otp, user.email, user.phone);
   return res.status(201).send({
     data: {
       id: user._id,
@@ -326,12 +328,12 @@ const googleLogin = async (req, res) => {
         message: "Google token required",
       });
     }
- 
+
     const ticket = await client.verifyIdToken({
       idToken: token,
       audience: process.env.GOOGLE_ANDROID_CLIENT_ID,
     });
-  
+
     const payload = ticket.getPayload();
     if (!payload.email) {
       return res.status(400).json({

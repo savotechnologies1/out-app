@@ -94,7 +94,11 @@ const {
   getAdminNotifications,
   getAllNotificationsAdmin,
   getNotificationDetails,
-  adminDeleteNotifications
+  adminDeleteNotifications,
+  logout,
+  softDeleteServiceUser,
+  softDeleteProperty,
+  softDeleteService
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -104,7 +108,7 @@ const {
   resetPass,
   verifyOtp,
 } = require("../validations/validator");
-const { adminOverrideRefund } = require("../controller/bookingController");
+const { adminOverrideRefund, deletePendingBooking } = require("../controller/bookingController");
 const { getReviews } = require("../controller/userController");
 
 const router = app.Router();
@@ -169,6 +173,8 @@ router.post(
 router.put("/approved-rejected/:userId", validateAdminToken, updateStatus);
 
 router.put("/block-unblock/:userId/:type", validateAdminToken, blockUnblockServiceUser);
+
+router.delete("/softDelete/:userId/:type", validateAdminToken, softDeleteServiceUser)
 
 router.get("/getPropertyDetailsForAdmin/:propertyId", validateAdminToken, getPropertyDetailsForAdmin);
 
@@ -294,8 +300,16 @@ router.get("/getAdminNotifications", validateAdminToken, getAdminNotifications);
 
 router.get("/getAllNotificationsAdmin", validateAdminToken, getAllNotificationsAdmin)
 
-router.get("/getNotificationDetails/:id",validateAdminToken, getNotificationDetails);
+router.get("/getNotificationDetails/:id", validateAdminToken, getNotificationDetails);
 
 router.delete("/adminDeleteNotifications", validateAdminToken, adminDeleteNotifications)
+
+router.post("/logout", logout);
+
+router.delete("/deleteProperty/:propertyId", validateAdminToken, softDeleteProperty);
+
+router.delete("/deleteService/:serviceId", validateAdminToken, softDeleteService);
+
+router.delete("/deletePendingBooking/:bookingId", validateAdminToken, deletePendingBooking)
 
 module.exports = router;

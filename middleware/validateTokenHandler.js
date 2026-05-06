@@ -29,7 +29,7 @@ const validateToken = async (req, res, next) => {
 
     const user = await User.findOne(
       { _id: decoded.user._id },
-      { tokens: 1, email: 1, role: 1, isActive:1 }
+      { tokens: 1, email: 1, role: 1, isActive: 1 }
     ).lean();
 
     if (!user) {
@@ -46,6 +46,9 @@ const validateToken = async (req, res, next) => {
 
     if (!user.isActive) {
       return res.status(403).send({ message: "Your account is suspended contact support" })
+    }
+    if (user.isDeleted) {
+      return res.status(403).send({ message: "Your account is permanent deleted." })
     }
 
     req.user = {

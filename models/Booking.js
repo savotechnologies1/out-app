@@ -132,10 +132,6 @@ const bookingSchema = new mongoose.Schema({
     }
   ],
 
-  /* ========================
-     PAYMENT
-  ======================== */
-
   orderId: {
     type: String,
     unique: true,
@@ -155,7 +151,23 @@ const bookingSchema = new mongoose.Schema({
     enum: ["pending", "confirmed", "cancelled"],
     default: "pending"
   },
+  pendingReason: {
+    type: String,
+    enum: [
+      "payment_pending",
+      "payment_failed",
+      "user_abandoned",
+      "verification_pending",
+      "system_error",
+      "expired"
+    ],
+    default: "payment_pending"
+  },
 
+  pendingExpiredAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 24 * 60 * 60 * 1000)
+  },
   webhookProcessed: {
     type: Boolean,
     default: false

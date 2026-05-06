@@ -14,6 +14,8 @@ const Wallet = require("../models/Wallet");
 const WalletTransaction = require("../models/WalletTransaction");
 const axios = require("axios");
 const { sendNotification } = require("../utils/notificationService");
+const PaymentTransaction = require("../models/PaymentTransaction");
+const Notification = require("../models/Notification");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -590,7 +592,6 @@ exports.checkAvailability = async (req, res) => {
 
 exports.createBooking = async (req, res) => {
   try {
-console.log("req.body", req.body)
     const {
       bookingType,
       propertyId,
@@ -850,7 +851,8 @@ console.log("req.body", req.body)
       orderId,
 
       paymentStatus: "pending",
-      bookingStatus: "pending"
+      bookingStatus: "pending",
+      pendingReason: "payment_pending"
     });
 
     return res.status(201).send({
@@ -1906,4 +1908,89 @@ exports.cancelBooking = async (req, res) => {
       message: error.message,
     });
   }
+};
+
+exports.deletePendingBooking = async (req, res) => {
+
+  const { bookingId } = req.params;
+
+  /* ========================
+     FIND BOOKING
+  ======================== */
+
+  const booking = await Booking.findById(bookingId);
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      message: "Booking not found"
+    });
+  }
+
+  /* ========================
+     ALLOW ONLY PENDING
+  ======================== */
+
+  if (booking.bookingStatus !== "pending") {
+    return res.status(400).json({
+      success: false,
+      message: "Only pending bookings can be permanently deleted"
+    });
+  }
+
+  /* ========================
+     DELETE PAYMENT TRANSACTIONS
+  ======================== */
+
+  await PaymentTransaction.deleteMany({
+    booking: booking._id
+  });
+
+  /* ========================
+     DELETE HOTEL AVAILABILITY
+  ======================== */
+
+  await HotelAvailability.deleteMany({
+    booking: booking._id
+  });
+
+  /* ========================
+     DELETE SERVICE AVAILABILITY
+  ======================== */
+
+  await ServiceAvailability.deleteMany({
+    booking: booking._id
+  });
+
+  /* ========================
+     DELETE WALLET TRANSACTIONS
+  ======================== */
+
+  await WalletTransaction.deleteMany({
+    bookingId: booking._id
+  });
+
+  /* ========================
+     DELETE NOTIFICATIONS
+  ======================== */
+
+  await Notification.deleteMany({
+    referenceId: booking._id
+  });
+
+  /* ========================
+     DELETE BOOKING
+  ======================== */
+
+  await booking.deleteOne();
+
+  /* ========================
+     RESPONSE
+  ======================== */
+
+  return res.status(200).json({
+    success: true,
+    message: "Pending booking deleted permanently"
+  });
+
 };

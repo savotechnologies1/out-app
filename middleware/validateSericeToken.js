@@ -43,6 +43,10 @@ const validateServiceToken = async (req, res, next) => {
           return res.status(403).send({ message: "Your account is suspended contact support" })
         }
 
+        if (user.isDeleted) {
+          return res.status(403).send({ message: "Your account is permanent deleted." })
+        }
+
         let newUser = {
           _id: user._id,
           role: user.role,

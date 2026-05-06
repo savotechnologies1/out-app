@@ -268,7 +268,8 @@ exports.paymentWebhook = async (req, res) => {
       booking.bookingStatus = "confirmed";
       booking.tapChargeId = chargeId;
       booking.webhookProcessed = true;
-
+      booking.pendingReason = null;
+      booking.pendingExpiredAt = null;
       await booking.save();
 
       /* ===============================================
@@ -419,8 +420,9 @@ exports.paymentWebhook = async (req, res) => {
        PAYMENT FAILED
     =============================================== */
     else {
-      booking.bookingStatus = "cancelled";
+      booking.bookingStatus = "pending";
       booking.paymentStatus = "failed";
+      booking.pendingReason = "payment_failed";
       booking.webhookProcessed = true;
 
       await booking.save();
