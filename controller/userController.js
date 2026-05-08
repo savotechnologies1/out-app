@@ -511,35 +511,120 @@ const logout = catchAsyncError(async (req, res, next) => {
 });
 
 const updateProfile = catchAsyncError(async (req, res, next) => {
+
   const files = { ...req.files };
 
   const userProfileFiles = files?.userProfile;
 
+  /* ========================
+     VALIDATION
+  ======================== */
+
   const errors = validationResult(req);
-  console.log("req.user:", req.user);
+
   const checkValid = await checkValidations(errors);
+
   if (checkValid.type === "error") {
+
     return res.status(400).send({
       message: checkValid.errors.msg,
     });
+
   }
 
-  const obj = {
-    firstName: req.body.firstName,
-    lastName: req.body.lastName,
-    email: req.body.email,
-    phone: `${req.body.mobileCode}${req.body.mobile}`,
-    phoneCode: req.body.mobileCode,
-  };
+  /* ========================
+     PREPARE UPDATE OBJECT
+  ======================== */
+
+  const obj = {};
+
+  if (req.body.firstName) {
+    obj.firstName = req.body.firstName;
+  }
+
+  if (req.body.lastName) {
+    obj.lastName = req.body.lastName;
+  }
+
+  /* ========================
+     EMAIL CHECK
+  ======================== */
+
+  if (req.body.email) {
+
+    const existingEmail = await User.findOne({
+      email: req.body.email,
+      _id: { $ne: req.user._id }
+    });
+
+    if (existingEmail) {
+
+      return res.status(400).send({
+        message: "Email already exists",
+      });
+
+    }
+
+    obj.email = req.body.email;
+
+  }
+
+  /* ========================
+     PHONE CHECK
+  ======================== */
+
+  if (req.body.mobile) {
+
+    const fullPhone = `${req.body.mobileCode || ""}${req.body.mobile}`;
+
+    const existingPhone = await User.findOne({
+      phone: fullPhone,
+      _id: { $ne: req.user._id }
+    });
+
+    if (existingPhone) {
+
+      return res.status(400).send({
+        message: "Phone number already exists",
+      });
+
+    }
+
+    obj.phone = fullPhone;
+
+  }
+
+  if (req.body.mobileCode) {
+    obj.phoneCode = req.body.mobileCode;
+  }
+
+  /* ========================
+     PROFILE IMAGE
+  ======================== */
 
   if (userProfileFiles && userProfileFiles.length) {
-    obj["profile"] = userProfileFiles[0].filename;
+
+    obj.profile = userProfileFiles[0].filename;
+
   }
 
-  User.updateOne({ _id: req.user._id }, { $set: obj }).then();
+  /* ========================
+     UPDATE USER
+  ======================== */
 
+  await User.updateOne(
+    { _id: req.user._id },
+    { $set: obj }
+  );
 
-  return res.status(200).send({ message: "Profile updated successfully" });
+  /* ========================
+     RESPONSE
+  ======================== */
+
+  return res.status(200).send({
+    message: "Profile updated successfully",
+  });
+
 });
 
 const getCategory = catchAsyncError(async (req, res, next) => {
