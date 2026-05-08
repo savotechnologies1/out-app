@@ -1820,9 +1820,8 @@ const softDeleteServiceUser = catchAsyncError(async (req, res, next) => {
 
   return res.status(200).json({
     success: true,
-    message: `${type === "service" ? "Service user" : "User"} ${
-      isDeleted ? "deleted" : "restored"
-    } successfully`,
+    message: `${type === "service" ? "Service user" : "User"} ${isDeleted ? "deleted" : "restored"
+      } successfully`,
   });
 });
 
@@ -3167,6 +3166,13 @@ const getAdminUpcomingBookings = catchAsyncError(async (req, res) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // const filter = {
+  //   checkIn: { $gte: today },
+  //   bookingStatus: { $in: ["confirmed", "pending"] },
+  //   paymentStatus: "paid"
+  // };
+
+
   const filter = {
     checkIn: { $gte: today },
     bookingStatus: { $in: ["confirmed", "pending"] },
@@ -3174,7 +3180,6 @@ const getAdminUpcomingBookings = catchAsyncError(async (req, res) => {
     webhookProcessed: true,
     isCancelled: false
   };
-
   const [bookings, total] = await Promise.all([
     Booking.find(filter)
       .populate("user", "firstName lastName phone profile")

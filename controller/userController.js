@@ -881,7 +881,7 @@ const getPropertiesByCategory = catchAsyncError(async (req, res) => {
     category: categoryDoc._id,
     isDeleted: false,
     is_completed: true,
-    // approvalStatus: "approved"
+    approvalStatus: "approved"
   };
 
   if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
