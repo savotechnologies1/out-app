@@ -3170,7 +3170,9 @@ const getAdminUpcomingBookings = catchAsyncError(async (req, res) => {
   const filter = {
     checkIn: { $gte: today },
     bookingStatus: { $in: ["confirmed", "pending"] },
-    paymentStatus: "paid"
+    paymentStatus: "paid",
+    webhookProcessed: true,
+    isCancelled: false
   };
 
   const [bookings, total] = await Promise.all([
