@@ -262,7 +262,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  const { salutation, firstName, lastName, email, mobile, mobileCode } =
+  const { salutation, firstName, lastName, email, description, mobile, mobileCode } =
     req.body;
 
   const phone = `${mobileCode}${mobile}`;
@@ -327,6 +327,7 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
     lastName,
     userId: `SID-${randomId}`,
     email: email && email.trim() !== "" ? email : null, // ✅ optional email
+    description,
     phone,
     phoneCode: mobileCode,
     OTP: null,
@@ -424,6 +425,7 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
       lastName: 1,
       phone: 1,
       phoneCode: 1,
+      description: 1,
       profile: 1,
       isVerified: 1,
       createdAt: 1
@@ -524,11 +526,12 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
 const editServiceUser = catchAsyncError(async (req, res, next) => {
   const userProfileFiles = req?.files?.userProfile;
   const userId = req?.user?._id;
-  const { firstName, lastName, email, mobile, mobileCode } = req.body;
+  const { firstName, lastName, email, description, mobile, mobileCode } = req.body;
   const updateData = {};
   if (firstName) updateData.firstName = firstName;
   if (lastName) updateData.lastName = lastName;
   if (email) updateData.email = email;
+  if (description) updateData.description = description;
   if (mobile) updateData.mobile = mobile;
   if (mobileCode) updateData.mobileCode = mobileCode;
 

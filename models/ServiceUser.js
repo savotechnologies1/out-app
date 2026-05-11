@@ -23,6 +23,9 @@ const userSchema = new mongoose.Schema(
       latitude: { type: String },
       longitude: { type: String },
     },
+    description: {
+      type: String
+    },
     phoneCode: { type: String },
     OTP: { type: String },
     docs: { type: String },

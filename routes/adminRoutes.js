@@ -253,7 +253,7 @@ router.patch("/toggleServiceCategoryStatus/:id", validateAdminToken, toggleServi
 
 router.get("/getAllServiceCategories", validateAdminToken, getAllServiceCategories)
 
-router.get("/getAllServicesAdmin", validateAdminToken, getAllServicesAdmin);
+router.get("/getAllServicesAdmin",  getAllServicesAdmin);
 
 router.get("/getSingleServiceAdmin/:id", validateAdminToken, getSingleServiceAdmin);
 

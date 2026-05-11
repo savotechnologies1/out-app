@@ -123,6 +123,8 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 });
 
 
+  // authenticaOTP("1234", "", "+917049866959")
+
 // const userSignUp = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
 //   const checkValid = await checkValidations(errors);
@@ -2630,6 +2632,7 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
       profile: 1,
       isVerified: 1,
       createdAt: 1,
+      description: 1,
       address: 1
     }
   ).lean();
@@ -2727,22 +2730,6 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
     (now.getFullYear() - createdDate.getFullYear()) * 12 +
     (now.getMonth() - createdDate.getMonth());
 
-  /* ========================
-     🏠 LATEST PROPERTY DESCRIPTION
-  ======================== */
-
-  const latestProperty = await Properties.findOne(
-    {
-      user: userId,
-      isDeleted: false,
-      approvalStatus: "approved"
-    },
-    {
-      description: 1
-    }
-  )
-    .sort({ createdAt: -1 })
-    .lean();
 
   /* ========================
      ⭐ REVIEW LIST (LAST 10)
@@ -2768,7 +2755,6 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
       $limit: 10
     },
 
-    // Reviewer Details
     {
       $lookup: {
         from: "users",
@@ -2817,8 +2803,6 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
         earnings: totalEarnings,
         months: months < 0 ? 0 : months
       },
-
-      propertyDescription: latestProperty?.description || "",
 
       reviewList
     }

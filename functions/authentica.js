@@ -23,7 +23,7 @@ module.exports.authenticaOTP = async (OTP, email, phone) => {
                 },
             }
         );
-
+    //    console.log("response", response.data)
         if (response.status !== 200) {
             throw new Error("Failed to send OTP");
         }
