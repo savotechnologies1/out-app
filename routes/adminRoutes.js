@@ -255,7 +255,7 @@ router.get("/getAllServiceCategories", validateAdminToken, getAllServiceCategori
 
 router.get("/getAllServicesAdmin", validateAdminToken, getAllServicesAdmin);
 
-router.get("/getSingleServiceAdmin/:id", validateAdminToken, getSingleServiceAdmin);
+router.get("/getSingleServiceAdmin/:id",  getSingleServiceAdmin);
 
 router.get("/getServicesByUserAdmin/:userId", validateAdminToken, getServicesByUserAdmin);
 

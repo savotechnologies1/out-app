@@ -4056,14 +4056,189 @@ const getSingleServiceAdmin = async (req, res) => {
 
     const { id } = req.params;
 
-    const service = await Service.findOne({
-      _id: id,
-      isDeleted: false
-    })
-      .populate("user", "firstName lastName profile email")
-      .populate("category", "name");
+    const service = await Service.aggregate([
 
-    if (!service) {
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          isDeleted: false
+        }
+      },
+
+      /* ========================
+         👤 PROVIDER INFO
+      ======================== */
+
+      {
+        $lookup: {
+          from: "serviceusers",
+          localField: "user",
+          foreignField: "_id",
+          as: "provider"
+        }
+      },
+
+      {
+        $unwind: {
+          path: "$provider",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      /* ========================
+         📂 CATEGORY INFO
+      ======================== */
+
+      {
+        $lookup: {
+          from: "servicecategories",
+          localField: "category",
+          foreignField: "_id",
+          as: "categoryData"
+        }
+      },
+
+      {
+        $unwind: {
+          path: "$categoryData",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      /* ========================
+         📜 CANCELLATION POLICY
+      ======================== */
+
+      {
+        $lookup: {
+          from: "cancellationpolicies",
+          localField: "cancellationPolicy",
+          foreignField: "_id",
+          as: "cancellationPolicyData"
+        }
+      },
+
+      {
+        $unwind: {
+          path: "$cancellationPolicyData",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      /* ========================
+         ⭐ SERVICE REVIEWS
+      ======================== */
+
+      {
+        $lookup: {
+          from: "reviews",
+          let: { serviceId: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$service", "$$serviceId"] },
+                isDeleted: false,
+                reviewType: "service"
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                avgRating: { $avg: "$rating" },
+                totalReviews: { $sum: 1 }
+              }
+            }
+          ],
+          as: "ratingData"
+        }
+      },
+
+      /* ========================
+         🎯 FORMAT RATING
+      ======================== */
+
+      {
+        $addFields: {
+          avgRating: {
+            $ifNull: [
+              { $round: [{ $arrayElemAt: ["$ratingData.avgRating", 0] }, 1] },
+              0
+            ]
+          },
+
+          totalReviews: {
+            $ifNull: [
+              { $arrayElemAt: ["$ratingData.totalReviews", 0] },
+              0
+            ]
+          }
+        }
+      },
+
+      {
+        $project: {
+          ratingData: 0
+        }
+      },
+
+      /* ========================
+         📤 RESPONSE FORMAT
+      ======================== */
+
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          description: 1,
+          price: 1,
+          duration: 1,
+          priceType: 1,
+          document: 1,
+          approvalStatus: 1,
+          approvedAt: 1,
+          rejectionReason: 1,
+          workingDays: 1,
+          workingHours: 1,
+          media: 1,
+          location: 1,
+          isActive: 1,
+          createdAt: 1,
+
+          avgRating: 1,
+          totalReviews: 1,
+
+          category: {
+            _id: "$categoryData._id",
+            name: "$categoryData.name"
+          },
+
+          cancellationPolicy: {
+            _id: "$cancellationPolicyData._id",
+            title: "$cancellationPolicyData.title"
+          },
+
+          provider: {
+            _id: "$provider._id",
+
+            name: {
+              $concat: [
+                { $ifNull: ["$provider.firstName", ""] },
+                " ",
+                { $ifNull: ["$provider.lastName", ""] }
+              ]
+            },
+
+            email: "$provider.email",
+            phone: "$provider.phone",
+            profile: "$provider.profile",
+            isVerified: "$provider.isVerified"
+          }
+        }
+      }
+
+    ]);
+
+    if (!service || service.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Service not found"
@@ -4072,7 +4247,7 @@ const getSingleServiceAdmin = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: service
+      data: service[0]
     });
 
   } catch (error) {
