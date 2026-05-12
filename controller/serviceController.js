@@ -592,56 +592,344 @@ const getIncompleteProperty = catchAsyncError(async (req, res) => {
 });
 
 
+// const getPropertyById = catchAsyncError(async (req, res) => {
+
+//   const data = (await Properties.aggregate([
+//     {
+//       $match: {
+//         isDeleted: false,
+//         _id: new mongoose.Types.ObjectId(req.params.id)
+//       }
+//     },
+//     {
+//       $lookup: {
+//         from: "categories",
+//         let: { categoryId: "$category" },
+//         pipeline: [
+//           {
+//             $match: {
+//               $expr: {
+//                 $and: [
+//                   { $eq: ["$_id", "$$categoryId"] },
+//                   { $eq: ["$isDeleted", false] }
+//                 ]
+//               }
+//             }
+//           },
+//           {
+//             $project: {
+//               category: 1
+//             }
+//           }
+//         ],
+//         as: "categoryData"
+//       }
+//     },
+//     {
+//       $addFields: {
+//         category: { $arrayElemAt: ["$categoryData.category", 0] }
+//       }
+//     },
+//     {
+//       $project: {
+//         categoryData: 0
+//       }
+//     }
+//   ]))[0];
+
+//   return res.status(200).send({
+//     data,
+//     message: data ? "Property detail received successfully" : "No property found",
+//   });
+// });
+
+
+
 const getPropertyById = catchAsyncError(async (req, res) => {
 
   const data = (await Properties.aggregate([
+
+    /* ========================
+       🔍 MATCH PROPERTY
+    ======================== */
+
     {
       $match: {
         isDeleted: false,
         _id: new mongoose.Types.ObjectId(req.params.id)
       }
     },
+
+    /* ========================
+       👤 PROPERTY OWNER
+    ======================== */
+
+    {
+      $lookup: {
+        from: "serviceusers",
+        localField: "user",
+        foreignField: "_id",
+        as: "owner"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$owner",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    /* ========================
+       📂 CATEGORY
+    ======================== */
+
     {
       $lookup: {
         from: "categories",
-        let: { categoryId: "$category" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$_id", "$$categoryId"] },
-                  { $eq: ["$isDeleted", false] }
-                ]
-              }
-            }
-          },
-          {
-            $project: {
-              category: 1
-            }
-          }
-        ],
+        localField: "category",
+        foreignField: "_id",
         as: "categoryData"
       }
     },
+
     {
-      $addFields: {
-        category: { $arrayElemAt: ["$categoryData.category", 0] }
+      $unwind: {
+        path: "$categoryData",
+        preserveNullAndEmptyArrays: true
       }
     },
+
+    /* ========================
+       🏡 PROPERTY AMENITIES
+    ======================== */
+
+    {
+      $lookup: {
+        from: "propertyamenities",
+        localField: "propertyAmenities",
+        foreignField: "_id",
+        as: "amenitiesData"
+      }
+    },
+
+    /* ========================
+       ✨ PROPERTY FEATURES
+    ======================== */
+
+    {
+      $lookup: {
+        from: "propertyfeatures",
+        localField: "propertyFeatures",
+        foreignField: "_id",
+        as: "featuresData"
+      }
+    },
+
+    /* ========================
+       📜 CANCELLATION POLICY
+    ======================== */
+
+    {
+      $lookup: {
+        from: "cancellationpolicies",
+        localField: "cancellationPolicy",
+        foreignField: "_id",
+        as: "cancellationPolicyData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$cancellationPolicyData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    /* ========================
+       ⭐ PROPERTY REVIEWS
+    ======================== */
+
+    {
+      $lookup: {
+        from: "reviews",
+        let: { propertyId: "$_id" },
+        pipeline: [
+
+          {
+            $match: {
+              $expr: {
+                $eq: ["$property", "$$propertyId"]
+              },
+              isDeleted: false,
+              reviewType: "property"
+            }
+          },
+
+          {
+            $group: {
+              _id: null,
+              avgRating: { $avg: "$rating" },
+              totalReviews: { $sum: 1 }
+            }
+          }
+
+        ],
+        as: "reviewData"
+      }
+    },
+
+    /* ========================
+       🎯 FORMAT RATING
+    ======================== */
+
+    {
+      $addFields: {
+
+        avgRating: {
+          $ifNull: [
+            {
+              $round: [
+                { $arrayElemAt: ["$reviewData.avgRating", 0] },
+                1
+              ]
+            },
+            0
+          ]
+        },
+
+        totalReviews: {
+          $ifNull: [
+            { $arrayElemAt: ["$reviewData.totalReviews", 0] },
+            0
+          ]
+        }
+
+      }
+    },
+
+    /* ========================
+       ❌ REMOVE TEMP DATA
+    ======================== */
+
+    {
+      $unset: "reviewData"
+    },
+
+    /* ========================
+       📤 FINAL RESPONSE
+    ======================== */
+
     {
       $project: {
-        categoryData: 0
+
+        _id: 1,
+        name: 1,
+        area: 1,
+        description: 1,
+        price: 1,
+        count: 1,
+        maxGuests: 1,
+        document: 1,
+        experienceCount: 1,
+
+        approvalStatus: 1,
+        approvedAt: 1,
+        rejectionReason: 1,
+
+        status: 1,
+        is_completed: 1,
+        isDeleted: 1,
+
+        createdAt: 1,
+        updatedAt: 1,
+
+        avgRating: 1,
+        totalReviews: 1,
+
+        address: {
+          fullAddress: "$address.fullAddress",
+          city: "$address.city",
+          state: "$address.state",
+          country: "$address.country",
+          pincode: "$address.pincode",
+
+          location: {
+            type: "$address.location.type",
+            coordinates: "$address.location.coordinates"
+          }
+        },
+
+        mainAmenities: 1,
+
+        bedRoom: 1,
+
+        pool: 1,
+
+        restRoom: 1,
+
+        media: 1,
+
+        policies: 1,
+
+        category: {
+          _id: "$categoryData._id",
+          category: "$categoryData.category"
+        },
+
+        cancellationPolicy: {
+          _id: "$cancellationPolicyData._id",
+          title: "$cancellationPolicyData.title"
+        },
+
+        propertyAmenities: {
+          $map: {
+            input: "$amenitiesData",
+            as: "amenity",
+            in: {
+              _id: "$$amenity._id",
+              name: "$$amenity.name",
+              icon: "$$amenity.icon"
+            }
+          }
+        },
+
+        propertyFeatures: {
+          $map: {
+            input: "$featuresData",
+            as: "feature",
+            in: {
+              _id: "$$feature._id",
+              name: "$$feature.feature"
+            }
+          }
+        },
+
+        owner: {
+          _id: "$owner._id",
+          firstName: "$owner.firstName",
+          lastName: "$owner.lastName",
+          userId: "$owner.userId",
+          role: "$owner.role",
+          email: "$owner.email",
+          phone: "$owner.phone",
+          profile: "$owner.profile"
+        }
+
       }
     }
+
   ]))[0];
 
   return res.status(200).send({
     data,
-    message: data ? "Property detail received successfully" : "No property found",
+    message: data
+      ? "Property detail received successfully"
+      : "No property found",
   });
+
 });
+
 
 const getAllCategories = catchAsyncError(async (req, res, next) => {
   // 1. Get all categories
