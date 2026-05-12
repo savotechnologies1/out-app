@@ -21,6 +21,7 @@ cron.schedule("0 * * * *", async () => {
   await releaseOnCheckIn();
 });
 require("./cron/pendingBookingCleanup");
+require("./cron/couponExpire")
 // app.use(helmet());
 app.use(
   helmet({

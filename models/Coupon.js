@@ -5,7 +5,6 @@ const couponSchema = new mongoose.Schema(
     code: {
       type: String,
       required: true,
-      unique: true,
       uppercase: true,
       trim: true,
     },
@@ -40,7 +39,11 @@ const couponSchema = new mongoose.Schema(
         usedAt: { type: Date, default: Date.now },
       },
     ],
-
+    status: {
+      type: String,
+      enum: ["ACTIVE", "EXPIRED", "INACTIVE", "DELETED"],
+      default: "ACTIVE",
+    },
     startDate: { type: Date },
     expiryDate: { type: Date },
     isDelete: { type: Boolean, default: false },
@@ -49,6 +52,14 @@ const couponSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-couponSchema.index({ code: 1 });
+couponSchema.index(
+  { code: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      isDelete: false,
+    },
+  }
+);
 
 module.exports = mongoose.model("Coupon", couponSchema);

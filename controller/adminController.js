@@ -2167,7 +2167,7 @@ const deleteCoupon = catchAsyncError(async (req, res) => {
 
   const coupon = await Coupon.findOneAndUpdate(
     { _id: couponId, isDelete: false },
-    { $set: { isDelete: true, isActive: false } },
+    { $set: { isDelete: true, isActive: false, status:"DELETED" } },
     { new: true }
   );
 
