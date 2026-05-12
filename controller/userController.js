@@ -859,75 +859,6 @@ const getAllProperties = async (req, res) => {
   }
 };
 
-// const getPropertiesByCategory = catchAsyncError(async (req, res) => {
-//   const { category } = req.params;
-//   let { lastId, limit = 10 } = req.query;
-
-//   limit = Math.min(parseInt(limit) || 10, 20); // max 20
-
-//   if (!category) {
-//     return res.status(400).json({
-//       success: false,
-//       message: "Category is required"
-//     });
-//   }
-
-//   let categoryDoc;
-
-//   if (mongoose.Types.ObjectId.isValid(category)) {
-//     categoryDoc = await Category.findOne({
-//       _id: category,
-//       isDeleted: false
-//     }).lean();
-//   } else {
-//     categoryDoc = await Category.findOne({
-//       category: { $regex: new RegExp(`^${category}$`, "i") },
-//       isDeleted: false
-//     }).lean();
-//   }
-
-//   if (!categoryDoc) {
-//     return res.status(404).json({
-//       success: false,
-//       message: "Category not found"
-//     });
-//   }
-
-//   const propertyQuery = {
-//     category: categoryDoc._id,
-//     isDeleted: false,
-//     is_completed: true,
-//     approvalStatus: "approved"
-//   };
-
-//   if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
-//     propertyQuery._id = { $lt: new mongoose.Types.ObjectId(lastId) };
-//   }
-
-//   const properties = await Properties.find(propertyQuery)
-//     .select("name price media.mainImage address.city maxGuests category createdAt")
-//     .populate({
-//       path: "category",
-//       select: "category image"
-//     })
-//     .sort({ _id: -1 })
-//     .limit(limit + 1)
-//     .lean();
-
-//   const hasMore = properties.length > limit;
-
-//   if (hasMore) properties.pop();
-
-//   return res.status(200).json({
-//     success: true,
-//     sectionTitle: `Top ${categoryDoc.category}`,
-//     categoryId: categoryDoc._id,
-//     lastId: properties.length ? properties[properties.length - 1]._id : null,
-//     hasMore,
-//     count: properties.length,
-//     data: properties
-//   });
-// });
 
 const getPropertiesByCategory = catchAsyncError(async (req, res) => {
   const { category } = req.params;
@@ -2334,56 +2265,214 @@ const toggleFavorite = async (req, res) => {
   }
 };
 
+// const getUserFavorites = async (req, res) => {
+//   try {
+//     const userId = req.user._id;
+
+//     let { page = 1, limit = 10, type } = req.query;
+
+//     const pageNumber = parseInt(page);
+//     const limitNumber = parseInt(limit);
+//     const skip = (pageNumber - 1) * limitNumber;
+
+//     let filter = {
+//       user: userId
+//     };
+//     if (type) {
+//       filter.type = type;
+//     }
+
+//     const total = await Bookmark.countDocuments(filter);
+
+//     const favorites = await Bookmark.find(filter)
+//       .populate("property", "name price address media.mainImage")
+//       .populate("service", "name price location media.images")
+//       .sort({ createdAt: -1 })
+//       .skip(skip)
+//       .limit(limitNumber)
+//       .lean();
+//     const formatted = favorites.map(fav => ({
+//       id: fav._id,
+//       type: fav.type,
+//       data: fav.property || fav.service
+//     }));
+
+//     const totalPages = Math.ceil(total / limitNumber);
+
+//     return res.json({
+//       success: true,
+//       data: formatted,
+//       page: pageNumber,
+//       limit: limitNumber,
+//       total,
+//       totalPages
+//     });
+
+//   } catch (error) {
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+
+
 const getUserFavorites = async (req, res) => {
   try {
+
     const userId = req.user._id;
 
     let { page = 1, limit = 10, type } = req.query;
 
     const pageNumber = parseInt(page);
     const limitNumber = parseInt(limit);
+
     const skip = (pageNumber - 1) * limitNumber;
+
+    /* ========================
+       🔍 FILTER
+    ======================== */
 
     let filter = {
       user: userId
     };
+
     if (type) {
       filter.type = type;
     }
 
+    /* ========================
+       📊 TOTAL
+    ======================== */
+
     const total = await Bookmark.countDocuments(filter);
 
+    /* ========================
+       ❤️ FAVORITES
+    ======================== */
+
     const favorites = await Bookmark.find(filter)
-      .populate("property", "name price address media.mainImage")
-      .populate("service", "name price location media.images")
+
+      /* ========================
+         🏡 PROPERTY
+      ======================== */
+
+      .populate(
+        "property",
+        `
+        name
+        price
+        area
+        address
+        media.mainImage
+        bedRoom
+        restRoom
+        `
+      )
+
+      /* ========================
+         🛠️ SERVICE
+      ======================== */
+
+      .populate(
+        "service",
+        `
+        name
+        price
+        location
+        media.images
+        `
+      )
+
       .sort({ createdAt: -1 })
+
       .skip(skip)
+
       .limit(limitNumber)
+
       .lean();
+
+    /* ========================
+       🎯 FORMAT RESPONSE
+    ======================== */
+
     const formatted = favorites.map(fav => ({
+
       id: fav._id,
+
       type: fav.type,
-      data: fav.property || fav.service
+
+      data: fav.property
+        ? {
+
+            _id: fav.property._id,
+
+            name: fav.property.name,
+
+            price: fav.property.price,
+
+            sqft: fav.property.area,
+
+            bedroom: fav.property?.bedRoom?.numBedroom || 0,
+
+            bathroom: fav.property?.restRoom?.numBathroom || 0,
+
+            address: fav.property.address,
+
+            mainImage: fav.property?.media?.mainImage || []
+
+          }
+
+        : {
+
+            _id: fav.service._id,
+
+            name: fav.service.name,
+
+            price: fav.service.price,
+
+            location: fav.service.location,
+
+            images: fav.service?.media?.images || []
+
+          }
+
     }));
 
     const totalPages = Math.ceil(total / limitNumber);
 
+    /* ========================
+       📤 RESPONSE
+    ======================== */
+
     return res.json({
+
       success: true,
+
       data: formatted,
+
       page: pageNumber,
+
       limit: limitNumber,
+
       total,
+
       totalPages
+
     });
 
   } catch (error) {
+
     return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 };
+
+
 
 const createUserReview = async (req, res) => {
   try {
