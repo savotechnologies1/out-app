@@ -94,7 +94,7 @@ router.post(
 );
 
 router.get("/get-properties", validateServiceToken, getProperties);
-router.get("/get-property/:id",  getPropertyById);
+router.get("/get-property/:id", validateServiceToken, getPropertyById);
 router.get("/get-categories", validateServiceToken, getAllCategories);
 router.get("/get-amenities", validateServiceToken, getAllAmenties);
 router.get("/get-features", validateServiceToken, getAllFeatures);
