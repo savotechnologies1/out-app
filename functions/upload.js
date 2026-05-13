@@ -9,17 +9,21 @@ const UPLOAD_PATHS = Object.freeze({
   userProfile: "users",
   image: "categories",
   docs: "documents",
-  document:"propertyDocument",
+  document: "propertyDocument",
   mainImage: "mainImage",
   pool: "pool",
   bathroom: "bathroom",
   bedroom: "bedroom",
   profileImage: "adminProfileImage",
   bannerImg: "bannerImg",
-  serviceIcon:"serviceIcon",
-  serviceMedia:"serviceMedia",
-  ticketImage:"ticketImage",
-  reviewImg:"reviewImg"
+  serviceIcon: "serviceIcon",
+  serviceMedia: "serviceMedia",
+  ticketImage: "ticketImage",
+  reviewImg: "reviewImg",
+  chatImage: "chatImage",
+  chatAudio: "chatAudio",
+  chatDocument: "chatDocument",
+  chatVideo: "chatVideo",
 });
 
 const ensureDir = (dir) => {
@@ -61,6 +65,10 @@ const ALLOWED_MIME_TYPES = new Set([
   "text/csv",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/ogg",
 
   "video/mp4",
   "video/webm",

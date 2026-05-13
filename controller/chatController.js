@@ -4,130 +4,7 @@ const Admin = require("../models/Admin");
 const User = require("../models/User");
 const ServiceUser = require("../models/ServiceUser");
 const Ticket = require("../models/Ticket");
-
-/* =====================================================
-   CREATE OR FIND CONVERSATION
-===================================================== */
-// exports.createConversation = async (req, res) => {
-//   try {
-//     const { chatType, userId, serviceUserId } = req.body;
-
-//     // const userId = req.user._id; // 🔐 from token
-
-//     let conversation;
-
-//     /* =====================================================
-//        SERVICE CHAT (User ↔ ServiceUser)
-//        Prevent reversed duplicate
-//     ===================================================== */
-//     if (chatType === "SERVICE_CHAT") {
-
-//       if (!serviceUserId)
-//         return res.status(400).json({
-//           success: false,
-//           message: "serviceUserId is required",
-//         });
-
-//       // 🔥 Sort IDs to prevent reversed duplication
-//       const ids = [userId.toString(), serviceUserId.toString()].sort();
-
-//       const firstId = ids[0];
-//       const secondId = ids[1];
-
-//       conversation = await Conversation.findOne({
-//         chatType: "SERVICE_CHAT",
-//         userId: firstId,
-//         serviceUserId: secondId,
-//         isDeleted: false,
-//       });
-
-//       if (conversation)
-//         return res.json({ success: true, data: conversation });
-
-//       conversation = await Conversation.create({
-//         chatType: "SERVICE_CHAT",
-//         userId: firstId,
-//         serviceUserId: secondId,
-//       });
-
-//       return res.status(201).json({
-//         success: true,
-//         data: conversation,
-//       });
-//     }
-
-//     /* =====================================================
-//        USER SUPPORT (User ↔ Admin)
-//        Only one OPEN support allowed
-//     ===================================================== */
-//     if (chatType === "USER_SUPPORT") {
-
-//       conversation = await Conversation.findOne({
-//         chatType: "USER_SUPPORT",
-//         userId,
-//         isClosed: false,
-//         isDeleted: false,
-//       });
-
-//       if (conversation)
-//         return res.json({ success: true, data: conversation });
-
-//       const admin = await Admin.findOne(); // You can improve with round robin
-
-//       conversation = await Conversation.create({
-//         chatType: "USER_SUPPORT",
-//         userId,
-//         adminId: admin?._id,
-//       });
-
-//       return res.status(201).json({
-//         success: true,
-//         data: conversation,
-//       });
-//     }
-
-//     /* =====================================================
-//        SERVICE SUPPORT (ServiceUser ↔ Admin)
-//     ===================================================== */
-//     if (chatType === "SERVICE_SUPPORT") {
-
-//       conversation = await Conversation.findOne({
-//         chatType: "SERVICE_SUPPORT",
-//         serviceUserId: userId,
-//         isClosed: false,
-//         isDeleted: false,
-//       });
-
-//       if (conversation)
-//         return res.json({ success: true, data: conversation });
-
-//       const admin = await Admin.findOne();
-
-//       conversation = await Conversation.create({
-//         chatType: "SERVICE_SUPPORT",
-//         serviceUserId: userId,
-//         adminId: admin?._id,
-//       });
-
-//       return res.status(201).json({
-//         success: true,
-//         data: conversation,
-//       });
-//     }
-
-//     return res.status(400).json({
-//       success: false,
-//       message: "Invalid chatType",
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// };
-
+const { sendNotification } = require("../utils/notificationService");
 
 exports.createConversation = async (req, res) => {
   try {
@@ -193,8 +70,9 @@ exports.createConversation = async (req, res) => {
         status: { $ne: "CLOSED" },
       });
 
-      // const ticketImage = req.file.filename;
-        const ticketImage = null;
+      const ticketImage = req.file?.filename
+        ? `uploads/ticketImage/${req.file.filename}`
+        : null;
       if (existingTicket) {
         // ✅ Update only if new image comes
         if (ticketImage) {
@@ -240,6 +118,54 @@ exports.createConversation = async (req, res) => {
       // 🔗 Link both
       ticket.conversationId = conversation._id;
       await ticket.save();
+
+      const newMessage = await Message.create({
+        conversationId: conversation._id,
+
+        senderId: userId, // or serviceUserId
+
+        messageType: ticketImage
+          ? "IMAGE"
+          : "TEXT",
+
+        message: description || subject,
+
+        attachments: ticketImage
+          ? [
+            {
+              url: ticketImage,
+
+              publicId: req.file?.filename || null,
+
+              fileName: req.file?.filename || null,
+
+              originalName:
+                req.file?.originalname || null,
+
+              mimeType:
+                req.file?.mimetype || null,
+
+              fileSize:
+                req.file?.size || null,
+            },
+          ]
+          : [],
+      });
+      conversation.lastMessage =
+        description;
+
+      conversation.lastMessageAt =
+        new Date();
+
+      conversation.lastMessageSenderId =
+        userId; // or serviceUserId
+
+      await conversation.save();
+      const io = req.app.get("io");
+      io.to(conversation._id).emit(
+        "receiveMessage",
+        newMessage
+      );
       return res.status(201).json({
         success: true,
         data: {
@@ -267,7 +193,9 @@ exports.createConversation = async (req, res) => {
         status: { $ne: "CLOSED" },
       });
 
-      const ticketImage = req.file.filename;
+      const ticketImage = req.file?.filename
+        ? `uploads/ticketImage/${req.file.filename}`
+        : null;
 
       if (existingTicket) {
         // ✅ Update only if new image comes
@@ -316,6 +244,55 @@ exports.createConversation = async (req, res) => {
       ticket.conversationId = conversation._id;
       await ticket.save();
 
+      const newMessage = await Message.create({
+        conversationId: conversation._id,
+
+        senderId: serviceUserId, // or serviceUserId
+
+        messageType: ticketImage
+          ? "IMAGE"
+          : "TEXT",
+
+        message: description || subject,
+
+        attachments: ticketImage
+          ? [
+            {
+              url: ticketImage,
+
+              publicId: req.file?.filename || null,
+
+              fileName: req.file?.filename || null,
+
+              originalName:
+                req.file?.originalname || null,
+
+              mimeType:
+                req.file?.mimetype || null,
+
+              fileSize:
+                req.file?.size || null,
+            },
+          ]
+          : [],
+      });
+      conversation.lastMessage =
+        description;
+
+      conversation.lastMessageAt =
+        new Date();
+
+      conversation.lastMessageSenderId =
+        serviceUserId; // or serviceUserId
+
+      await conversation.save();
+
+      const io = req.app.get("io");
+
+      io.to(conversation._id).emit(
+        "receiveMessage",
+        newMessage
+      );
       return res.status(201).json({
         success: true,
         data: {
@@ -339,9 +316,6 @@ exports.createConversation = async (req, res) => {
 };
 
 
-/* =====================================================
-   SEND MESSAGE
-===================================================== */
 // exports.sendMessage = async (req, res) => {
 //   try {
 //     const { conversationId, senderId, message, messageType } = req.body;
@@ -350,9 +324,47 @@ exports.createConversation = async (req, res) => {
 //     if (!conversation)
 //       return res.status(404).json({ success: false });
 
+//     // 🚫 Block if conversation closed
 //     if (conversation.isClosed)
 //       return res.status(400).json({ success: false, message: "Chat closed" });
 
+//     /* =====================================================
+//        ✅ TICKET VALIDATION (NEW)
+//     ===================================================== */
+//     if (
+//       conversation.chatType === "USER_SUPPORT" ||
+//       conversation.chatType === "SERVICE_SUPPORT"
+//     ) {
+//       const ticket = await Ticket.findOne({ conversationId });
+
+//       if (!ticket) {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Ticket not found",
+//         });
+//       }
+
+//       // 🚫 Block if ticket closed
+//       if (ticket.status === "CLOSED") {
+//         return res.status(400).json({
+//           success: false,
+//           message: "Ticket is closed",
+//         });
+//       }
+
+//       // 🔄 Auto move to IN_PROGRESS when admin replies
+//       if (
+//         conversation.adminId?.toString() === senderId &&
+//         ticket.status === "OPEN"
+//       ) {
+//         ticket.status = "IN_PROGRESS";
+//         await ticket.save();
+//       }
+//     }
+
+//     /* =====================================================
+//        💬 CREATE MESSAGE
+//     ===================================================== */
 //     const newMessage = await Message.create({
 //       conversationId,
 //       senderId,
@@ -360,11 +372,14 @@ exports.createConversation = async (req, res) => {
 //       messageType,
 //     });
 
+//     /* =====================================================
+//        🧠 UPDATE CONVERSATION META
+//     ===================================================== */
 //     conversation.lastMessage = message;
 //     conversation.lastMessageAt = new Date();
 //     conversation.lastMessageSenderId = senderId;
 
-//     // Unread Logic
+//     // 🔔 Unread Logic
 //     if (conversation.userId?.toString() === senderId)
 //       conversation.serviceUserUnreadCount++;
 
@@ -382,31 +397,55 @@ exports.createConversation = async (req, res) => {
 //     res.status(201).json({ success: true, data: newMessage });
 
 //   } catch (error) {
-//     res.status(500).json({ success: false });
+//     res.status(500).json({ success: false, message: error.message });
 //   }
 // };
 
-
 exports.sendMessage = async (req, res) => {
   try {
-    const { conversationId, senderId, message, messageType } = req.body;
 
-    const conversation = await Conversation.findById(conversationId);
-    if (!conversation)
-      return res.status(404).json({ success: false });
-
-    // 🚫 Block if conversation closed
-    if (conversation.isClosed)
-      return res.status(400).json({ success: false, message: "Chat closed" });
+    const {
+      conversationId,
+      senderId,
+      message,
+    } = req.body;
 
     /* =====================================================
-       ✅ TICKET VALIDATION (NEW)
+       🔍 FIND CONVERSATION
     ===================================================== */
+
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: "Conversation not found",
+      });
+    }
+
+    /* =====================================================
+       🚫 CHAT CLOSED
+    ===================================================== */
+
+    if (conversation.isClosed) {
+      return res.status(400).json({
+        success: false,
+        message: "Chat closed",
+      });
+    }
+
+    /* =====================================================
+       🎫 TICKET VALIDATION
+    ===================================================== */
+
     if (
       conversation.chatType === "USER_SUPPORT" ||
       conversation.chatType === "SERVICE_SUPPORT"
     ) {
-      const ticket = await Ticket.findOne({ conversationId });
+
+      const ticket = await Ticket.findOne({
+        conversationId,
+      });
 
       if (!ticket) {
         return res.status(400).json({
@@ -415,7 +454,6 @@ exports.sendMessage = async (req, res) => {
         });
       }
 
-      // 🚫 Block if ticket closed
       if (ticket.status === "CLOSED") {
         return res.status(400).json({
           success: false,
@@ -423,54 +461,319 @@ exports.sendMessage = async (req, res) => {
         });
       }
 
-      // 🔄 Auto move to IN_PROGRESS when admin replies
+      /* ===== AUTO MOVE TO IN_PROGRESS ===== */
+
       if (
         conversation.adminId?.toString() === senderId &&
         ticket.status === "OPEN"
       ) {
+
         ticket.status = "IN_PROGRESS";
+
         await ticket.save();
       }
     }
 
     /* =====================================================
+       📎 ATTACHMENTS
+    ===================================================== */
+
+    const attachments = [];
+
+    let messageType = "TEXT";
+
+    const processFiles = (files, type, folderName) => {
+
+      if (!files || !files.length) return;
+
+      messageType = type;
+
+      files.forEach((file) => {
+
+        attachments.push({
+
+          url: `uploads/${folderName}/${file.filename}`,
+
+          publicId: file.filename,
+
+          fileName: file.filename,
+
+          originalName: file.originalname,
+
+          mimeType: file.mimetype,
+
+          fileSize: file.size,
+
+          duration: null,
+
+          thumbnail: null,
+
+          width: null,
+
+          height: null,
+        });
+      });
+    };
+
+    processFiles(
+      req.files?.chatImage,
+      "IMAGE",
+      "chatImage"
+    );
+
+    processFiles(
+      req.files?.chatAudio,
+      "AUDIO",
+      "chatAudio"
+    );
+
+    processFiles(
+      req.files?.chatDocument,
+      "DOCUMENT",
+      "chatDocument"
+    );
+
+    processFiles(
+      req.files?.chatVideo,
+      "VIDEO",
+      "chatVideo"
+    );
+
+    /* =====================================================
+       🚫 EMPTY MESSAGE VALIDATION
+    ===================================================== */
+
+    if (
+      !message &&
+      attachments.length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Message or attachment is required",
+      });
+    }
+
+    /* =====================================================
        💬 CREATE MESSAGE
     ===================================================== */
+
     const newMessage = await Message.create({
+
       conversationId,
+
       senderId,
+
       message,
+
       messageType,
+
+      attachments,
     });
 
     /* =====================================================
-       🧠 UPDATE CONVERSATION META
+       🧠 LAST MESSAGE PREVIEW
     ===================================================== */
-    conversation.lastMessage = message;
+
+    if (messageType === "TEXT") {
+
+      conversation.lastMessage = message;
+    }
+
+    else if (messageType === "IMAGE") {
+
+      conversation.lastMessage = "📷 Image";
+    }
+
+    else if (messageType === "AUDIO") {
+
+      conversation.lastMessage = "🎤 Voice message";
+    }
+
+    else if (messageType === "VIDEO") {
+
+      conversation.lastMessage = "🎥 Video";
+    }
+
+    else if (messageType === "DOCUMENT") {
+
+      conversation.lastMessage = "📄 Document";
+    }
+
     conversation.lastMessageAt = new Date();
+
     conversation.lastMessageSenderId = senderId;
 
-    // 🔔 Unread Logic
-    if (conversation.userId?.toString() === senderId)
+    /* =====================================================
+       🔔 UNREAD COUNT
+    ===================================================== */
+
+    if (
+      conversation.userId?.toString() === senderId
+    ) {
+
       conversation.serviceUserUnreadCount++;
+    }
 
-    else if (conversation.serviceUserId?.toString() === senderId)
+    else if (
+      conversation.serviceUserId?.toString() === senderId
+    ) {
+
       conversation.userUnreadCount++;
+    }
 
-    else if (conversation.adminId?.toString() === senderId) {
-      if (conversation.userId) conversation.userUnreadCount++;
-      if (conversation.serviceUserId)
+    else if (
+      conversation.adminId?.toString() === senderId
+    ) {
+
+      if (conversation.userId) {
+
+        conversation.userUnreadCount++;
+      }
+
+      if (conversation.serviceUserId) {
+
         conversation.serviceUserUnreadCount++;
+      }
     }
 
     await conversation.save();
 
-    res.status(201).json({ success: true, data: newMessage });
+    /* =====================================================
+       ⚡ SOCKET EVENT
+    ===================================================== */
+
+    const io = req.app.get("io");
+
+    io.to(conversationId).emit(
+      "receiveMessage",
+      newMessage
+    );
+
+    /* =====================================================
+       🔔 PUSH NOTIFICATIONS
+    ===================================================== */
+
+    const participants = [
+
+      {
+        id: conversation.userId,
+        model: "User",
+      },
+
+      {
+        id: conversation.serviceUserId,
+        model: "ServiceUser",
+      },
+
+      {
+        id: conversation.adminId,
+        model: "Admin",
+      },
+
+    ].filter((p) => p.id);
+
+    /* ===== DETERMINE SENDER MODEL ===== */
+
+    let senderModel = "User";
+
+    if (
+      conversation.adminId?.toString() === senderId
+    ) {
+
+      senderModel = "Admin";
+    }
+
+    else if (
+      conversation.serviceUserId?.toString() === senderId
+    ) {
+
+      senderModel = "ServiceUser";
+    }
+
+    /* ===== NOTIFICATION BODY ===== */
+
+    let notificationBody = message;
+
+    if (messageType === "IMAGE") {
+
+      notificationBody = "📷 Image";
+    }
+
+    else if (messageType === "AUDIO") {
+
+      notificationBody = "🎤 Voice message";
+    }
+
+    else if (messageType === "VIDEO") {
+
+      notificationBody = "🎥 Video";
+    }
+
+    else if (messageType === "DOCUMENT") {
+
+      notificationBody = "📄 Document";
+    }
+
+    /* ===== SEND TO OTHER PARTICIPANTS ===== */
+
+    for (const participant of participants) {
+
+      if (
+        participant.id.toString() === senderId.toString()
+      ) {
+        continue;
+      }
+
+      await sendNotification({
+
+        receiverId: participant.id,
+
+        receiverModel: participant.model,
+
+        senderId,
+
+        senderModel,
+
+        title: "New Message 💬",
+
+        body: notificationBody,
+
+        type: "CHAT",
+
+        referenceId: conversationId,
+
+        referenceType: "Conversation",
+
+        data: {
+          conversationId,
+          messageId: newMessage._id,
+        },
+      });
+    }
+
+    /* =====================================================
+       ✅ RESPONSE
+    ===================================================== */
+
+    return res.status(201).json({
+      success: true,
+      data: newMessage,
+    });
 
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+
+    console.log(
+      "sendMessage error",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
+
 
 /* =====================================================
    GET CONVERSATION LIST
@@ -556,29 +859,7 @@ exports.getConversations = async (req, res) => {
     });
   }
 };
-/* =====================================================
-   GET MESSAGES (Pagination)
-===================================================== */
-exports.getMessages = async (req, res) => {
-  try {
-    const { conversationId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = 20;
 
-    const messages = await Message.find({ conversationId })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit);
-
-    res.json({
-      success: true,
-      data: messages.reverse(),
-    });
-
-  } catch (error) {
-    res.status(500).json({ success: false });
-  }
-};
 
 /* =====================================================
    CLOSE SUPPORT CHAT
@@ -802,61 +1083,127 @@ exports.getAdminConversations = async (req, res) => {
   }
 };
 
+
 // exports.getMessages = async (req, res) => {
 //   try {
 //     const { conversationId } = req.params;
 
-//     const messages = await Message.find({ conversationId })
-//       .sort({ createdAt: 1 })
-//       .lean(); 
+//     const page = Number(req.query.page) || 1;
+//     const limit = Number(req.query.limit) || 20;
+//     const skip = (page - 1) * limit;
 
+//     /* =====================================================
+//        1️⃣ VALIDATE CONVERSATION
+//     ===================================================== */
+//     const conversation = await Conversation.findById(conversationId).lean();
+
+//     if (!conversation) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Conversation not found",
+//       });
+//     }
+
+//     /* =====================================================
+//        2️⃣ FETCH MESSAGES (PAGINATED)
+//     ===================================================== */
+//     const messages = await Message.find({ conversationId })
+//       .sort({ createdAt: -1 }) // latest first (better for pagination)
+//       .skip(skip)
+//       .limit(limit)
+//       .lean();
+
+//     // reverse for UI (old → new)
+//     const orderedMessages = messages.reverse();
+
+//     /* =====================================================
+//        3️⃣ FETCH SENDERS
+//     ===================================================== */
 //     const senderIds = [
-//       ...new Set(messages.map(m => m.senderId.toString()))
+//       ...new Set(orderedMessages.map((m) => m.senderId.toString())),
 //     ];
 
-//     const users = await User.find({ _id: { $in: senderIds } })
-//       .select("name email profile")
-//       .lean();
+//     const [users, serviceUsers, admins] = await Promise.all([
+//       User.find({ _id: { $in: senderIds } })
+//         .select("firstName lastName email profile")
+//         .lean(),
 
-//     const serviceUsers = await ServiceUser.find({ _id: { $in: senderIds } })
-//       .select("name email profile")
-//       .lean();
+//       ServiceUser.find({ _id: { $in: senderIds } })
+//         .select("firstName lastName  email profile")
+//         .lean(),
 
-//     const admins = await Admin.find({ _id: { $in: senderIds } })
-//       .select("name email profileImage")
-//       .lean();
+//       Admin.find({ _id: { $in: senderIds } })
+//         .select("firstName lastName email profileImage")
+//         .lean(),
+//     ]);
 
 //     const senderMap = {};
 
-//     users.forEach(u => {
+//     users.forEach((u) => {
 //       senderMap[u._id.toString()] = {
 //         ...u,
-//         senderType: "User"
+//         senderType: "User",
 //       };
 //     });
 
-//     serviceUsers.forEach(s => {
+//     serviceUsers.forEach((s) => {
 //       senderMap[s._id.toString()] = {
 //         ...s,
-//         senderType: "ServiceUser"
+//         senderType: "ServiceUser",
 //       };
 //     });
 
-//     admins.forEach(a => {
+//     admins.forEach((a) => {
 //       senderMap[a._id.toString()] = {
 //         ...a,
-//         senderType: "Admin"
+//         senderType: "Admin",
 //       };
 //     });
 
-//     const enrichedMessages = messages.map(msg => ({
+//     /* =====================================================
+//        4️⃣ ATTACH SENDERS
+//     ===================================================== */
+//     const enrichedMessages = orderedMessages.map((msg) => ({
 //       ...msg,
-//       sender: senderMap[msg.senderId.toString()] || null
+//       sender: senderMap[msg.senderId.toString()] || null,
 //     }));
 
+//     /* =====================================================
+//        5️⃣ MARK AS READ (IMPORTANT)
+//     ===================================================== */
+//     await Message.updateMany(
+//       {
+//         conversationId,
+//         isRead: false,
+//       },
+//       { $set: { isRead: true } }
+//     );
+
+//     /* =====================================================
+//        6️⃣ ATTACH TICKET (ONLY SUPPORT CHATS)
+//     ===================================================== */
+//     let ticket = null;
+
+//     if (
+//       conversation.chatType === "USER_SUPPORT" ||
+//       conversation.chatType === "SERVICE_SUPPORT"
+//     ) {
+//       ticket = await Ticket.findOne({ conversationId }).lean();
+//     }
+
+//     /* =====================================================
+//        7️⃣ RESPONSE
+//     ===================================================== */
 //     res.json({
 //       success: true,
 //       data: enrichedMessages,
+//       meta: {
+//         page,
+//         limit,
+//         hasMore: messages.length === limit,
+//       },
+//       ticket, // 🔥 important for frontend
+//       conversationStatus: conversation.isClosed,
 //     });
 
 //   } catch (error) {
@@ -868,18 +1215,24 @@ exports.getAdminConversations = async (req, res) => {
 // };
 
 
+
 exports.getMessages = async (req, res) => {
   try {
+
     const { conversationId } = req.params;
 
-    const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+
+    const before = req.query.before;
 
     /* =====================================================
-       1️⃣ VALIDATE CONVERSATION
+       🔍 VALIDATE CONVERSATION
     ===================================================== */
-    const conversation = await Conversation.findById(conversationId).lean();
+
+    const conversation =
+      await Conversation
+        .findById(conversationId)
+        .lean();
 
     if (!conversation) {
       return res.status(404).json({
@@ -889,41 +1242,90 @@ exports.getMessages = async (req, res) => {
     }
 
     /* =====================================================
-       2️⃣ FETCH MESSAGES (PAGINATED)
+       🧠 QUERY
     ===================================================== */
-    const messages = await Message.find({ conversationId })
-      .sort({ createdAt: -1 }) // latest first (better for pagination)
-      .skip(skip)
-      .limit(limit)
-      .lean();
 
-    // reverse for UI (old → new)
-    const orderedMessages = messages.reverse();
+    const query = {
+      conversationId,
+      isDeleted: false,
+    };
+
+    // Load older messages
+    if (before) {
+      query._id = {
+        $lt: before,
+      };
+    }
 
     /* =====================================================
-       3️⃣ FETCH SENDERS
+       💬 FETCH MESSAGES
     ===================================================== */
+
+    const messages = await Message.find(query)
+
+      .sort({ _id: -1 })
+
+      .limit(limit)
+
+      .lean();
+
+    // oldest → newest
+    const orderedMessages =
+      messages.reverse();
+
+    /* =====================================================
+       👤 FETCH SENDERS
+    ===================================================== */
+
     const senderIds = [
-      ...new Set(orderedMessages.map((m) => m.senderId.toString())),
+
+      ...new Set(
+        orderedMessages.map(
+          (m) => m.senderId.toString()
+        )
+      ),
+
     ];
 
-    const [users, serviceUsers, admins] = await Promise.all([
-      User.find({ _id: { $in: senderIds } })
-        .select("name email profile")
+    const [
+      users,
+      serviceUsers,
+      admins,
+    ] = await Promise.all([
+
+      User.find({
+        _id: { $in: senderIds },
+      })
+        .select(
+          "firstName lastName email profile"
+        )
         .lean(),
 
-      ServiceUser.find({ _id: { $in: senderIds } })
-        .select("name email profile")
+      ServiceUser.find({
+        _id: { $in: senderIds },
+      })
+        .select(
+          "firstName lastName email profile"
+        )
         .lean(),
 
-      Admin.find({ _id: { $in: senderIds } })
-        .select("name email profileImage")
+      Admin.find({
+        _id: { $in: senderIds },
+      })
+        .select(
+          "firstName lastName email profileImage"
+        )
         .lean(),
     ]);
+
+    /* =====================================================
+       🗺 SENDER MAP
+    ===================================================== */
 
     const senderMap = {};
 
     users.forEach((u) => {
+
       senderMap[u._id.toString()] = {
         ...u,
         senderType: "User",
@@ -931,6 +1333,7 @@ exports.getMessages = async (req, res) => {
     });
 
     serviceUsers.forEach((s) => {
+
       senderMap[s._id.toString()] = {
         ...s,
         senderType: "ServiceUser",
@@ -938,6 +1341,7 @@ exports.getMessages = async (req, res) => {
     });
 
     admins.forEach((a) => {
+
       senderMap[a._id.toString()] = {
         ...a,
         senderType: "Admin",
@@ -945,58 +1349,101 @@ exports.getMessages = async (req, res) => {
     });
 
     /* =====================================================
-       4️⃣ ATTACH SENDERS
+       ✨ ENRICH MESSAGES
     ===================================================== */
-    const enrichedMessages = orderedMessages.map((msg) => ({
-      ...msg,
-      sender: senderMap[msg.senderId.toString()] || null,
-    }));
+
+    const enrichedMessages =
+      orderedMessages.map((msg) => ({
+        ...msg,
+        sender:
+          senderMap[
+          msg.senderId.toString()
+          ] || null,
+      }));
 
     /* =====================================================
-       5️⃣ MARK AS READ (IMPORTANT)
+       👀 MARK READ
     ===================================================== */
+
     await Message.updateMany(
       {
         conversationId,
         isRead: false,
       },
-      { $set: { isRead: true } }
+      {
+        $set: {
+          isRead: true,
+        },
+      }
     );
 
     /* =====================================================
-       6️⃣ ATTACH TICKET (ONLY SUPPORT CHATS)
+       🎫 TICKET
     ===================================================== */
+
     let ticket = null;
 
     if (
-      conversation.chatType === "USER_SUPPORT" ||
-      conversation.chatType === "SERVICE_SUPPORT"
+      conversation.chatType ===
+      "USER_SUPPORT" ||
+
+      conversation.chatType ===
+      "SERVICE_SUPPORT"
     ) {
-      ticket = await Ticket.findOne({ conversationId }).lean();
+
+      ticket =
+        await Ticket.findOne({
+          conversationId,
+        }).lean();
     }
 
     /* =====================================================
-       7️⃣ RESPONSE
+       📌 PAGINATION META
     ===================================================== */
-    res.json({
+
+    const nextCursor =
+
+      orderedMessages.length > 0
+
+        ? orderedMessages[0]._id
+
+        : null;
+
+    /* =====================================================
+       ✅ RESPONSE
+    ===================================================== */
+
+    return res.json({
+
       success: true,
+
       data: enrichedMessages,
-      meta: {
-        page,
+
+      pagination: {
+
         limit,
-        hasMore: messages.length === limit,
+
+        nextCursor,
+
+        hasMore:
+          messages.length === limit,
       },
-      ticket, // 🔥 important for frontend
-      conversationStatus: conversation.isClosed,
+
+      ticket,
+
+      conversationStatus:
+        conversation.isClosed,
     });
 
   } catch (error) {
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
+
 // exports.getUserSupportConversations = async (req, res) => {
 //   try {
 
@@ -1211,7 +1658,7 @@ exports.getServiceUserChats = async (req, res) => {
 exports.closeTicket = async (req, res) => {
   try {
     const { ticketId } = req.params;
-console.log("ticketId", ticketId)
+    console.log("ticketId", ticketId)
     const ticket = await Ticket.findById(ticketId);
 
     if (!ticket) {

@@ -7,7 +7,16 @@ const validateServiceToken = require("../middleware/validateSericeToken");
 const { uploads } = require("../functions/upload");
 
 router.post("/create",uploads.single("ticketImage"), chat.createConversation);
-router.post("/send", chat.sendMessage);
+router.post(
+  "/send",
+  uploads.fields([
+    { name: "chatImage", maxCount: 5 },
+    { name: "chatAudio", maxCount: 5 },
+    { name: "chatDocument", maxCount: 5 },
+    { name: "chatVideo", maxCount: 5 },
+  ]),
+  chat.sendMessage
+);
 router.get("/list/:userId", chat.getConversations);
 router.get("/messages/:conversationId", chat.getMessages);
 // router.put("/close/:conversationId", chat.closeChat);
