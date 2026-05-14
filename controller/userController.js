@@ -417,6 +417,29 @@ const googleLogin = async (req, res) => {
   }
 };
 
+// const getUser = catchAsyncError(async (req, res, next) => {
+//   let user = await User.findOne(
+//     { _id: req.user._id },
+//     {
+//       email: 1,
+//       role: 1,
+//       firstName: 1,
+//       lastName: 1,
+//       phone: 1,
+//       phoneCode: 1,
+//       profile: 1,
+//       isVerified: 1,
+//     }
+//   ).lean(true);
+
+//   if (!user) return res.status(400).send({ message: "User not found" });
+
+//   user["phone"] = await codeRem(user.phone);
+
+//   return res.status(200).send({ data: user });
+// });
+
+
 const getUser = catchAsyncError(async (req, res, next) => {
   let user = await User.findOne(
     { _id: req.user._id },
@@ -432,12 +455,29 @@ const getUser = catchAsyncError(async (req, res, next) => {
     }
   ).lean(true);
 
-  if (!user) return res.status(400).send({ message: "User not found" });
+  if (!user) {
+    return res.status(400).send({ message: "User not found" });
+  }
 
-  user["phone"] = await codeRem(user.phone);
+  // ✅ Find service provider by phone
+  const serviceProvider = await ServiceUser.findOne({
+    phone: user.phone,
+    isDeleted: false,
+  }).lean();
+
+  // ✅ Flags
+  user.isServiceProvider = !!serviceProvider;
+
+  // ✅ Approval status
+  user.serviceProviderApprovalStatus =
+    serviceProvider?.isApproved || null;
+
+  // ✅ Mask phone
+  user.phone = await codeRem(user.phone);
 
   return res.status(200).send({ data: user });
 });
+
 
 const resendOTP = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);

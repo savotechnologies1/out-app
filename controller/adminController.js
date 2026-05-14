@@ -440,6 +440,7 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
         lastName: 1,
         email: 1,
         phone: 1,
+        profile:1,
         role: 1,
         isActive: 1,
         createdAt: 1,
