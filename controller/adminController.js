@@ -440,7 +440,7 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
         lastName: 1,
         email: 1,
         phone: 1,
-        profile:1,
+        profile: 1,
         role: 1,
         isActive: 1,
         createdAt: 1,
@@ -1848,7 +1848,7 @@ const getPropertyDetailsForAdmin = catchAsyncError(async (req, res) => {
   const category = await Category.findById(property.category).lean();
 
   const user = await ServiceUser.findById(property.user)
-    .select("firstName lastName email phone isActive")
+    .select("firstName lastName profile email phone isActive")
     .lean();
 
   const amenities = await Amenities.find({
@@ -2168,7 +2168,7 @@ const deleteCoupon = catchAsyncError(async (req, res) => {
 
   const coupon = await Coupon.findOneAndUpdate(
     { _id: couponId, isDelete: false },
-    { $set: { isDelete: true, isActive: false, status:"DELETED" } },
+    { $set: { isDelete: true, isActive: false, status: "DELETED" } },
     { new: true }
   );
 
@@ -2835,6 +2835,72 @@ const getBookingsByPropertyId = catchAsyncError(async (req, res, next) => {
 
 });
 
+
+const getBookingsByServiceId = catchAsyncError(async (req, res, next) => {
+
+  const { serviceId } = req.params;
+
+  if (!serviceId) {
+    return res.status(400).send({
+      message: "Service Id is required"
+    });
+  }
+
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+
+  const skip = (page - 1) * limit;
+
+  const filter = {
+    paymentStatus: "paid",
+    bookingStatus: { $in: ["confirmed", "cancelled"] },
+    "services.service": serviceId
+  };
+
+  const [bookings, total] = await Promise.all([
+
+    Booking.find(filter)
+
+      .populate({
+        path: "property",
+        select: "name price address"
+      })
+
+      .populate({
+        path: "services.service",
+        select: "name price media"
+      })
+
+      .populate({
+        path: "user",
+        select: "firstName lastName profile email phone"
+      })
+
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Booking.countDocuments(filter)
+
+  ]);
+
+  return res.status(200).send({
+    data: bookings,
+
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    },
+
+    message: bookings.length
+      ? "Service bookings fetched successfully"
+      : "No bookings found for this service"
+  });
+
+});
 
 const getBookingDetails = catchAsyncError(async (req, res, next) => {
 
@@ -6399,6 +6465,51 @@ const softDeleteService = catchAsyncError(async (req, res, next) => {
   });
 });
 
+
+
+const toggleRecommendedProperty = catchAsyncError(async (req, res) => {
+
+  const { propertyId } = req.params;
+
+  if (!propertyId || !mongoose.Types.ObjectId.isValid(propertyId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid propertyId is required"
+    });
+  }
+
+  const property = await Properties.findOne({
+    _id: propertyId,
+    isDeleted: false,
+    approvalStatus: "approved"
+  });
+
+  if (!property) {
+    return res.status(404).json({
+      success: false,
+      message: "Property not found"
+    });
+  }
+
+  // 🔥 Toggle recommendation
+  property.isRecommended = !property.isRecommended;
+
+  await property.save();
+
+  return res.status(200).json({
+    success: true,
+    message: property.isRecommended
+      ? "Property added to recommendations"
+      : "Property removed from recommendations",
+
+    data: {
+      _id: property._id,
+      isRecommended: property.isRecommended
+    }
+  });
+
+});
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -6497,6 +6608,8 @@ module.exports = {
   logout,
   softDeleteServiceUser,
   softDeleteService,
-  softDeleteProperty
+  softDeleteProperty,
+  getBookingsByServiceId,
+  toggleRecommendedProperty
 };
 

@@ -33,7 +33,13 @@ const {
   googleLogin,
   createUserReview,
   getReviews,
-  getServiceUser
+  getServiceUser,
+  serviceUserLoginByUserToken,
+  getServicesByCategory,
+  getRecentlyViewedProperties,
+  getTopRatedProperties,
+  getRecommendedProperties,
+  getNearYouProperties
 } = require("../controller/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 const {
@@ -98,6 +104,8 @@ router.post("/search", validateToken, search)
 
 router.get("/getLatestServices", validateToken, getLatestServices)
 
+router.get("/getServicesByCategory/:categoryId", validateToken, getServicesByCategory)
+
 router.get("/getServiceDetail/:serviceId", validateToken, getServiceDetail)
 
 router.post("/toggleFavorite", validateToken, toggleFavorite);
@@ -130,5 +138,15 @@ router.patch("/markAllAsRead", validateToken, markAllAsRead);
 router.delete("/deleteAllNotifications", validateToken, deleteAllNotifications);
 
 router.get("/getServiceUser/:userId", validateToken, getServiceUser);
+
+router.post("/serviceUserLoginByUserToken", validateToken, serviceUserLoginByUserToken);
+
+router.get("/getRecentlyViewedProperties", validateToken, getRecentlyViewedProperties);
+
+router.get("/getTopRatedProperties", validateToken, getTopRatedProperties);
+
+router.get("/getRecommendedProperties", validateToken, getRecommendedProperties);
+
+router.get("/getNearYouProperties", validateToken, getNearYouProperties)
 
 module.exports = router;

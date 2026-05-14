@@ -50,6 +50,11 @@ const propertiesSchema = new mongoose.Schema(
     },
     document: { type: String, required: true },
     experienceCount: Number,
+    isRecommended: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
     policies: {
       checkInTime: { type: String },
       checkOutTime: { type: String },

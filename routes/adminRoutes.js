@@ -98,7 +98,9 @@ const {
   logout,
   softDeleteServiceUser,
   softDeleteProperty,
-  softDeleteService
+  softDeleteService,
+  getBookingsByServiceId,
+  toggleRecommendedProperty
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -221,6 +223,8 @@ router.get("/bookings/:status", getAllBookingsAdmin);
 
 router.get("/property-bookings/:propertyId", validateAdminToken, getBookingsByPropertyId);
 
+router.get("/service-bookings/:serviceId", validateAdminToken, getBookingsByServiceId);
+
 router.get("/bookingDetail/:bookingId", validateAdminToken, getBookingDetails);
 
 router.post("/platform-fee", validateAdminToken, upsertPlatformFee);
@@ -311,5 +315,8 @@ router.delete("/deleteProperty/:propertyId", validateAdminToken, softDeletePrope
 router.delete("/deleteService/:serviceId", validateAdminToken, softDeleteService);
 
 router.delete("/deletePendingBooking/:bookingId", validateAdminToken, deletePendingBooking)
+
+router.patch("/toggleRecommendedProperty/:propertyId", validateAdminToken, toggleRecommendedProperty)
+
 
 module.exports = router;

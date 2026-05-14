@@ -27,7 +27,9 @@ const Tax = require("../models/Tax");
 const Service = require("../models/Service");
 const { OAuth2Client } = require("google-auth-library");
 const Review = require("../models/Review");
-const path = require("path")
+const path = require("path");
+const ServiceCategory = require("../models/ServiceCategory");
+const RecentlyViewed = require("../models/RecentlyViewed");
 
 
 
@@ -123,7 +125,7 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 });
 
 
-  // authenticaOTP("1234", "", "+917049866959")
+// authenticaOTP("1234", "", "+917049866959")
 
 // const userSignUp = catchAsyncError(async (req, res, next) => {
 //   const errors = validationResult(req);
@@ -1025,151 +1027,6 @@ const getHomeProperties = catchAsyncError(async (req, res) => {
   });
 });
 
-// const getDashboard = catchAsyncError(async (req, res) => {
-//   const { lastId } = req.query;
-
-//   const matchStage = {
-//     is_completed: true,
-//     isDeleted: false,
-//     approvalStatus: "approved"
-//   };
-
-//   if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
-//     matchStage._id = { $lt: new mongoose.Types.ObjectId(lastId) };
-//   }
-
-//   const data = await Properties.aggregate([
-
-//     {
-//       $match: matchStage
-//     },
-
-//     {
-//       $sort: { createdAt: -1 }
-//     },
-
-//     {
-//       $lookup: {
-//         from: "categories",
-//         localField: "category",
-//         foreignField: "_id",
-//         as: "categoryData"
-//       }
-//     },
-
-//     {
-//       $unwind: "$categoryData"
-//     },
-
-//     {
-//       $lookup: {
-//         from: "amenities",
-//         localField: "propertyAmenities",
-//         foreignField: "_id",
-//         as: "propertyAmenities"
-//       }
-//     },
-
-//     {
-//       $lookup: {
-//         from: "features",
-//         localField: "propertyFeatures",
-//         foreignField: "_id",
-//         as: "propertyFeatures"
-//       }
-//     },
-
-//     {
-//       $lookup: {
-//         from: "restrooms",
-//         localField: "restRoom.facilities",
-//         foreignField: "_id",
-//         as: "facilityData"
-//       }
-//     },
-
-//     {
-//       $addFields: {
-//         "restRoom.facilities": "$facilityData"
-//       }
-//     },
-
-//     {
-//       $lookup: {
-//         from: "bookmarks",
-//         let: { propertyId: "$_id" },
-//         pipeline: [
-//           {
-//             $match: {
-//               $expr: {
-//                 $and: [
-//                   { $eq: ["$property", "$$propertyId"] },
-//                   { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
-//                   { $eq: ["$isDeleted", false] }
-//                 ]
-//               }
-//             }
-//           }
-//         ],
-//         as: "bookmarkData"
-//       }
-//     },
-
-//     {
-//       $addFields: {
-//         isFavorite: {
-//           $cond: {
-//             if: { $gt: [{ $size: "$bookmarkData" }, 0] },
-//             then: true,
-//             else: false
-//           }
-//         }
-//       }
-//     },
-
-//     {
-//       $project: {
-//         bookmarkData: 0
-//       }
-//     },
-
-//     // Group by category
-//     {
-//       $group: {
-//         _id: "$categoryData._id",
-//         categoryName: { $first: "$categoryData.category" },
-//         properties: { $push: "$$ROOT" }
-//       }
-//     },
-
-//     // Limit 5 properties per category
-//     {
-//       $project: {
-//         _id: 0,
-//         categoryId: "$_id",
-//         categoryName: 1,
-//         properties: { $slice: ["$properties", 5] }
-//       }
-//     }
-
-//   ]).allowDiskUse(true);
-
-//   // Pagination cursor
-//   let nextCursor = null;
-
-//   if (data.length > 0) {
-//     const lastCategory = data[data.length - 1];
-//     const lastProperty = lastCategory.properties[lastCategory.properties.length - 1];
-//     nextCursor = lastProperty?._id || null;
-//   }
-
-//   return res.status(200).json({
-//     success: true,
-//     nextCursor,
-//     data
-//   });
-// });
-
 
 const getDashboard = catchAsyncError(async (req, res) => {
   const { lastId } = req.query;
@@ -1655,6 +1512,26 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
 
   ]))[0];
 
+
+  await RecentlyViewed.findOneAndUpdate(
+    {
+      user: req.user._id,
+      property: req.params.id
+    },
+    {
+      $inc: {
+        viewCount: 1
+      },
+
+      $set: {
+        lastViewedAt: new Date()
+      }
+    },
+    {
+      upsert: true,
+      new: true
+    }
+  );
   return res.status(200).send({
     data,
     message: data
@@ -2092,38 +1969,521 @@ const search = catchAsyncError(async (req, res) => {
 
 });
 
+// const getLatestServices = catchAsyncError(async (req, res) => {
+
+//   const { limit = 5 } = req.query;
+
+//   const services = await Service.aggregate([
+
+//     {
+//       $match: {
+//         isDeleted: false,
+//         isActive: true,
+//         approvalStatus: "approved"
+//       }
+//     },
+
+//     // Category lookup
+//     {
+//       $lookup: {
+//         from: "servicecategories",
+//         localField: "category",
+//         foreignField: "_id",
+//         as: "category"
+//       }
+//     },
+
+//     {
+//       $unwind: {
+//         path: "$category",
+//         preserveNullAndEmptyArrays: true
+//       }
+//     },
+
+//     // 🔥 Bookmark lookup
+//     {
+//       $lookup: {
+//         from: "bookmarks",
+//         let: { serviceId: "$_id" },
+//         pipeline: [
+//           {
+//             $match: {
+//               $expr: {
+//                 $and: [
+//                   { $eq: ["$service", "$$serviceId"] },
+//                   { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+//                   { $eq: ["$isDeleted", false] }
+//                 ]
+//               }
+//             }
+//           }
+//         ],
+//         as: "bookmarkData"
+//       }
+//     },
+
+//     // Add isFavorite flag
+//     {
+//       $addFields: {
+//         isFavorite: {
+//           $cond: {
+//             if: { $gt: [{ $size: "$bookmarkData" }, 0] },
+//             then: true,
+//             else: false
+//           }
+//         }
+//       }
+//     },
+
+//     // Final projection
+//     {
+//       $project: {
+//         name: 1,
+//         price: 1,
+//         duration: 1,
+//         priceType: 1,
+//         media: 1,
+//         "location.city": 1,
+//         "location.state": 1,
+//         createdAt: 1,
+//         isFavorite: 1,
+//         category: {
+//           _id: "$category._id",
+//           name: "$category.name"
+//         }
+//       }
+//     },
+
+//     {
+//       $sort: { createdAt: -1 }
+//     },
+
+//     {
+//       $limit: Number(limit)
+//     }
+
+//   ]);
+
+//   return res.status(200).json({
+//     success: true,
+//     count: services.length,
+//     data: services
+//   });
+
+// });
+
 const getLatestServices = catchAsyncError(async (req, res) => {
 
-  const { limit = 5 } = req.query;
+  const { lastCategoryId, limit = 5 } = req.query;
+
+  const categoryMatch = {};
+
+  // Cursor pagination on categories
+  if (
+    lastCategoryId &&
+    mongoose.Types.ObjectId.isValid(lastCategoryId)
+  ) {
+    categoryMatch._id = {
+      $lt: new mongoose.Types.ObjectId(lastCategoryId)
+    };
+  }
+
+  const data = await ServiceCategory.aggregate([
+
+    {
+      $match: categoryMatch
+    },
+
+    {
+      $sort: {
+        createdAt: -1
+      }
+    },
+
+    // Pagination on categories
+    {
+      $limit: Number(limit)
+    },
+
+    // 🔥 Lookup services of each category
+    {
+      $lookup: {
+        from: "services",
+        let: {
+          categoryId: "$_id"
+        },
+        pipeline: [
+
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$category", "$$categoryId"] },
+                  { $eq: ["$isDeleted", false] },
+                  { $eq: ["$isActive", true] },
+                  { $eq: ["$approvalStatus", "approved"] }
+                ]
+              }
+            }
+          },
+
+          {
+            $sort: {
+              createdAt: -1
+            }
+          },
+
+          // Only 5 services per category
+          {
+            $limit: 5
+          },
+
+          /* =====================================
+             🔥 BOOKMARK LOOKUP
+          ===================================== */
+          {
+            $lookup: {
+              from: "bookmarks",
+              let: {
+                serviceId: "$_id"
+              },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        {
+                          $eq: [
+                            "$service",
+                            "$$serviceId"
+                          ]
+                        },
+                        {
+                          $eq: [
+                            "$user",
+                            new mongoose.Types.ObjectId(req.user._id)
+                          ]
+                        },
+                        {
+                          $eq: [
+                            "$isDeleted",
+                            false
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              as: "bookmarkData"
+            }
+          },
+
+          {
+            $addFields: {
+              isFavorite: {
+                $gt: [
+                  { $size: "$bookmarkData" },
+                  0
+                ]
+              }
+            }
+          },
+
+          {
+            $project: {
+              bookmarkData: 0
+            }
+          },
+
+          /* =====================================
+             ⭐ AVG RATING + TOTAL REVIEWS
+          ===================================== */
+          {
+            $lookup: {
+              from: "reviews",
+              let: {
+                serviceId: "$_id"
+              },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        {
+                          $eq: ["$service", "$$serviceId"]
+                        },
+                        {
+                          $eq: ["$isDeleted", false]
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  $group: {
+                    _id: null,
+                    avgRating: {
+                      $avg: "$rating"
+                    },
+                    totalReviews: {
+                      $sum: 1
+                    }
+                  }
+                }
+              ],
+              as: "ratingData"
+            }
+          },
+
+          {
+            $addFields: {
+              avgRating: {
+                $round: [
+                  {
+                    $ifNull: [
+                      {
+                        $arrayElemAt: [
+                          "$ratingData.avgRating",
+                          0
+                        ]
+                      },
+                      0
+                    ]
+                  },
+                  1
+                ]
+              },
+              totalReviews: {
+                $ifNull: [
+                  {
+                    $arrayElemAt: [
+                      "$ratingData.totalReviews",
+                      0
+                    ]
+                  },
+                  0
+                ]
+              }
+            }
+          },
+
+          /* =====================================
+             🔥 LATEST 3 REVIEWS
+          ===================================== */
+          {
+            $lookup: {
+              from: "reviews",
+              let: {
+                serviceId: "$_id"
+              },
+              pipeline: [
+
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        {
+                          $eq: ["$service", "$$serviceId"]
+                        },
+                        {
+                          $eq: ["$isDeleted", false]
+                        }
+                      ]
+                    }
+                  }
+                },
+
+                {
+                  $sort: {
+                    createdAt: -1
+                  }
+                },
+
+                {
+                  $limit: 3
+                },
+
+                // reviewer details
+                {
+                  $lookup: {
+                    from: "users",
+                    localField: "reviewer",
+                    foreignField: "_id",
+                    as: "reviewer"
+                  }
+                },
+
+                {
+                  $unwind: {
+                    path: "$reviewer",
+                    preserveNullAndEmptyArrays: true
+                  }
+                },
+
+                {
+                  $project: {
+                    _id: 1,
+                    rating: 1,
+                    comment: 1,
+                    createdAt: 1,
+
+                    reviewer: {
+                      _id: "$reviewer._id",
+                      name: "$reviewer.name",
+                      image: "$reviewer.image"
+                    }
+                  }
+                }
+
+              ],
+              as: "latestReviews"
+            }
+          },
+
+          {
+            $project: {
+              ratingData: 0
+            }
+          }
+
+        ],
+        as: "services"
+      }
+    },
+
+    // Remove empty categories
+    {
+      $match: {
+        services: {
+          $ne: []
+        }
+      }
+    },
+
+    // Final response
+    {
+      $project: {
+        _id: 0,
+        categoryId: "$_id",
+        categoryName: "$name",
+        services: 1
+      }
+    }
+
+  ]);
+
+  // 🔥 Next Cursor
+  let nextCursor = null;
+
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1].categoryId;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    data
+  });
+
+});
+
+
+const getServicesByCategory = catchAsyncError(async (req, res) => {
+
+  const { categoryId } = req.params;
+  const { lastId, limit = 10 } = req.query;
+
+  if (!categoryId || !mongoose.Types.ObjectId.isValid(categoryId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid categoryId is required"
+    });
+  }
+
+  const matchStage = {
+    category: new mongoose.Types.ObjectId(categoryId),
+    isDeleted: false,
+    isActive: true,
+    approvalStatus: "approved"
+  };
+
+  // 🔥 Cursor Pagination
+  if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
+    matchStage._id = {
+      $lt: new mongoose.Types.ObjectId(lastId)
+    };
+  }
 
   const services = await Service.aggregate([
 
     {
-      $match: {
-        isDeleted: false,
-        isActive: true,
-        approvalStatus: "approved"
+      $match: matchStage
+    },
+
+    {
+      $sort: {
+        createdAt: -1
       }
     },
 
-    // Category lookup
+    {
+      $limit: Number(limit)
+    },
+
+    // 🔥 Category Lookup
     {
       $lookup: {
         from: "servicecategories",
         localField: "category",
         foreignField: "_id",
-        as: "category"
+        as: "categoryData"
       }
     },
 
     {
       $unwind: {
-        path: "$category",
+        path: "$categoryData",
         preserveNullAndEmptyArrays: true
       }
     },
 
-    // 🔥 Bookmark lookup
+    // 🔥 Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              email: 1,
+              phone: 1,
+              profile: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    // 🔥 Bookmark Lookup
     {
       $lookup: {
         from: "bookmarks",
@@ -2133,9 +2493,24 @@ const getLatestServices = catchAsyncError(async (req, res) => {
             $match: {
               $expr: {
                 $and: [
-                  { $eq: ["$service", "$$serviceId"] },
-                  { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
-                  { $eq: ["$isDeleted", false] }
+                  {
+                    $eq: [
+                      "$service",
+                      "$$serviceId"
+                    ]
+                  },
+                  {
+                    $eq: [
+                      "$user",
+                      new mongoose.Types.ObjectId(req.user._id)
+                    ]
+                  },
+                  {
+                    $eq: [
+                      "$isDeleted",
+                      false
+                    ]
+                  }
                 ]
               }
             }
@@ -2145,50 +2520,37 @@ const getLatestServices = catchAsyncError(async (req, res) => {
       }
     },
 
-    // Add isFavorite flag
+    // ❤️ Favorite Flag
     {
       $addFields: {
         isFavorite: {
-          $cond: {
-            if: { $gt: [{ $size: "$bookmarkData" }, 0] },
-            then: true,
-            else: false
-          }
+          $gt: [
+            { $size: "$bookmarkData" },
+            0
+          ]
         }
       }
     },
 
-    // Final projection
+    // 🔥 Remove unwanted fields
     {
       $project: {
-        name: 1,
-        price: 1,
-        duration: 1,
-        priceType: 1,
-        media: 1,
-        "location.city": 1,
-        "location.state": 1,
-        createdAt: 1,
-        isFavorite: 1,
-        category: {
-          _id: "$category._id",
-          name: "$category.name"
-        }
+        bookmarkData: 0
       }
-    },
-
-    {
-      $sort: { createdAt: -1 }
-    },
-
-    {
-      $limit: Number(limit)
     }
 
   ]);
 
+  // 🔥 Next Cursor
+  let nextCursor = null;
+
+  if (services.length > 0) {
+    nextCursor = services[services.length - 1]._id;
+  }
+
   return res.status(200).json({
     success: true,
+    nextCursor,
     count: services.length,
     data: services
   });
@@ -2198,6 +2560,7 @@ const getLatestServices = catchAsyncError(async (req, res) => {
 
 const getServiceDetail = catchAsyncError(async (req, res) => {
   try {
+
     const { serviceId } = req.params;
 
     const service = await Service.findOne({
@@ -2225,15 +2588,75 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
       });
     }
 
-    // 🔥 Check if bookmarked
+    /* =====================================
+       🔥 CHECK BOOKMARK
+    ===================================== */
+
     const bookmark = await Bookmark.findOne({
       user: req.user._id,
       service: service._id,
       isDeleted: false
-    }).select("_id").lean();
+    })
+      .select("_id")
+      .lean();
 
-    // Add flag
     service.isFavorite = !!bookmark;
+
+    /* =====================================
+       ⭐ AVG RATING + TOTAL REVIEWS
+    ===================================== */
+
+    const ratingData = await Review.aggregate([
+
+      {
+        $match: {
+          service: service._id,
+          isDeleted: false
+        }
+      },
+
+      {
+        $group: {
+          _id: null,
+          avgRating: {
+            $avg: "$rating"
+          },
+          totalReviews: {
+            $sum: 1
+          }
+        }
+      }
+
+    ]);
+
+    service.avgRating =
+      ratingData.length > 0
+        ? Number(ratingData[0].avgRating.toFixed(1))
+        : 0;
+
+    service.totalReviews =
+      ratingData.length > 0
+        ? ratingData[0].totalReviews
+        : 0;
+
+    /* =====================================
+       🔥 LATEST 3 REVIEWS
+    ===================================== */
+
+    const latestReviews = await Review.find({
+      service: service._id,
+      isDeleted: false
+    })
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .populate({
+        path: "reviewer",
+        select: "firstName lastName name profile image"
+      })
+      .select("rating comment createdAt reviewer")
+      .lean();
+
+    service.latestReviews = latestReviews;
 
     return res.status(200).json({
       success: true,
@@ -2241,10 +2664,12 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
     });
 
   } catch (error) {
+
     return res.status(500).json({
       success: false,
       message: error.message
     });
+
   }
 });
 
@@ -2446,37 +2871,37 @@ const getUserFavorites = async (req, res) => {
       data: fav.property
         ? {
 
-            _id: fav.property._id,
+          _id: fav.property._id,
 
-            name: fav.property.name,
+          name: fav.property.name,
 
-            price: fav.property.price,
+          price: fav.property.price,
 
-            sqft: fav.property.area,
+          sqft: fav.property.area,
 
-            bedroom: fav.property?.bedRoom?.numBedroom || 0,
+          bedroom: fav.property?.bedRoom?.numBedroom || 0,
 
-            bathroom: fav.property?.restRoom?.numBathroom || 0,
+          bathroom: fav.property?.restRoom?.numBathroom || 0,
 
-            address: fav.property.address,
+          address: fav.property.address,
 
-            mainImage: fav.property?.media?.mainImage || []
+          mainImage: fav.property?.media?.mainImage || []
 
-          }
+        }
 
         : {
 
-            _id: fav.service._id,
+          _id: fav.service._id,
 
-            name: fav.service.name,
+          name: fav.service.name,
 
-            price: fav.service.price,
+          price: fav.service.price,
 
-            location: fav.service.location,
+          location: fav.service.location,
 
-            images: fav.service?.media?.images || []
+          images: fav.service?.media?.images || []
 
-          }
+        }
 
     }));
 
@@ -2939,6 +3364,805 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
 
 });
 
+
+const serviceUserLoginByUserToken = catchAsyncError(
+  async (req, res, next) => {
+
+    // ✅ Logged in normal user
+    const user = await User.findOne(
+      {
+        _id: req.user._id,
+        isDeleted: false,
+      },
+      {
+        phone: 1,
+      }
+    ).lean();
+
+    if (!user) {
+      return res.status(400).send({
+        message: "User not found",
+      });
+    }
+
+    // ✅ Find service provider using same phone
+    const serviceUser = await ServiceUser.findOne(
+      {
+        phone: user.phone,
+        isDeleted: false,
+      },
+      {
+        email: 1,
+        phone: 1,
+        role: 1,
+        isVerified: 1,
+        isApproved: 1,
+        rejectReason: 1,
+      }
+    );
+
+    if (!serviceUser) {
+      return res.status(400).send({
+        message: "Service provider account not found",
+      });
+    }
+
+    // ❌ Pending approval
+    if (serviceUser.isApproved === "pending") {
+      return res.status(400).send({
+        message: "You are not approved yet",
+      });
+    }
+
+    // ❌ Rejected
+    if (serviceUser.isApproved === "rejected") {
+      return res.status(400).send({
+        message: serviceUser.rejectReason || "Your account has been rejected",
+      });
+    }
+
+    // ✅ Create token
+    const userData = {
+      _id: serviceUser._id,
+      email: serviceUser.email,
+      phone: serviceUser.phone,
+      role: serviceUser.role,
+    };
+
+    const token = jwt.sign(
+      { user: userData },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "30d",
+      }
+    );
+
+    // ✅ Save token
+    await ServiceUser.updateOne(
+      { _id: serviceUser._id },
+      {
+        $push: { tokens: token },
+      }
+    );
+
+    return res.status(200).send({
+      data: token,
+      role: serviceUser.role,
+      isVerified: serviceUser.isVerified,
+      isApproved: serviceUser.isApproved,
+      message: "Service provider login successful",
+    });
+  }
+);
+
+
+// ======================================================
+// 1. RECENTLY VIEWED PROPERTIES
+// ======================================================
+
+const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
+
+  const { lastId, limit = 10 } = req.query;
+
+  const matchStage = {
+    user: new mongoose.Types.ObjectId(req.user._id)
+  };
+
+  if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
+    matchStage._id = {
+      $lt: new mongoose.Types.ObjectId(lastId)
+    };
+  }
+
+  const data = await RecentlyViewed.aggregate([
+
+    {
+      $match: matchStage
+    },
+
+    {
+      $sort: {
+        lastViewedAt: -1
+      }
+    },
+
+    {
+      $limit: Number(limit)
+    },
+
+    {
+      $lookup: {
+        from: "properties",
+        localField: "property",
+        foreignField: "_id",
+        as: "propertyData"
+      }
+    },
+
+    {
+      $unwind: "$propertyData"
+    },
+
+    {
+      $match: {
+        "propertyData.isDeleted": false,
+        "propertyData.is_completed": true,
+        "propertyData.approvalStatus": "approved"
+      }
+    },
+
+    // Ratings
+    {
+      $lookup: {
+        from: "reviews",
+        let: {
+          propertyId: "$propertyData._id"
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: [
+                      "$property",
+                      "$$propertyId"
+                    ]
+                  },
+                  {
+                    $eq: [
+                      "$isDeleted",
+                      false
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: {
+                $avg: "$rating"
+              },
+              totalReviews: {
+                $sum: 1
+              }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+
+    {
+      $addFields: {
+        "propertyData.averageRating": {
+          $ifNull: [
+            {
+              $round: [
+                {
+                  $arrayElemAt: [
+                    "$ratingData.averageRating",
+                    0
+                  ]
+                },
+                1
+              ]
+            },
+            0
+          ]
+        },
+
+        "propertyData.totalReviews": {
+          $ifNull: [
+            {
+              $arrayElemAt: [
+                "$ratingData.totalReviews",
+                0
+              ]
+            },
+            0
+          ]
+        }
+      }
+    },
+
+    {
+      $replaceRoot: {
+        newRoot: "$propertyData"
+      }
+    }
+
+  ]);
+
+  let nextCursor = null;
+
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1]._id;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    data
+  });
+
+});
+
+
+// ======================================================
+// 2. TOP RATED PROPERTIES
+// ======================================================
+
+
+const getTopRatedProperties = catchAsyncError(async (req, res) => {
+
+  const {
+    lat,
+    lng,
+    radius = 50000,
+    limit = 10,
+    lastId
+  } = req.query;
+
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+  const parsedRadius = Math.min(
+    Number(radius) || 5000,
+    50000
+  );
+
+  const parsedLimit = Math.min(
+    Number(limit) || 10,
+    50
+  );
+  const pipeline = [
+
+    // 🔥 Geo Near
+
+    {
+      $geoNear: {
+
+        key: "address.location",
+
+        near: {
+          type: "Point",
+          coordinates: [
+            Number(lng),
+            Number(lat)
+          ]
+        },
+
+        distanceField: "distance",
+
+        maxDistance: parsedRadius,
+
+        spherical: true,
+
+        includeLocs: "address.location",
+
+        query: {
+          isDeleted: false,
+          is_completed: true,
+          approvalStatus: "approved",
+
+          "address.location.coordinates": {
+            $exists: true
+          }
+        }
+
+      }
+    }
+
+  ];
+
+  // 🔥 Cursor Pagination
+  if (
+    lastId &&
+    mongoose.Types.ObjectId.isValid(lastId)
+  ) {
+    pipeline.push({
+      $match: {
+        _id: {
+          $lt: new mongoose.Types.ObjectId(lastId)
+        }
+      }
+    });
+  }
+
+  // 🔥 Reviews Lookup
+  pipeline.push({
+
+    $lookup: {
+      from: "reviews",
+
+      let: {
+        propertyId: "$_id"
+      },
+
+      pipeline: [
+
+        {
+          $match: {
+            $expr: {
+              $and: [
+                {
+                  $eq: [
+                    "$property",
+                    "$$propertyId"
+                  ]
+                },
+                {
+                  $eq: [
+                    "$isDeleted",
+                    false
+                  ]
+                }
+              ]
+            }
+          }
+        },
+
+        {
+          $group: {
+            _id: null,
+
+            averageRating: {
+              $avg: "$rating"
+            },
+
+            totalReviews: {
+              $sum: 1
+            }
+          }
+        }
+
+      ],
+
+      as: "ratingData"
+    }
+
+  });
+
+  // 🔥 Add Rating Fields
+  pipeline.push({
+
+    $addFields: {
+
+      averageRating: {
+        $ifNull: [
+          {
+            $round: [
+              {
+                $arrayElemAt: [
+                  "$ratingData.averageRating",
+                  0
+                ]
+              },
+              1
+            ]
+          },
+          0
+        ]
+      },
+
+      totalReviews: {
+        $ifNull: [
+          {
+            $arrayElemAt: [
+              "$ratingData.totalReviews",
+              0
+            ]
+          },
+          0
+        ]
+      }
+
+    }
+
+  });
+
+  // 🔥 Sort
+  pipeline.push({
+
+    $sort: {
+      averageRating: -1,
+      totalReviews: -1,
+      distance: 1,
+      createdAt: -1
+    }
+
+  });
+
+  // 🔥 Limit
+  pipeline.push({
+    $limit: Number(limit)
+  });
+
+  // 🔥 Remove unwanted fields
+  pipeline.push({
+    $project: {
+      ratingData: 0
+    }
+  });
+
+  const data = await Properties.aggregate(pipeline);
+
+  // 🔥 Next Cursor
+  let nextCursor = null;
+
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1]._id;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    count: data.length,
+    data
+  });
+
+});
+
+
+// ======================================================
+// 3. RECOMMENDED PROPERTIES
+// ======================================================
+
+const getRecommendedProperties = catchAsyncError(async (req, res) => {
+
+  const {
+    lat,
+    lng,
+    radius = 50000,
+    limit = 10,
+    lastId
+  } = req.query;
+
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+
+  const parsedRadius = Math.min(
+    Number(radius) || 5000,
+    50000
+  );
+
+  const parsedLimit = Math.min(
+    Number(limit) || 10,
+    50
+  );
+
+  const pipeline = [
+
+    // 🔥 Geo Near
+    {
+      $geoNear: {
+
+        key: "address.location",
+
+        near: {
+          type: "Point",
+          coordinates: [
+            Number(lng),
+            Number(lat)
+          ]
+        },
+
+        distanceField: "distance",
+
+        maxDistance: parsedRadius,
+
+        spherical: true,
+
+        includeLocs: "address.location",
+
+        query: {
+          isRecommended: true,
+          isDeleted: false,
+          is_completed: true,
+          approvalStatus: "approved",
+
+          "address.location.coordinates": {
+            $exists: true
+          }
+        }
+
+      }
+    }
+
+  ];
+
+  // 🔥 Cursor Pagination
+  if (
+    lastId &&
+    mongoose.Types.ObjectId.isValid(lastId)
+  ) {
+    pipeline.push({
+      $match: {
+        _id: {
+          $lt: new mongoose.Types.ObjectId(lastId)
+        }
+      }
+    });
+  }
+
+  // 🔥 Sort nearest first
+  pipeline.push({
+    $sort: {
+      distance: 1,
+      createdAt: -1
+    }
+  });
+
+  // 🔥 Limit
+  pipeline.push({
+    $limit: parsedLimit
+  });
+
+  const data = await Properties.aggregate(pipeline);
+
+  // 🔥 Next Cursor
+  let nextCursor = null;
+
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1]._id;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    count: data.length,
+    data
+  });
+
+});
+
+
+// ======================================================
+// 4. NEAR YOU PROPERTIES
+// ======================================================
+
+const getNearYouProperties = catchAsyncError(async (req, res) => {
+
+  const {
+    lat,
+    lng,
+    radius = 50000,
+    limit = 10,
+    lastId
+  } = req.query;
+
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+
+  const parsedRadius = Math.min(
+    Number(radius) || 5000,
+    50000
+  );
+
+  const parsedLimit = Math.min(
+    Number(limit) || 10,
+    50
+  );
+
+  const pipeline = [
+
+    // 🔥 GEO NEAR
+    {
+      $geoNear: {
+
+        key: "address.location",
+
+        near: {
+          type: "Point",
+          coordinates: [
+            Number(lng),
+            Number(lat)
+          ]
+        },
+
+        distanceField: "distance",
+
+        maxDistance: parsedRadius,
+
+        spherical: true,
+
+        includeLocs: "address.location",
+
+        query: {
+          isDeleted: false,
+          is_completed: true,
+          approvalStatus: "approved",
+
+          "address.location.coordinates": {
+            $exists: true
+          }
+        }
+
+      }
+    }
+
+  ];
+
+  // 🔥 Cursor Pagination
+  if (
+    lastId &&
+    mongoose.Types.ObjectId.isValid(lastId)
+  ) {
+    pipeline.push({
+      $match: {
+        _id: {
+          $lt: new mongoose.Types.ObjectId(lastId)
+        }
+      }
+    });
+  }
+
+  // 🔥 Ratings Lookup
+  pipeline.push({
+
+    $lookup: {
+      from: "reviews",
+
+      let: {
+        propertyId: "$_id"
+      },
+
+      pipeline: [
+
+        {
+          $match: {
+            $expr: {
+              $and: [
+                {
+                  $eq: [
+                    "$property",
+                    "$$propertyId"
+                  ]
+                },
+                {
+                  $eq: [
+                    "$isDeleted",
+                    false
+                  ]
+                }
+              ]
+            }
+          }
+        },
+
+        {
+          $group: {
+            _id: null,
+
+            averageRating: {
+              $avg: "$rating"
+            },
+
+            totalReviews: {
+              $sum: 1
+            }
+          }
+        }
+
+      ],
+
+      as: "ratingData"
+    }
+
+  });
+
+  // 🔥 Add Ratings
+  pipeline.push({
+
+    $addFields: {
+
+      averageRating: {
+        $ifNull: [
+          {
+            $round: [
+              {
+                $arrayElemAt: [
+                  "$ratingData.averageRating",
+                  0
+                ]
+              },
+              1
+            ]
+          },
+          0
+        ]
+      },
+
+      totalReviews: {
+        $ifNull: [
+          {
+            $arrayElemAt: [
+              "$ratingData.totalReviews",
+              0
+            ]
+          },
+          0
+        ]
+      }
+
+    }
+
+  });
+
+  // 🔥 Sort nearest first
+  pipeline.push({
+
+    $sort: {
+      distance: 1,
+      createdAt: -1
+    }
+
+  });
+
+  // 🔥 Limit
+  pipeline.push({
+    $limit: parsedLimit
+  });
+
+  // 🔥 Remove unwanted fields
+  pipeline.push({
+    $project: {
+      ratingData: 0
+    }
+  });
+
+  const data = await Properties.aggregate(pipeline);
+
+  // 🔥 Next Cursor
+  let nextCursor = null;
+
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1]._id;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    count: data.length,
+    data
+  });
+
+});
+
 module.exports = {
   userLogin,
   userSignUp,
@@ -2973,5 +4197,11 @@ module.exports = {
   googleLogin,
   createUserReview,
   getReviews,
-  getServiceUser
+  getServiceUser,
+  serviceUserLoginByUserToken,
+  getServicesByCategory,
+  getRecentlyViewedProperties,
+  getTopRatedProperties,
+  getRecommendedProperties,
+  getNearYouProperties
 };
