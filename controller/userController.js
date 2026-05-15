@@ -4177,7 +4177,21 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
 });
 
+const deleteAccount = catchAsyncError(async (req, res) => {
+  const userId = req.user._id;
 
+  // Soft delete
+  await User.findByIdAndUpdate(userId, {
+    isDeleted: true,
+    deletedAt: new Date(),
+    tokens: [],
+  });
+
+  return res.status(200).json({
+    success: true,
+    message: "Account deleted successfully",
+  });
+});
 
 module.exports = {
   userLogin,
@@ -4219,5 +4233,6 @@ module.exports = {
   getRecentlyViewedProperties,
   getTopRatedProperties,
   getRecommendedProperties,
-  getNearYouProperties
+  getNearYouProperties,
+  deleteAccount
 };

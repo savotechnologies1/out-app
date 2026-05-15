@@ -50,7 +50,8 @@ const {
   getMyReviews,
   getServiceProviderDashboard,
   getAllCommissionsForServiceUser,
-  userLoginByServiceProviderToken
+  userLoginByServiceProviderToken,
+  deleteServiceUserAccount
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -222,5 +223,7 @@ router.delete("/deleteAllNotifications", validateServiceToken, deleteAllNotifica
 
 router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser);
 
-router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginByServiceProviderToken)
+router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginByServiceProviderToken);
+
+router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUserAccount)
 module.exports = router;
