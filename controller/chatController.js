@@ -749,6 +749,8 @@ exports.sendMessage = async (req, res) => {
         continue;
       }
 
+      console.log("patici", participant.model)
+
       await sendNotification({
 
         receiverId: participant.id,
