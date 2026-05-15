@@ -33,6 +33,7 @@ const Admin = require("../models/Admin");
 const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
 const { authenticaOTP } = require("../functions/authentica");
+const User = require("../models/User");
 
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
@@ -3345,7 +3346,6 @@ const getAllCommissionsForServiceUser = catchAsyncError(async (req, res, next) =
 
 const userLoginByServiceProviderToken = catchAsyncError(
   async (req, res, next) => {
-
     // ✅ Logged in service provider
     const serviceUser = await ServiceUser.findOne(
       {
