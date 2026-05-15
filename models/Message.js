@@ -63,6 +63,7 @@ const messageSchema = new mongoose.Schema(
         "IMAGE",
         "AUDIO",
         "VIDEO",
+        "MIXED",
         "DOCUMENT"
       ],
       default: "TEXT",

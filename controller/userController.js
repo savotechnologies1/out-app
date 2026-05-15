@@ -1578,11 +1578,23 @@ const search = catchAsyncError(async (req, res) => {
     });
   }
 
-  const coordinates = [Number(lng), Number(lat)];
+  // ✅ IMPORTANT
+  // [longitude, latitude]
+  const coordinates = [
+    Number(lng),
+    Number(lat)
+  ];
 
-  let radius = 50000;
-  if (searchMode === "CITY") radius = 30000;
-  if (searchMode === "ANYWHERE") radius = 200000;
+  // ✅ Dynamic radius
+  let radius = 100000;
+
+  if (searchMode === "CITY") {
+    radius = 30000;
+  }
+
+  if (searchMode === "ANYWHERE") {
+    radius = 200000;
+  }
 
   // =========================================================
   // ================= PROPERTY SEARCH =======================
@@ -1592,77 +1604,168 @@ const search = catchAsyncError(async (req, res) => {
 
     const properties = await Properties.aggregate([
 
+      // ✅ GEO SEARCH INSIDE RADIUS CIRCLE
       {
         $geoNear: {
-          near: { type: "Point", coordinates },
+
+          near: {
+            type: "Point",
+            coordinates
+          },
+
           distanceField: "distance",
+
           spherical: true,
-          key: "address.location.coordinates",
+
+          // ✅ CORRECT KEY
+          key: "address.location",
+
           maxDistance: radius,
-          distanceMultiplier: 0.001
+
+          query: {
+            isDeleted: false,
+            is_completed: true,
+            approvalStatus: "approved",
+            maxGuests: {
+              $gte: Number(totalGuest)
+            },
+
+            "address.location.coordinates": {
+              $exists: true,
+              $ne: []
+            }
+          }
+
         }
       },
 
+      // ✅ Convert meters to KM
       {
-        $match: {
-          isDeleted: false,
-          is_completed: true,
-          approvalStatus: "approved",
-          maxGuests: { $gte: Number(totalGuest) }
+        $addFields: {
+          distance: {
+            $round: [
+              {
+                $divide: ["$distance", 1000]
+              },
+              2
+            ]
+          }
         }
       },
 
+      // =====================================================
       // Availability check
+      // =====================================================
+
       {
         $lookup: {
           from: "hotelavailabilities",
-          let: { propertyId: "$_id" },
+
+          let: {
+            propertyId: "$_id"
+          },
+
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ["$hotel", "$$propertyId"] },
-                    { $eq: ["$isBooked", true] },
+
+                    {
+                      $eq: [
+                        "$hotel",
+                        "$$propertyId"
+                      ]
+                    },
+
+                    {
+                      $eq: [
+                        "$isBooked",
+                        true
+                      ]
+                    },
+
                     ...(checkIn && checkOut
                       ? [
-                        { $gte: ["$date", new Date(checkIn)] },
-                        { $lte: ["$date", new Date(checkOut)] }
+                        {
+                          $gte: [
+                            "$date",
+                            new Date(checkIn)
+                          ]
+                        },
+                        {
+                          $lte: [
+                            "$date",
+                            new Date(checkOut)
+                          ]
+                        }
                       ]
                       : [])
+
                   ]
                 }
               }
             }
           ],
+
           as: "bookedDates"
         }
       },
 
       {
         $match: {
-          bookedDates: { $size: 0 }
+          bookedDates: {
+            $size: 0
+          }
         }
       },
 
-      // 🔥 FAVORITE LOOKUP
+      // =====================================================
+      // FAVORITE LOOKUP
+      // =====================================================
+
       {
         $lookup: {
+
           from: "bookmarks",
-          let: { propertyId: "$_id" },
+
+          let: {
+            propertyId: "$_id"
+          },
+
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ["$property", "$$propertyId"] },
-                    { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
-                    { $eq: ["$isDeleted", false] }
+
+                    {
+                      $eq: [
+                        "$property",
+                        "$$propertyId"
+                      ]
+                    },
+
+                    {
+                      $eq: [
+                        "$user",
+                        new mongoose.Types.ObjectId(req.user._id)
+                      ]
+                    },
+
+                    {
+                      $eq: [
+                        "$isDeleted",
+                        false
+                      ]
+                    }
+
                   ]
                 }
               }
             }
           ],
+
           as: "bookmarkData"
         }
       },
@@ -1670,10 +1773,19 @@ const search = catchAsyncError(async (req, res) => {
       {
         $addFields: {
           isFavorite: {
-            $gt: [{ $size: "$bookmarkData" }, 0]
+            $gt: [
+              {
+                $size: "$bookmarkData"
+              },
+              0
+            ]
           }
         }
       },
+
+      // =====================================================
+      // FINAL RESPONSE
+      // =====================================================
 
       {
         $project: {
@@ -1682,12 +1794,20 @@ const search = catchAsyncError(async (req, res) => {
           maxGuests: 1,
           address: 1,
           media: 1,
-          distance: { $round: ["$distance", 2] },
+          distance: 1,
           isFavorite: 1
         }
       },
 
-      { $limit: 20 }
+      {
+        $sort: {
+          distance: 1
+        }
+      },
+
+      {
+        $limit: 20
+      }
 
     ]);
 
@@ -1697,6 +1817,7 @@ const search = catchAsyncError(async (req, res) => {
       count: properties.length,
       data: properties
     });
+
   }
 
   // =========================================================
@@ -1719,96 +1840,173 @@ const search = catchAsyncError(async (req, res) => {
     endDate.setHours(23, 59, 59, 999);
 
     const daysArray = [];
+
     let current = new Date(startDate);
 
     while (current <= endDate) {
+
       daysArray.push(
-        current.toLocaleString("en-US", { weekday: "long" })
+        current.toLocaleString(
+          "en-US",
+          { weekday: "long" }
+        )
       );
-      current.setDate(current.getDate() + 1);
+
+      current.setDate(
+        current.getDate() + 1
+      );
+
     }
 
     const services = await Service.aggregate([
 
       {
         $geoNear: {
-          near: { type: "Point", coordinates },
+
+          near: {
+            type: "Point",
+            coordinates
+          },
+
           distanceField: "distance",
+
           spherical: true,
+
+          // ✅ MUST MATCH INDEX FIELD
           key: "location.coordinates",
+
           maxDistance: radius,
-          distanceMultiplier: 0.001
+
+          query: {
+            isDeleted: false,
+            isActive: true,
+            approvalStatus: "approved",
+
+            "location.coordinates.coordinates": {
+              $exists: true,
+              $ne: []
+            }
+          }
+
         }
       },
 
+      // ✅ PRIORITY LOGIC
+      {
+        $addFields: {
+
+          matchedDaysCount: {
+            $size: {
+              $setIntersection: [
+                "$workingDays",
+                daysArray
+              ]
+            }
+          },
+
+          isExactMatch: {
+            $cond: [
+              {
+                $eq: [
+                  {
+                    $size: {
+                      $setIntersection: [
+                        "$workingDays",
+                        daysArray
+                      ]
+                    }
+                  },
+                  daysArray.length
+                ]
+              },
+              1,
+              0
+            ]
+          }
+
+        }
+      },
+
+      // ✅ At least one matching day
       {
         $match: {
-          isDeleted: false,
-          isActive: true,
-          approvalStatus: "approved",
-          workingDays: { $in: daysArray }
+          matchedDaysCount: {
+            $gt: 0
+          }
+        }
+      },
+
+      // ✅ Convert KM
+      {
+        $addFields: {
+          distance: {
+            $round: [
+              {
+                $divide: ["$distance", 1000]
+              },
+              2
+            ]
+          }
         }
       },
 
       {
         $lookup: {
+
           from: "serviceavailabilities",
-          let: { serviceId: "$_id" },
+
+          let: {
+            serviceId: "$_id"
+          },
+
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
+
                     {
                       $eq: [
                         { $toString: "$service" },
                         { $toString: "$$serviceId" }
                       ]
                     },
-                    { $eq: ["$isBooked", true] },
-                    { $gte: ["$date", startDate] },
-                    { $lte: ["$date", endDate] }
+
+                    {
+                      $eq: [
+                        "$isBooked",
+                        true
+                      ]
+                    },
+
+                    {
+                      $gte: [
+                        "$date",
+                        startDate
+                      ]
+                    },
+
+                    {
+                      $lte: [
+                        "$date",
+                        endDate
+                      ]
+                    }
+
                   ]
                 }
               }
             }
           ],
+
           as: "bookedSlots"
         }
       },
 
       {
         $match: {
-          bookedSlots: { $size: 0 }
-        }
-      },
-
-      // 🔥 FAVORITE LOOKUP
-      {
-        $lookup: {
-          from: "bookmarks",
-          let: { serviceId: "$_id" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ["$service", "$$serviceId"] },
-                    { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
-                    { $eq: ["$isDeleted", false] }
-                  ]
-                }
-              }
-            }
-          ],
-          as: "bookmarkData"
-        }
-      },
-
-      {
-        $addFields: {
-          isFavorite: {
-            $gt: [{ $size: "$bookmarkData" }, 0]
+          bookedSlots: {
+            $size: 0
           }
         }
       },
@@ -1820,12 +2018,24 @@ const search = catchAsyncError(async (req, res) => {
           location: 1,
           media: 1,
           workingDays: 1,
-          distance: { $round: ["$distance", 2] },
-          isFavorite: 1
+          distance: 1,
+          matchedDaysCount: 1,
+          isExactMatch: 1
         }
       },
 
-      { $limit: 20 }
+      // ✅ PRIORITY SORT
+      {
+        $sort: {
+          isExactMatch: -1,
+          matchedDaysCount: -1,
+          distance: 1
+        }
+      },
+
+      {
+        $limit: 20
+      }
 
     ]);
 
@@ -1835,6 +2045,7 @@ const search = catchAsyncError(async (req, res) => {
       count: services.length,
       data: services
     });
+
   }
 
   return res.status(400).json({
@@ -1843,6 +2054,291 @@ const search = catchAsyncError(async (req, res) => {
   });
 
 });
+
+// const search = catchAsyncError(async (req, res) => {
+
+//   const {
+//     type,
+//     searchMode = "NEARBY",
+//     lat,
+//     lng,
+//     totalGuest = 1,
+//     checkIn,
+//     checkOut,
+//   } = req.body;
+
+//   if (!lat || !lng) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Latitude and longitude required"
+//     });
+//   }
+
+//   const coordinates = [Number(lng), Number(lat)];
+
+//   let radius = 50000;
+//   if (searchMode === "CITY") radius = 30000;
+//   if (searchMode === "ANYWHERE") radius = 200000;
+
+//   // =========================================================
+//   // ================= PROPERTY SEARCH =======================
+//   // =========================================================
+
+//   if (type === "PROPERTY") {
+
+//     const properties = await Properties.aggregate([
+
+//       {
+//         $geoNear: {
+//           near: { type: "Point", coordinates },
+//           distanceField: "distance",
+//           spherical: true,
+//           key: "address.location.coordinates",
+//           maxDistance: radius,
+//           distanceMultiplier: 0.001
+//         }
+//       },
+
+//       {
+//         $match: {
+//           isDeleted: false,
+//           is_completed: true,
+//           approvalStatus: "approved",
+//           maxGuests: { $gte: Number(totalGuest) }
+//         }
+//       },
+
+//       // Availability check
+//       {
+//         $lookup: {
+//           from: "hotelavailabilities",
+//           let: { propertyId: "$_id" },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: {
+//                   $and: [
+//                     { $eq: ["$hotel", "$$propertyId"] },
+//                     { $eq: ["$isBooked", true] },
+//                     ...(checkIn && checkOut
+//                       ? [
+//                         { $gte: ["$date", new Date(checkIn)] },
+//                         { $lte: ["$date", new Date(checkOut)] }
+//                       ]
+//                       : [])
+//                   ]
+//                 }
+//               }
+//             }
+//           ],
+//           as: "bookedDates"
+//         }
+//       },
+
+//       {
+//         $match: {
+//           bookedDates: { $size: 0 }
+//         }
+//       },
+
+//       // 🔥 FAVORITE LOOKUP
+//       {
+//         $lookup: {
+//           from: "bookmarks",
+//           let: { propertyId: "$_id" },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: {
+//                   $and: [
+//                     { $eq: ["$property", "$$propertyId"] },
+//                     { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+//                     { $eq: ["$isDeleted", false] }
+//                   ]
+//                 }
+//               }
+//             }
+//           ],
+//           as: "bookmarkData"
+//         }
+//       },
+
+//       {
+//         $addFields: {
+//           isFavorite: {
+//             $gt: [{ $size: "$bookmarkData" }, 0]
+//           }
+//         }
+//       },
+
+//       {
+//         $project: {
+//           name: 1,
+//           price: 1,
+//           maxGuests: 1,
+//           address: 1,
+//           media: 1,
+//           distance: { $round: ["$distance", 2] },
+//           isFavorite: 1
+//         }
+//       },
+
+//       { $limit: 20 }
+
+//     ]);
+
+//     return res.json({
+//       success: true,
+//       type: "PROPERTY",
+//       count: properties.length,
+//       data: properties
+//     });
+//   }
+
+//   // =========================================================
+//   // ================= SERVICE SEARCH ========================
+//   // =========================================================
+
+//   if (type === "SERVICE") {
+
+//     if (!checkIn || !checkOut) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "checkIn and checkOut are required"
+//       });
+//     }
+
+//     const startDate = new Date(checkIn);
+//     startDate.setHours(0, 0, 0, 0);
+
+//     const endDate = new Date(checkOut);
+//     endDate.setHours(23, 59, 59, 999);
+
+//     const daysArray = [];
+//     let current = new Date(startDate);
+
+//     while (current <= endDate) {
+//       daysArray.push(
+//         current.toLocaleString("en-US", { weekday: "long" })
+//       );
+//       current.setDate(current.getDate() + 1);
+//     }
+
+//     const services = await Service.aggregate([
+
+//       {
+//         $geoNear: {
+//           near: { type: "Point", coordinates },
+//           distanceField: "distance",
+//           spherical: true,
+//           key: "location.coordinates",
+//           maxDistance: radius,
+//           distanceMultiplier: 0.001
+//         }
+//       },
+
+//       {
+//         $match: {
+//           isDeleted: false,
+//           isActive: true,
+//           approvalStatus: "approved",
+//           workingDays: { $in: daysArray }
+//         }
+//       },
+
+//       {
+//         $lookup: {
+//           from: "serviceavailabilities",
+//           let: { serviceId: "$_id" },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: {
+//                   $and: [
+//                     {
+//                       $eq: [
+//                         { $toString: "$service" },
+//                         { $toString: "$$serviceId" }
+//                       ]
+//                     },
+//                     { $eq: ["$isBooked", true] },
+//                     { $gte: ["$date", startDate] },
+//                     { $lte: ["$date", endDate] }
+//                   ]
+//                 }
+//               }
+//             }
+//           ],
+//           as: "bookedSlots"
+//         }
+//       },
+
+//       {
+//         $match: {
+//           bookedSlots: { $size: 0 }
+//         }
+//       },
+
+//       // 🔥 FAVORITE LOOKUP
+//       {
+//         $lookup: {
+//           from: "bookmarks",
+//           let: { serviceId: "$_id" },
+//           pipeline: [
+//             {
+//               $match: {
+//                 $expr: {
+//                   $and: [
+//                     { $eq: ["$service", "$$serviceId"] },
+//                     { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
+//                     { $eq: ["$isDeleted", false] }
+//                   ]
+//                 }
+//               }
+//             }
+//           ],
+//           as: "bookmarkData"
+//         }
+//       },
+
+//       {
+//         $addFields: {
+//           isFavorite: {
+//             $gt: [{ $size: "$bookmarkData" }, 0]
+//           }
+//         }
+//       },
+
+//       {
+//         $project: {
+//           name: 1,
+//           price: 1,
+//           location: 1,
+//           media: 1,
+//           workingDays: 1,
+//           distance: { $round: ["$distance", 2] },
+//           isFavorite: 1
+//         }
+//       },
+
+//       { $limit: 20 }
+
+//     ]);
+
+//     return res.json({
+//       success: true,
+//       type: "SERVICE",
+//       count: services.length,
+//       data: services
+//     });
+//   }
+
+//   return res.status(400).json({
+//     success: false,
+//     message: "Invalid type"
+//   });
+
+// });
 
 // const getLatestServices = catchAsyncError(async (req, res) => {
 

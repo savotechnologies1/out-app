@@ -467,12 +467,12 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
 
 const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
 
-  let { search, status, sortBy = "latest" } = req.query;
+  let { search, isApproved, sortBy = "latest" } = req.query;
 
   const { page = 1, pageSize = 5, skip = 0 } = paginationQuery(req.query);
 
   sortBy = sortBy?.toLowerCase();
-  status = status?.toLowerCase();
+  isApproved = isApproved?.toLowerCase();
 
   if (!search || search === "undefined") search = "";
 
@@ -492,8 +492,11 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
   }
 
   // ✅ Status Filter
-  if (status && ["approved", "rejected", "pending"].includes(status)) {
-    matchStage.isApproved = status;
+  if (
+    isApproved &&
+    ["approved", "rejected", "pending"].includes(isApproved)
+  ) {
+    matchStage.isApproved = isApproved;
   }
 
   // ✅ Sorting

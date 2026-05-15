@@ -409,7 +409,8 @@ exports.sendMessage = async (req, res) => {
       senderId,
       message,
     } = req.body;
-
+    console.log("req.body", req.body)
+    console.log("req.files", req.files)
     /* =====================================================
        🔍 FIND CONVERSATION
     ===================================================== */
@@ -477,16 +478,21 @@ exports.sendMessage = async (req, res) => {
     /* =====================================================
        📎 ATTACHMENTS
     ===================================================== */
-
     const attachments = [];
 
     let messageType = "TEXT";
 
-    const processFiles = (files, type, folderName) => {
+    const uploadedTypes = [];
+
+    const processFiles = (
+      files,
+      type,
+      folderName
+    ) => {
 
       if (!files || !files.length) return;
 
-      messageType = type;
+      uploadedTypes.push(type);
 
       files.forEach((file) => {
 
@@ -538,6 +544,25 @@ exports.sendMessage = async (req, res) => {
       "VIDEO",
       "chatVideo"
     );
+
+    /* =====================================================
+       🧠 DETERMINE MESSAGE TYPE
+    ===================================================== */
+
+    if (uploadedTypes.length === 1) {
+
+      messageType = uploadedTypes[0];
+    }
+
+    else if (uploadedTypes.length > 1) {
+
+      messageType = "MIXED";
+    }
+
+    else if (message) {
+
+      messageType = "TEXT";
+    }
 
     /* =====================================================
        🚫 EMPTY MESSAGE VALIDATION
