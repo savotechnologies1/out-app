@@ -32,50 +32,6 @@ const ServiceCategory = require("../models/ServiceCategory");
 const RecentlyViewed = require("../models/RecentlyViewed");
 
 
-
-
-// const userLogin = catchAsyncError(async (req, res, next) => {
-//   const errors = validationResult(req);
-//   const checkValid = await checkValidations(errors);
-
-//   if (checkValid.type === "error") {
-//     return res.status(400).send({
-//       message: checkValid.errors.msg,
-//     });
-//   }
-
-//   const { mobile, mobileCode } = req.body;
-
-//   const user = await User.findOne({
-//     phone: `${mobileCode}${mobile}`,
-//   });
-
-//   if (!user) {
-//     return res.status(400).send({ message: "User not found" });
-//   }
-
-//   if (!user.isActive) {
-//     return res.status(403).json({
-//       message: "Your account is suspended please contact support",
-//     });
-//   }
-
-//   const otp = generateRandomOTP();
-
-//   await User.updateOne(
-//     { _id: user._id },
-//     { $set: { OTP: otp } }
-//   );
-
-//   await authenticaOTP(otp, user.email, user.phone);
-
-//   return res.status(200).send({
-//     data: { id: user._id },
-//     message: "OTP sent successfully",
-//   });
-// });
-
-
 const userLogin = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
@@ -127,65 +83,6 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 
 // authenticaOTP("1234", "", "+917049866959")
 
-// const userSignUp = catchAsyncError(async (req, res, next) => {
-//   const errors = validationResult(req);
-//   const checkValid = await checkValidations(errors);
-
-//   // Validation check
-//   if (checkValid?.type === "error") {
-//     return res.status(400).send({
-//       message: checkValid.errors?.msg || "Validation failed",
-//     });
-//   }
-
-//   const { salutation, firstName, lastName, email, mobile, mobileCode } =
-//     req.body;
-
-//   // Basic required field check (extra safety)
-//   if (!mobile || !mobileCode) {
-//     return res.status(400).send({
-//       message: "Email and mobile are required",
-//     });
-//   }
-
-//   // Check existing user
-//   const userExist = await User.exists({
-//     $or: [{ email }, { phone: `${mobileCode}${mobile}` }],
-//   });
-
-//   if (userExist) {
-//     return res.status(400).send({
-//       message: "User already exists with this email or mobile",
-//     });
-//   }
-
-//   // Generate OTP & ID
-//   // const otp = generateRandomOTP();
-//   const randomId = generateRandomId();
-
-//   // Create user
-//   const user = await User.create({
-//     salutation,
-//     firstName,
-//     lastName,
-//     userId: `UID-${randomId}`,
-//     email,
-//     phone: `${mobileCode}${mobile}`,
-//     phoneCode: mobileCode,
-//     OTP: null,
-//   });
-
-//   // Send OTP (make sure function name is correct)
-//   // await authenticaOTP(otp, user.email, user.phone);
-
-//   return res.status(201).send({
-//     data: {
-//       id: user._id,
-//       mobile: user.phone,
-//     },
-//     message: "User registered successfully.",
-//   });
-// });
 
 const userSignUp = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
@@ -418,28 +315,6 @@ const googleLogin = async (req, res) => {
     });
   }
 };
-
-// const getUser = catchAsyncError(async (req, res, next) => {
-//   let user = await User.findOne(
-//     { _id: req.user._id },
-//     {
-//       email: 1,
-//       role: 1,
-//       firstName: 1,
-//       lastName: 1,
-//       phone: 1,
-//       phoneCode: 1,
-//       profile: 1,
-//       isVerified: 1,
-//     }
-//   ).lean(true);
-
-//   if (!user) return res.status(400).send({ message: "User not found" });
-
-//   user["phone"] = await codeRem(user.phone);
-
-//   return res.status(200).send({ data: user });
-// });
 
 
 const getUser = catchAsyncError(async (req, res, next) => {
@@ -3361,9 +3236,7 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
       reviewList
     }
   });
-
 });
-
 
 const serviceUserLoginByUserToken = catchAsyncError(
   async (req, res, next) => {
@@ -3633,7 +3506,7 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
     });
   }
   const parsedRadius = Math.min(
-    Number(radius) || 5000,
+    Number(radius) || 50000,
     50000
   );
 
@@ -3834,6 +3707,119 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
 // 3. RECOMMENDED PROPERTIES
 // ======================================================
 
+// const getRecommendedProperties = catchAsyncError(async (req, res) => {
+
+//   const {
+//     lat,
+//     lng,
+//     radius = 50000,
+//     limit = 10,
+//     lastId
+//   } = req.query;
+
+//   if (!lat || !lng) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Latitude and longitude are required"
+//     });
+//   }
+
+//   const parsedRadius = Math.min(
+//     Number(radius) || 5000,
+//     50000
+//   );
+
+//   const parsedLimit = Math.min(
+//     Number(limit) || 10,
+//     50
+//   );
+
+//   const pipeline = [
+
+//     // 🔥 Geo Near
+//     {
+//       $geoNear: {
+
+//         key: "address.location",
+
+//         near: {
+//           type: "Point",
+//           coordinates: [
+//             Number(lng),
+//             Number(lat)
+//           ]
+//         },
+
+//         distanceField: "distance",
+
+//         maxDistance: parsedRadius,
+
+//         spherical: true,
+
+//         includeLocs: "address.location",
+
+//         query: {
+//           isRecommended: true,
+//           isDeleted: false,
+//           is_completed: true,
+//           approvalStatus: "approved",
+
+//           "address.location.coordinates": {
+//             $exists: true
+//           }
+//         }
+
+//       }
+//     }
+
+//   ];
+
+//   // 🔥 Cursor Pagination
+//   if (
+//     lastId &&
+//     mongoose.Types.ObjectId.isValid(lastId)
+//   ) {
+//     pipeline.push({
+//       $match: {
+//         _id: {
+//           $lt: new mongoose.Types.ObjectId(lastId)
+//         }
+//       }
+//     });
+//   }
+
+//   // 🔥 Sort nearest first
+//   pipeline.push({
+//     $sort: {
+//       distance: 1,
+//       createdAt: -1
+//     }
+//   });
+
+//   // 🔥 Limit
+//   pipeline.push({
+//     $limit: parsedLimit
+//   });
+
+//   const data = await Properties.aggregate(pipeline);
+
+//   // 🔥 Next Cursor
+//   let nextCursor = null;
+
+//   if (data.length > 0) {
+//     nextCursor = data[data.length - 1]._id;
+//   }
+
+//   return res.status(200).json({
+//     success: true,
+//     nextCursor,
+//     count: data.length,
+//     data
+//   });
+
+// });
+
+
 const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
   const {
@@ -3844,6 +3830,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
     lastId
   } = req.query;
 
+  // ✅ Validate coordinates
   if (!lat || !lng) {
     return res.status(400).json({
       success: false,
@@ -3851,11 +3838,14 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
     });
   }
 
-  const parsedRadius = Math.min(
-    Number(radius) || 5000,
-    50000
-  );
+  // ✅ Radius in meters
+  // 5000 = 5KM
+  // 10000 = 10KM
+  // 50000 = 50KM
 
+  const parsedRadius = Number(radius) || 50000;
+
+  // ✅ Pagination limit
   const parsedLimit = Math.min(
     Number(limit) || 10,
     50
@@ -3863,36 +3853,41 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
   const pipeline = [
 
-    // 🔥 Geo Near
+    // ✅ Create circle around user coordinates
     {
       $geoNear: {
 
-        key: "address.location",
-
         near: {
           type: "Point",
+
+          // IMPORTANT:
+          // [ longitude, latitude ]
           coordinates: [
             Number(lng),
             Number(lat)
           ]
         },
 
+        key: "address.location",
+
         distanceField: "distance",
 
+        // ✅ Circle radius
         maxDistance: parsedRadius,
 
         spherical: true,
 
-        includeLocs: "address.location",
-
         query: {
+
           isRecommended: true,
           isDeleted: false,
           is_completed: true,
           approvalStatus: "approved",
 
+          // ✅ Only valid geo docs
           "address.location.coordinates": {
-            $exists: true
+            $exists: true,
+            $ne: []
           }
         }
 
@@ -3901,11 +3896,12 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
   ];
 
-  // 🔥 Cursor Pagination
+  // ✅ Cursor pagination
   if (
     lastId &&
     mongoose.Types.ObjectId.isValid(lastId)
   ) {
+
     pipeline.push({
       $match: {
         _id: {
@@ -3913,9 +3909,29 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
         }
       }
     });
+
   }
 
-  // 🔥 Sort nearest first
+  // ✅ Distance in KM
+  pipeline.push({
+    $addFields: {
+
+      distanceInKm: {
+        $round: [
+          {
+            $divide: [
+              "$distance",
+              1000
+            ]
+          },
+          2
+        ]
+      }
+
+    }
+  });
+
+  // ✅ Sort nearest first
   pipeline.push({
     $sort: {
       distance: 1,
@@ -3923,14 +3939,14 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
     }
   });
 
-  // 🔥 Limit
+  // ✅ Limit data
   pipeline.push({
     $limit: parsedLimit
   });
 
   const data = await Properties.aggregate(pipeline);
 
-  // 🔥 Next Cursor
+  // ✅ Next cursor
   let nextCursor = null;
 
   if (data.length > 0) {
@@ -3939,20 +3955,18 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
   return res.status(200).json({
     success: true,
-    nextCursor,
+    radius: parsedRadius,
     count: data.length,
+    nextCursor,
     data
   });
-
 });
-
 
 // ======================================================
 // 4. NEAR YOU PROPERTIES
 // ======================================================
 
 const getNearYouProperties = catchAsyncError(async (req, res) => {
-
   const {
     lat,
     lng,
@@ -4162,6 +4176,8 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
   });
 
 });
+
+
 
 module.exports = {
   userLogin,

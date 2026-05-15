@@ -49,7 +49,8 @@ const {
   createServiceUserReview,
   getMyReviews,
   getServiceProviderDashboard,
-  getAllCommissionsForServiceUser
+  getAllCommissionsForServiceUser,
+  userLoginByServiceProviderToken
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -219,5 +220,7 @@ router.patch("/markAllAsRead", validateServiceToken, markAllAsRead);
 
 router.delete("/deleteAllNotifications", validateServiceToken, deleteAllNotifications);
 
-router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser)
+router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser);
+
+router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginByServiceProviderToken)
 module.exports = router;

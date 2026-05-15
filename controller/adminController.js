@@ -6466,7 +6466,6 @@ const softDeleteService = catchAsyncError(async (req, res, next) => {
 });
 
 
-
 const toggleRecommendedProperty = catchAsyncError(async (req, res) => {
 
   const { propertyId } = req.params;

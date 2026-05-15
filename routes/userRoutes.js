@@ -147,6 +147,6 @@ router.get("/getTopRatedProperties", validateToken, getTopRatedProperties);
 
 router.get("/getRecommendedProperties", validateToken, getRecommendedProperties);
 
-router.get("/getNearYouProperties", validateToken, getNearYouProperties)
+router.get("/getNearYouProperties", validateToken, getNearYouProperties);
 
 module.exports = router;
