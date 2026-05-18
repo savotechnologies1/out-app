@@ -3342,10 +3342,13 @@ const getAllCommissionsForServiceUser = catchAsyncError(async (req, res, next) =
     return next(error);
   }
 });
- 
+
 
 const userLoginByServiceProviderToken = catchAsyncError(
   async (req, res, next) => {
+
+    const { fcmToken } = req.body;
+
     // ✅ Logged in service provider
     const serviceUser = await ServiceUser.findOne(
       {
@@ -3353,7 +3356,7 @@ const userLoginByServiceProviderToken = catchAsyncError(
         isDeleted: false,
       },
       {
-        phone: 1, 
+        phone: 1,
       }
     ).lean();
 
@@ -3399,11 +3402,12 @@ const userLoginByServiceProviderToken = catchAsyncError(
       }
     );
 
-    // ✅ Save token
+    // ✅ Save token + update fcmToken
     await User.updateOne(
       { _id: user._id },
       {
         $push: { tokens: token },
+        ...(fcmToken && { fcmToken }),
       }
     );
 
@@ -3473,6 +3477,7 @@ const deleteServiceUserAccount = catchAsyncError(async (req, res) => {
     message: "Service provider account and related data deleted successfully",
   });
 });
+
 
 module.exports = {
   serviceLogin,

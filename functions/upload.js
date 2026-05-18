@@ -69,6 +69,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "audio/mp3",
   "audio/wav",
   "audio/ogg",
+  "audio/mp4", 
+  "audio/aac",
 
   "video/mp4",
   "video/webm",

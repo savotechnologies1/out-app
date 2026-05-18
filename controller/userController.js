@@ -3737,6 +3737,8 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
 const serviceUserLoginByUserToken = catchAsyncError(
   async (req, res, next) => {
 
+    const { fcmToken } = req.body;
+
     // ✅ Logged in normal user
     const user = await User.findOne(
       {
@@ -3786,7 +3788,9 @@ const serviceUserLoginByUserToken = catchAsyncError(
     // ❌ Rejected
     if (serviceUser.isApproved === "rejected") {
       return res.status(400).send({
-        message: serviceUser.rejectReason || "Your account has been rejected",
+        message:
+          serviceUser.rejectReason ||
+          "Your account has been rejected",
       });
     }
 
@@ -3806,11 +3810,12 @@ const serviceUserLoginByUserToken = catchAsyncError(
       }
     );
 
-    // ✅ Save token
+    // ✅ Update token + fcmToken
     await ServiceUser.updateOne(
       { _id: serviceUser._id },
       {
         $push: { tokens: token },
+        ...(fcmToken && { fcmToken }),
       }
     );
 

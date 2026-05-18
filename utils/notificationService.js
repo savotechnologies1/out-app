@@ -47,6 +47,19 @@ const sendNotification = async ({
       data,
     });
 
+    console.log("checking  ",{
+      receiverId,
+      receiverModel,
+      senderId,
+      senderModel,
+      title,
+      body,
+      type,
+      referenceId,
+      referenceType,
+      data,
+    });
+
     const sockets = onlineUsers?.get(receiverId.toString());
     const isOnline = sockets && sockets.size > 0;
 
@@ -58,7 +71,9 @@ const sendNotification = async ({
       if (!isOnline) {
         const Model = getModel(receiverModel);
         const user = await Model.findById(receiverId);
+        console.log("1111111111")
         if (user?.fcmToken) {
+          console.log("22222222222222222222")
           await admin.messaging().send({
             token: user.fcmToken,
             notification: { title, body },
@@ -84,8 +99,11 @@ const sendNotification = async ({
     else {
       const Model = getModel(receiverModel);
       const user = await Model.findById(receiverId);
+      console.log("3333333333333333333")
       console.log("user", user.fcmToken)
+
       if (user?.fcmToken) {
+        console.log("444444444444444444444")
         await admin.messaging().send({
           token: user.fcmToken,
           notification: { title, body },
