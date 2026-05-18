@@ -12,7 +12,6 @@ const {
   addBookMark,
   listBookMark,
   deleteBookmark,
-  test,
   testAuthentica,
   getPropertiesByCategory,
   getHomeProperties,
@@ -72,7 +71,6 @@ router.post("/logout", logout);
 router.post("/add-booking", validateToken, addBooking);
 router.post("/add-bookmark/:id", validateToken, addBookMark);
 router.get("/list-bookmark", validateToken, listBookMark);
-router.get("/test", test);
 router.put("/delete-bookmark/:id", validateToken, deleteBookmark);
 router.get("/get-categories", validateToken, getAllCategories);
 router.get("/get-properties", validateToken, getAllProperties);

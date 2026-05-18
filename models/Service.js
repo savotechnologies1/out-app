@@ -21,6 +21,18 @@ const serviceSchema = new mongoose.Schema(
       type: String,
       enum: ["per_person", "flat"]
     },
+      // NEW
+    maxPersons: {
+      type: Number,
+      default: 1,
+    },
+
+    // NEW
+    policies: [
+      {
+        type: String,
+      },
+    ],
     document: {
       type: String,
       required: true

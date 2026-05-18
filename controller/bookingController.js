@@ -34,8 +34,309 @@ function getDatesBetween(startDate, endDate) {
   return dates;
 }
 
+// exports.checkAvailability = async (req, res) => {
+//   try {
+//     const {
+//       bookingType,
+//       hotelId,
+//       serviceIds = [],
+//       packageId,
+//       checkIn,
+//       checkOut,
+//       couponCode
+//     } = req.body;
+
+//     const userId = req.user?._id;
+
+//     const dates = getDatesBetween(checkIn, checkOut);
+//     const nights = dates.length;
+
+//     let availableServices = [];
+//     let basePrice = 0;
+//     let servicesTotal = 0;
+//     let finalAmount = 0;
+
+//     /* =================================================
+//        PROPERTY BOOKING
+//     ================================================= */
+
+//     if (bookingType === "PROPERTY") {
+
+//       const bookedDates = await HotelAvailability.find({
+//         hotel: hotelId,
+//         date: { $in: dates },
+//         isBooked: true
+//       });
+
+//       if (bookedDates.length > 0) {
+//         return res.send({
+//           available: false,
+//           message: "Property not available for selected dates"
+//         });
+//       }
+
+//       const hotel = await Properties.findById(hotelId).select("price name");
+
+//       basePrice = hotel.price;
+//       finalAmount = hotel.price * nights;
+//     }
+
+//     /* =================================================
+//        SERVICE BOOKING
+//     ================================================= */
+
+//     if (bookingType === "SERVICE") {
+
+//       const bookedServices = await ServiceAvailability.find({
+//         service: { $in: serviceIds },
+//         date: { $in: dates },
+//         isBooked: true
+//       }).select("service");
+
+//       const bookedServiceIds = bookedServices.map(s =>
+//         s.service.toString()
+//       );
+
+//       const availableServiceIds = serviceIds.filter(
+//         id => !bookedServiceIds.includes(id)
+//       );
+
+//       if (availableServiceIds.length === 0) {
+//         return res.send({
+//           available: false,
+//           message: "Selected services not available"
+//         });
+//       }
+
+//       availableServices = await Service.find({
+//         _id: { $in: availableServiceIds },
+//         isDeleted: false,
+//         isActive: true
+//       }).select("_id name price priceType");
+
+//       servicesTotal = availableServices.reduce(
+//         (sum, s) => sum + s.price,
+//         0
+//       );
+
+//       finalAmount = servicesTotal * nights;
+//     }
+
+//     /* =================================================
+//    PROPERTY + ADDON SERVICES BOOKING
+// ================================================= */
+
+//     if (bookingType === "PROPERTY_SERVICE") {
+
+//       /* -------- PROPERTY CHECK -------- */
+
+//       const bookedDates = await HotelAvailability.find({
+//         hotel: hotelId,
+//         date: { $in: dates },
+//         isBooked: true
+//       });
+
+//       if (bookedDates.length > 0) {
+//         return res.send({
+//           available: false,
+//           message: "Property not available for selected dates"
+//         });
+//       }
+
+//       const hotel = await Properties.findById(hotelId).select("price name");
+
+//       basePrice = hotel.price;
+
+//       /* -------- SERVICE CHECK -------- */
+
+//       const bookedServices = await ServiceAvailability.find({
+//         service: { $in: serviceIds },
+//         date: { $in: dates },
+//         isBooked: true
+//       }).select("service");
+
+//       const bookedServiceIds = bookedServices.map(s =>
+//         s.service.toString()
+//       );
+
+//       const availableServiceIds = serviceIds.filter(
+//         id => !bookedServiceIds.includes(id)
+//       );
+
+//       if (availableServiceIds.length === 0) {
+//         return res.send({
+//           available: false,
+//           message: "Selected services not available"
+//         });
+//       }
+
+//       availableServices = await Service.find({
+//         _id: { $in: availableServiceIds },
+//         isDeleted: false,
+//         isActive: true
+//       }).select("_id name price priceType");
+
+//       servicesTotal = availableServices.reduce(
+//         (sum, s) => sum + s.price,
+//         0
+//       );
+
+//       finalAmount = (basePrice * nights) + (servicesTotal * nights);
+
+//     }
+//     /* =================================================
+//        PACKAGE BOOKING
+//     ================================================= */
+
+//     if (bookingType === "PACKAGE") {
+
+//       const pkg = await Package.findById(packageId)
+//         .populate("property")
+//         .populate("services.service", "name");
+//       if (!pkg) {
+//         return res.status(404).send({
+//           available: false,
+//           message: "Package not found"
+//         });
+//       }
+
+//       basePrice = pkg.basePrice || 0;
+
+//       const bookedProperty = await HotelAvailability.find({
+//         hotel: pkg.property._id,
+//         date: { $in: dates },
+//         isBooked: true
+//       });
+
+//       if (bookedProperty.length > 0) {
+//         return res.send({
+//           available: false,
+//           message: "Package property not available"
+//         });
+//       }
+
+//       /* -------- SERVICE CHECK -------- */
+
+//       const pkgServiceIds = pkg.services.map(s => s.service._id);
+
+//       const bookedServices = await ServiceAvailability.find({
+//         service: { $in: pkgServiceIds },
+//         date: { $in: dates },
+//         isBooked: true
+//       }).select("service");
+
+//       const bookedServiceIds = bookedServices.map(s =>
+//         s.service.toString()
+//       );
+
+//       availableServices = pkg.services
+//         .filter(s => !bookedServiceIds.includes(s.service._id.toString()))
+//         .map(s => ({
+//           serviceId: s.service._id,
+//           name: s.service.name,
+//           price: s.price,
+//           priceType: s.priceType
+//         }));
+
+//       if (availableServices.length === 0) {
+//         return res.send({
+//           available: false,
+//           message: "Package services not available"
+//         });
+//       }
+
+//       servicesTotal = availableServices.reduce(
+//         (sum, s) => sum + s.price,
+//         0
+//       );
+
+//       finalAmount = (basePrice + servicesTotal) * nights;
+//     }
+
+
+//     let discountAmount = 0;
+//     let couponId = null;
+
+//     if (couponCode) {
+
+//       const coupon = await Coupon.findOne({
+//         code: couponCode.toUpperCase(),
+//         isActive: true,
+//         isDelete: false
+//       });
+
+//       if (!coupon) {
+//         return res.status(400).send({
+//           message: "Invalid coupon code"
+//         });
+//       }
+
+//       couponId = coupon._id;
+
+//       const alreadyUsed = coupon.usedBy.find(
+//         u => u.user.toString() === userId.toString()
+//       );
+
+//       if (alreadyUsed) {
+//         return res.status(400).send({
+//           message: "Coupon already used"
+//         });
+//       }
+
+//       if (coupon.discountType === "PERCENTAGE") {
+
+//         discountAmount = (finalAmount * coupon.discountValue) / 100;
+
+//         if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
+//           discountAmount = coupon.maxDiscount;
+//         }
+
+//       } else {
+
+//         discountAmount = coupon.discountValue;
+
+//       }
+
+//       finalAmount = finalAmount - discountAmount;
+//     }
+
+//     /* =================================================
+//        RESPONSE
+//     ================================================= */
+
+//     return res.send({
+
+//       available: true,
+
+//       bookingType,
+
+//       availableServices,
+
+//       priceDetails: {
+//         basePrice,
+//         servicesTotal,
+//         nights,
+//         discountAmount,
+//         finalAmount
+//       },
+
+//       couponId
+
+//     });
+
+//   } catch (error) {
+
+//     return res.status(500).send({
+//       message: error.message
+//     });
+
+//   }
+// };
+
+
 exports.checkAvailability = async (req, res) => {
   try {
+
     const {
       bookingType,
       hotelId,
@@ -49,11 +350,15 @@ exports.checkAvailability = async (req, res) => {
     const userId = req.user?._id;
 
     const dates = getDatesBetween(checkIn, checkOut);
+
     const nights = dates.length;
 
     let availableServices = [];
+
     let basePrice = 0;
+
     let servicesTotal = 0;
+
     let finalAmount = 0;
 
     /* =================================================
@@ -75,9 +380,18 @@ exports.checkAvailability = async (req, res) => {
         });
       }
 
-      const hotel = await Properties.findById(hotelId).select("price name");
+      const hotel = await Properties.findById(hotelId)
+        .select("price name");
+
+      if (!hotel) {
+        return res.status(404).send({
+          available: false,
+          message: "Property not found"
+        });
+      }
 
       basePrice = hotel.price;
+
       finalAmount = hotel.price * nights;
     }
 
@@ -93,8 +407,8 @@ exports.checkAvailability = async (req, res) => {
         isBooked: true
       }).select("service");
 
-      const bookedServiceIds = bookedServices.map(s =>
-        s.service.toString()
+      const bookedServiceIds = bookedServices.map(
+        s => s.service.toString()
       );
 
       const availableServiceIds = serviceIds.filter(
@@ -112,19 +426,22 @@ exports.checkAvailability = async (req, res) => {
         _id: { $in: availableServiceIds },
         isDeleted: false,
         isActive: true
-      }).select("_id name price priceType");
+      }).select(
+        "_id name price priceType maxPersons policies"
+      );
 
       servicesTotal = availableServices.reduce(
         (sum, s) => sum + s.price,
         0
       );
 
-      finalAmount = servicesTotal * nights;
+      // ✅ service is one-time charge
+      finalAmount = servicesTotal;
     }
 
     /* =================================================
-   PROPERTY + ADDON SERVICES BOOKING
-================================================= */
+       PROPERTY + ADDON SERVICES BOOKING
+    ================================================= */
 
     if (bookingType === "PROPERTY_SERVICE") {
 
@@ -143,7 +460,15 @@ exports.checkAvailability = async (req, res) => {
         });
       }
 
-      const hotel = await Properties.findById(hotelId).select("price name");
+      const hotel = await Properties.findById(hotelId)
+        .select("price name");
+
+      if (!hotel) {
+        return res.status(404).send({
+          available: false,
+          message: "Property not found"
+        });
+      }
 
       basePrice = hotel.price;
 
@@ -155,8 +480,8 @@ exports.checkAvailability = async (req, res) => {
         isBooked: true
       }).select("service");
 
-      const bookedServiceIds = bookedServices.map(s =>
-        s.service.toString()
+      const bookedServiceIds = bookedServices.map(
+        s => s.service.toString()
       );
 
       const availableServiceIds = serviceIds.filter(
@@ -174,16 +499,19 @@ exports.checkAvailability = async (req, res) => {
         _id: { $in: availableServiceIds },
         isDeleted: false,
         isActive: true
-      }).select("_id name price priceType");
+      }).select(
+        "_id name price priceType maxPersons policies"
+      );
 
       servicesTotal = availableServices.reduce(
         (sum, s) => sum + s.price,
         0
       );
 
-      finalAmount = (basePrice * nights) + (servicesTotal * nights);
-
+      // ✅ property nightly + service one-time
+      finalAmount = (basePrice * nights) + servicesTotal;
     }
+
     /* =================================================
        PACKAGE BOOKING
     ================================================= */
@@ -192,7 +520,11 @@ exports.checkAvailability = async (req, res) => {
 
       const pkg = await Package.findById(packageId)
         .populate("property")
-        .populate("services.service", "name");
+        .populate(
+          "services.service",
+          "name maxPersons policies"
+        );
+
       if (!pkg) {
         return res.status(404).send({
           available: false,
@@ -201,6 +533,8 @@ exports.checkAvailability = async (req, res) => {
       }
 
       basePrice = pkg.basePrice || 0;
+
+      /* -------- PROPERTY CHECK -------- */
 
       const bookedProperty = await HotelAvailability.find({
         hotel: pkg.property._id,
@@ -217,7 +551,9 @@ exports.checkAvailability = async (req, res) => {
 
       /* -------- SERVICE CHECK -------- */
 
-      const pkgServiceIds = pkg.services.map(s => s.service._id);
+      const pkgServiceIds = pkg.services.map(
+        s => s.service._id
+      );
 
       const bookedServices = await ServiceAvailability.find({
         service: { $in: pkgServiceIds },
@@ -225,17 +561,23 @@ exports.checkAvailability = async (req, res) => {
         isBooked: true
       }).select("service");
 
-      const bookedServiceIds = bookedServices.map(s =>
-        s.service.toString()
+      const bookedServiceIds = bookedServices.map(
+        s => s.service.toString()
       );
 
       availableServices = pkg.services
-        .filter(s => !bookedServiceIds.includes(s.service._id.toString()))
+        .filter(
+          s => !bookedServiceIds.includes(
+            s.service._id.toString()
+          )
+        )
         .map(s => ({
           serviceId: s.service._id,
           name: s.service.name,
           price: s.price,
-          priceType: s.priceType
+          priceType: s.priceType,
+          maxPersons: s.service.maxPersons || 1,
+          policies: s.service.policies || []
         }));
 
       if (availableServices.length === 0) {
@@ -250,11 +592,16 @@ exports.checkAvailability = async (req, res) => {
         0
       );
 
-      finalAmount = (basePrice + servicesTotal) * nights;
+      // ✅ property nightly + services one-time
+      finalAmount = (basePrice * nights) + servicesTotal;
     }
 
+    /* =================================================
+       COUPON LOGIC
+    ================================================= */
 
     let discountAmount = 0;
+
     let couponId = null;
 
     if (couponCode) {
@@ -285,9 +632,13 @@ exports.checkAvailability = async (req, res) => {
 
       if (coupon.discountType === "PERCENTAGE") {
 
-        discountAmount = (finalAmount * coupon.discountValue) / 100;
+        discountAmount =
+          (finalAmount * coupon.discountValue) / 100;
 
-        if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
+        if (
+          coupon.maxDiscount &&
+          discountAmount > coupon.maxDiscount
+        ) {
           discountAmount = coupon.maxDiscount;
         }
 
@@ -337,7 +688,6 @@ exports.checkAvailability = async (req, res) => {
 
 // exports.createBooking = async (req, res) => {
 //   try {
-
 //     const {
 //       bookingType,
 //       propertyId,
@@ -351,12 +701,13 @@ exports.checkAvailability = async (req, res) => {
 //       couponId = null
 //     } = req.body;
 
-//     const totalGuests = Number(adults) + Number(children);
+//     const totalGuests = Number(children) + Number(adults);
 //     const dates = getDatesBetween(checkIn, checkOut);
 
 //     let property = null;
-//     let policy = null;
+//     let selectedPolicy = null;
 //     let policySnapshot = null;
+//     let providerBreakdown = [];
 
 //     /* =================================================
 //        ❌ BLOCK INVALID SERVICE COMBINATION
@@ -369,7 +720,7 @@ exports.checkAvailability = async (req, res) => {
 //     }
 
 //     /* =================================================
-//        PROPERTY VALIDATION + POLICY FETCH
+//        PROPERTY VALIDATION + POLICY
 //     ================================================= */
 
 //     if (["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"].includes(bookingType)) {
@@ -379,36 +730,14 @@ exports.checkAvailability = async (req, res) => {
 //         .select("maxGuests category user cancellationPolicy");
 
 //       if (!property) {
-//         return res.status(404).send({
-//           message: "Property not found"
-//         });
+//         return res.status(404).send({ message: "Property not found" });
 //       }
-
-//       /* ---------- POLICY VALIDATION ---------- */
-
-//       if (!property.cancellationPolicy) {
-//         return res.status(400).send({
-//           message: "Cancellation policy not set for this property"
-//         });
-//       }
-
-//       policy = property.cancellationPolicy;
-
-//       policySnapshot = {
-//         name: policy.name,
-//         rules: policy.rules,
-//         cancellationFee: policy.cancellationFee || 0
-//       };
-
-//       /* ---------- GUEST VALIDATION ---------- */
 
 //       if (totalGuests > property.maxGuests) {
 //         return res.status(400).send({
 //           message: `Maximum ${property.maxGuests} guests allowed`
 //         });
 //       }
-
-//       /* ---------- AVAILABILITY CHECK ---------- */
 
 //       const bookedDates = await HotelAvailability.find({
 //         hotel: propertyId,
@@ -424,18 +753,24 @@ exports.checkAvailability = async (req, res) => {
 //     }
 
 //     /* =================================================
-//        SERVICE VALIDATION
+//        SERVICE VALIDATION + POLICY
 //     ================================================= */
 
-//     if (bookingType === "SERVICE" && services.length === 0) {
-//       return res.status(400).send({
-//         message: "At least one service is required"
-//       });
-//     }
+//     let servicesData = [];
 
 //     if (services.length > 0) {
 
 //       const serviceIds = services.map(s => s.service);
+
+//       servicesData = await Service.find({
+//         _id: { $in: serviceIds }
+//       }).populate("cancellationPolicy");
+
+//       if (servicesData.length !== services.length) {
+//         return res.status(400).send({
+//           message: "Some services not found"
+//         });
+//       }
 
 //       const bookedServices = await ServiceAvailability.find({
 //         service: { $in: serviceIds },
@@ -451,12 +786,37 @@ exports.checkAvailability = async (req, res) => {
 //     }
 
 //     /* =================================================
+//        🔥 SELECT POLICY (IMPORTANT)
+//     ================================================= */
+
+//     let policies = [];
+
+//     if (property?.cancellationPolicy) {
+//       policies.push(property.cancellationPolicy);
+//     }
+
+//     servicesData.forEach(s => {
+//       if (s.cancellationPolicy) {
+//         policies.push(s.cancellationPolicy);
+//       }
+//     });
+
+//     if (policies.length > 0) {
+//       // 👉 choose STRICTEST (lowest refund rule)
+//       selectedPolicy = policies[0]; // simple for now (can improve later)
+
+//       policySnapshot = {
+//         name: selectedPolicy.name,
+//         rules: selectedPolicy.rules,
+//         cancellationFee: selectedPolicy.cancellationFee || 0
+//       };
+//     }
+
+//     /* =================================================
 //        PRICE CALCULATION
 //     ================================================= */
 
 //     let baseAmount = Number(priceDetails.finalAmount);
-
-//     /* ---------- PLATFORM FEE ---------- */
 
 //     const platformFeeRule = await PlatformFee.findOne({
 //       isActive: true,
@@ -466,14 +826,10 @@ exports.checkAvailability = async (req, res) => {
 //     let platformFee = 0;
 
 //     if (platformFeeRule) {
-//       if (platformFeeRule.feeType === "PERCENTAGE") {
-//         platformFee = (baseAmount * platformFeeRule.value) / 100;
-//       } else {
-//         platformFee = platformFeeRule.value;
-//       }
+//       platformFee = platformFeeRule.feeType === "PERCENTAGE"
+//         ? (baseAmount * platformFeeRule.value) / 100
+//         : platformFeeRule.value;
 //     }
-
-//     /* ---------- TAX ---------- */
 
 //     const subTotal = baseAmount + platformFee;
 
@@ -486,34 +842,63 @@ exports.checkAvailability = async (req, res) => {
 
 //     const totalAmount = subTotal + tax;
 
-//     /* ---------- COMMISSION ---------- */
+//     /* =================================================
+//        COMMISSION
+//     ================================================= */
 
 //     let commissionRule = await Commission.findOne({
 //       scope: "CATEGORY",
 //       categoryId: property?.category,
 //       isActive: true,
 //       isDeleted: false
+//     }) || await Commission.findOne({
+//       scope: "GLOBAL",
+//       isActive: true,
+//       isDeleted: false
 //     });
-
-//     if (!commissionRule) {
-//       commissionRule = await Commission.findOne({
-//         scope: "GLOBAL",
-//         isActive: true,
-//         isDeleted: false
-//       });
-//     }
 
 //     let commissionAmount = 0;
 
 //     if (commissionRule) {
-//       if (commissionRule.commissionType === "PERCENTAGE") {
-//         commissionAmount = (baseAmount * commissionRule.value) / 100;
-//       } else {
-//         commissionAmount = commissionRule.value;
-//       }
+//       commissionAmount = commissionRule.commissionType === "PERCENTAGE"
+//         ? (baseAmount * commissionRule.value) / 100
+//         : commissionRule.value;
 //     }
 
 //     const providerAmount = baseAmount - commissionAmount;
+
+//     /* =================================================
+//        🔥 PROVIDER BREAKDOWN
+//     ================================================= */
+
+//     let serviceTotal = 0;
+
+//     for (const s of servicesData) {
+//       const item = services.find(x => x.service.toString() === s._id.toString());
+//       serviceTotal += item.price;
+//     }
+
+//     const propertyAmount = baseAmount - serviceTotal;
+
+//     if (property && propertyAmount > 0) {
+//       providerBreakdown.push({
+//         user: property.user,
+//         amount: propertyAmount,
+//         type: "property",
+//         referenceId: property._id
+//       });
+//     }
+
+//     servicesData.forEach(s => {
+//       const item = services.find(x => x.service.toString() === s._id.toString());
+
+//       providerBreakdown.push({
+//         user: s.user,
+//         amount: item.price,
+//         type: "service",
+//         referenceId: s._id
+//       });
+//     });
 
 //     /* =================================================
 //        ORDER ID
@@ -528,20 +913,15 @@ exports.checkAvailability = async (req, res) => {
 //     const booking = await Booking.create({
 
 //       bookingType,
-
 //       user: req.user._id,
 
 //       property: bookingType === "SERVICE" ? null : propertyId,
-
 //       package: packageId || null,
-
 //       services,
-
 //       couponId,
 
 //       checkIn,
 //       checkOut,
-
 //       adults,
 //       children,
 
@@ -557,22 +937,19 @@ exports.checkAvailability = async (req, res) => {
 //       platformFee,
 //       tax,
 
-//       /* =============================
-//          ✅ POLICY DATA (IMPORTANT)
-//       ============================== */
+//       /* 🔥 POLICY */
+//       cancellationPolicy: selectedPolicy?._id || null,
+//       policySnapshot,
 
-//       cancellationPolicy: policy?._id || null,
-//       policySnapshot: policySnapshot,
+//       /* 🔥 PROVIDERS */
+//       providerBreakdown,
 
 //       orderId,
 
 //       paymentStatus: "pending",
-//       bookingStatus: "pending"
+//       bookingStatus: "pending",
+//       pendingReason: "payment_pending"
 //     });
-
-//     /* =================================================
-//        RESPONSE
-//     ================================================= */
 
 //     return res.status(201).send({
 //       message: "Booking created successfully",
@@ -589,9 +966,9 @@ exports.checkAvailability = async (req, res) => {
 //   }
 // };
 
-
 exports.createBooking = async (req, res) => {
   try {
+
     const {
       bookingType,
       propertyId,
@@ -606,11 +983,15 @@ exports.createBooking = async (req, res) => {
     } = req.body;
 
     const totalGuests = Number(children) + Number(adults);
+
     const dates = getDatesBetween(checkIn, checkOut);
 
     let property = null;
+
     let selectedPolicy = null;
+
     let policySnapshot = null;
+
     let providerBreakdown = [];
 
     /* =================================================
@@ -627,16 +1008,24 @@ exports.createBooking = async (req, res) => {
        PROPERTY VALIDATION + POLICY
     ================================================= */
 
-    if (["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"].includes(bookingType)) {
+    if (
+      ["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"]
+        .includes(bookingType)
+    ) {
 
       property = await Properties.findById(propertyId)
         .populate("cancellationPolicy")
-        .select("maxGuests category user cancellationPolicy");
+        .select(
+          "maxGuests category user cancellationPolicy"
+        );
 
       if (!property) {
-        return res.status(404).send({ message: "Property not found" });
+        return res.status(404).send({
+          message: "Property not found"
+        });
       }
 
+      // ✅ only property bookings validate guests
       if (totalGuests > property.maxGuests) {
         return res.status(400).send({
           message: `Maximum ${property.maxGuests} guests allowed`
@@ -664,7 +1053,9 @@ exports.createBooking = async (req, res) => {
 
     if (services.length > 0) {
 
-      const serviceIds = services.map(s => s.service);
+      const serviceIds = services.map(
+        s => s.service
+      );
 
       servicesData = await Service.find({
         _id: { $in: serviceIds }
@@ -676,21 +1067,38 @@ exports.createBooking = async (req, res) => {
         });
       }
 
-      const bookedServices = await ServiceAvailability.find({
-        service: { $in: serviceIds },
-        date: { $in: dates },
-        isBooked: true
-      });
+      const bookedServices =
+        await ServiceAvailability.find({
+          service: { $in: serviceIds },
+          date: { $in: dates },
+          isBooked: true
+        });
 
       if (bookedServices.length > 0) {
         return res.status(400).send({
           message: "Some services are not available"
         });
       }
+
+      // ✅ validate service maxPersons
+
+      for (const service of servicesData) {
+
+        if (
+          service.priceType === "flat" &&
+          totalGuests > (service.maxPersons || 1)
+        ) {
+          return res.status(400).send({
+            message:
+              `${service.name} allows maximum ` +
+              `${service.maxPersons} persons`
+          });
+        }
+      }
     }
 
     /* =================================================
-       🔥 SELECT POLICY (IMPORTANT)
+       🔥 SELECT POLICY
     ================================================= */
 
     let policies = [];
@@ -706,13 +1114,22 @@ exports.createBooking = async (req, res) => {
     });
 
     if (policies.length > 0) {
-      // 👉 choose STRICTEST (lowest refund rule)
-      selectedPolicy = policies[0]; // simple for now (can improve later)
+
+      // 👉 choose strictest later if needed
+      selectedPolicy = policies[0];
 
       policySnapshot = {
         name: selectedPolicy.name,
         rules: selectedPolicy.rules,
-        cancellationFee: selectedPolicy.cancellationFee || 0
+        cancellationFee:
+          selectedPolicy.cancellationFee || 0,
+
+        // ✅ NEW SERVICE POLICIES
+        servicePolicies: servicesData.map(s => ({
+          serviceId: s._id,
+          serviceName: s.name,
+          policies: s.policies || []
+        }))
       };
     }
 
@@ -720,19 +1137,26 @@ exports.createBooking = async (req, res) => {
        PRICE CALCULATION
     ================================================= */
 
-    let baseAmount = Number(priceDetails.finalAmount);
+    // ⚠️ currently frontend controlled
+    // recommended later: calculate on backend
+    let baseAmount = Number(
+      priceDetails.finalAmount
+    );
 
-    const platformFeeRule = await PlatformFee.findOne({
-      isActive: true,
-      isDeleted: false
-    });
+    const platformFeeRule =
+      await PlatformFee.findOne({
+        isActive: true,
+        isDeleted: false
+      });
 
     let platformFee = 0;
 
     if (platformFeeRule) {
-      platformFee = platformFeeRule.feeType === "PERCENTAGE"
-        ? (baseAmount * platformFeeRule.value) / 100
-        : platformFeeRule.value;
+
+      platformFee =
+        platformFeeRule.feeType === "PERCENTAGE"
+          ? (baseAmount * platformFeeRule.value) / 100
+          : platformFeeRule.value;
     }
 
     const subTotal = baseAmount + platformFee;
@@ -742,7 +1166,9 @@ exports.createBooking = async (req, res) => {
       isDeleted: false
     });
 
-    const tax = taxRule ? (subTotal * taxRule.percentage) / 100 : 0;
+    const tax = taxRule
+      ? (subTotal * taxRule.percentage) / 100
+      : 0;
 
     const totalAmount = subTotal + tax;
 
@@ -750,26 +1176,32 @@ exports.createBooking = async (req, res) => {
        COMMISSION
     ================================================= */
 
-    let commissionRule = await Commission.findOne({
-      scope: "CATEGORY",
-      categoryId: property?.category,
-      isActive: true,
-      isDeleted: false
-    }) || await Commission.findOne({
-      scope: "GLOBAL",
-      isActive: true,
-      isDeleted: false
-    });
+    let commissionRule =
+      await Commission.findOne({
+        scope: "CATEGORY",
+        categoryId: property?.category,
+        isActive: true,
+        isDeleted: false
+      }) ||
+
+      await Commission.findOne({
+        scope: "GLOBAL",
+        isActive: true,
+        isDeleted: false
+      });
 
     let commissionAmount = 0;
 
     if (commissionRule) {
-      commissionAmount = commissionRule.commissionType === "PERCENTAGE"
-        ? (baseAmount * commissionRule.value) / 100
-        : commissionRule.value;
+
+      commissionAmount =
+        commissionRule.commissionType === "PERCENTAGE"
+          ? (baseAmount * commissionRule.value) / 100
+          : commissionRule.value;
     }
 
-    const providerAmount = baseAmount - commissionAmount;
+    const providerAmount =
+      baseAmount - commissionAmount;
 
     /* =================================================
        🔥 PROVIDER BREAKDOWN
@@ -778,13 +1210,19 @@ exports.createBooking = async (req, res) => {
     let serviceTotal = 0;
 
     for (const s of servicesData) {
-      const item = services.find(x => x.service.toString() === s._id.toString());
+
+      const item = services.find(
+        x => x.service.toString() === s._id.toString()
+      );
+
       serviceTotal += item.price;
     }
 
-    const propertyAmount = baseAmount - serviceTotal;
+    const propertyAmount =
+      baseAmount - serviceTotal;
 
     if (property && propertyAmount > 0) {
+
       providerBreakdown.push({
         user: property.user,
         amount: propertyAmount,
@@ -794,7 +1232,10 @@ exports.createBooking = async (req, res) => {
     }
 
     servicesData.forEach(s => {
-      const item = services.find(x => x.service.toString() === s._id.toString());
+
+      const item = services.find(
+        x => x.service.toString() === s._id.toString()
+      );
 
       providerBreakdown.push({
         user: s.user,
@@ -808,7 +1249,9 @@ exports.createBooking = async (req, res) => {
        ORDER ID
     ================================================= */
 
-    const orderId = "ORD_" + uuidv4().slice(0, 8).toUpperCase();
+    const orderId =
+      "ORD_" +
+      uuidv4().slice(0, 8).toUpperCase();
 
     /* =================================================
        CREATE BOOKING
@@ -817,41 +1260,69 @@ exports.createBooking = async (req, res) => {
     const booking = await Booking.create({
 
       bookingType,
+
       user: req.user._id,
 
-      property: bookingType === "SERVICE" ? null : propertyId,
+      property:
+        bookingType === "SERVICE"
+          ? null
+          : propertyId,
+
       package: packageId || null,
+
       services,
+
       couponId,
 
       checkIn,
+
       checkOut,
+
       adults,
+
       children,
 
       priceBreakdown: {
-        propertyPrice: priceDetails.basePrice,
-        packagePrice: bookingType === "PACKAGE" ? priceDetails.basePrice : 0,
-        servicePrice: priceDetails.servicesTotal
+
+        propertyPrice:
+          priceDetails.basePrice,
+
+        packagePrice:
+          bookingType === "PACKAGE"
+            ? priceDetails.basePrice
+            : 0,
+
+        servicePrice:
+          priceDetails.servicesTotal
       },
 
       totalAmount,
+
       commissionAmount,
+
       providerAmount,
+
       platformFee,
+
       tax,
 
       /* 🔥 POLICY */
-      cancellationPolicy: selectedPolicy?._id || null,
+
+      cancellationPolicy:
+        selectedPolicy?._id || null,
+
       policySnapshot,
 
       /* 🔥 PROVIDERS */
+
       providerBreakdown,
 
       orderId,
 
       paymentStatus: "pending",
+
       bookingStatus: "pending",
+
       pendingReason: "payment_pending"
     });
 
@@ -864,13 +1335,13 @@ exports.createBooking = async (req, res) => {
     });
 
   } catch (error) {
+
     return res.status(500).send({
       message: error.message
     });
+
   }
 };
-
-
 
 exports.getBookingStatus = async (req, res) => {
   try {
@@ -913,7 +1384,7 @@ exports.getUserBookings = async (req, res) => {
         path: "property",
         select: "name media.mainImage address.city"
       })
-      .populate("services.service", "name price")
+      .populate("services.service", "name price policies maxPersons")
       .populate({
         path: "package",
         select: "name"
@@ -973,7 +1444,7 @@ exports.getBookingDetail = async (req, res) => {
       })
       .populate({
         path: "services.service",
-        select: "name price duration"
+        select: "name price duration policies maxPersons"
       })
       .populate({
         path: "package",
@@ -1018,7 +1489,7 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
     paymentStatus: "paid"
   })
     .populate("property", "name address price media")
-    .populate("services.service", "name price media")
+    .populate("services.service", "name price media policies maxPersons")
     .populate("package", "name price")
     .sort({ checkIn: 1 })
     .lean();
@@ -1031,9 +1502,9 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
   });
 });
 
+
 // exports.adminOverrideRefund = async (req, res) => {
 //   try {
-
 //     const { bookingId } = req.params;
 //     const { refundAmount, reason } = req.body;
 
@@ -1046,49 +1517,44 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 //     /* =============================
 //        VALIDATIONS
 //     ============================== */
-
 //     if (booking.isCancelled) {
 //       return res.status(400).send({
-//         message: "Booking already cancelled"
+//         message: "Booking already cancelled",
 //       });
 //     }
 
 //     if (booking.paymentStatus !== "paid") {
 //       return res.status(400).send({
-//         message: "Cannot refund unpaid booking"
+//         message: "Cannot refund unpaid booking",
 //       });
 //     }
 
 //     if (booking.refundTransactionId) {
 //       return res.status(400).send({
-//         message: "Refund already processed"
+//         message: "Refund already processed",
 //       });
 //     }
 
 //     if (refundAmount > booking.totalAmount) {
 //       return res.status(400).send({
-//         message: "Refund exceeds total amount"
+//         message: "Refund exceeds total amount",
 //       });
 //     }
 
 //     /* =============================
 //        SAVE ADMIN OVERRIDE
 //     ============================== */
-
 //     booking.adminOverride = {
 //       isOverridden: true,
 //       refundAmount,
-//       reason
+//       reason,
 //     };
 
 //     /* =============================
 //        💰 WALLET HOLD DEDUCTION
 //     ============================== */
-
 //     if (booking.providerBreakdown?.length > 0) {
-
 //       for (const provider of booking.providerBreakdown) {
-
 //         const ratio = provider.amount / booking.totalAmount;
 //         const providerRefund = refundAmount * ratio;
 
@@ -1108,7 +1574,7 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 //           bookingId: booking._id,
 //           referenceId: provider.referenceId,
 //           description: "Admin override refund deducted",
-//           transactionType: "refund"
+//           transactionType: "refund",
 //         });
 //       }
 //     }
@@ -1116,11 +1582,8 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 //     /* =============================
 //        💳 TAP REFUND
 //     ============================== */
-
 //     try {
-
 //       if (refundAmount > 0 && booking.tapChargeId) {
-
 //         const response = await axios.post(
 //           "https://api.tap.company/v2/refunds",
 //           {
@@ -1129,22 +1592,20 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 //             currency: "SAR",
 //             reason: "Admin override refund",
 //             reference: {
-//               merchant: booking.orderId
-//             }
+//               merchant: booking.orderId,
+//             },
 //           },
 //           {
 //             headers: {
 //               Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-//               "Content-Type": "application/json"
-//             }
+//               "Content-Type": "application/json",
+//             },
 //           }
 //         );
 
 //         booking.refundTransactionId = response.data?.id;
 //       }
-
 //     } catch (err) {
-
 //       console.error("Refund failed:", err.response?.data || err.message);
 
 //       booking.refundStatus = "failed";
@@ -1152,37 +1613,32 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 
 //       return res.status(500).send({
 //         message: "Refund failed",
-//         error: err.response?.data || err.message
+//         error: err.response?.data || err.message,
 //       });
 //     }
 
 //     /* =============================
 //        🔥 RELEASE AVAILABILITY
 //     ============================== */
-
-//     // ✅ Remove property availability
 //     if (booking.property) {
 //       await HotelAvailability.deleteMany({
 //         hotel: booking.property,
-//         booking: booking._id
+//         booking: booking._id,
 //       });
 //     }
 
-//     // ✅ Remove service availability
 //     if (booking.services?.length > 0) {
-
-//       const serviceIds = booking.services.map(s => s.service);
+//       const serviceIds = booking.services.map((s) => s.service);
 
 //       await ServiceAvailability.deleteMany({
 //         service: { $in: serviceIds },
-//         booking: booking._id
+//         booking: booking._id,
 //       });
 //     }
 
 //     /* =============================
 //        UPDATE BOOKING
 //     ============================== */
-
 //     booking.bookingStatus = "cancelled";
 //     booking.isCancelled = true;
 //     booking.cancellationDate = new Date();
@@ -1193,10 +1649,57 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 
 //     await booking.save();
 
+//     /* =============================
+//        🔔 NOTIFICATIONS (NEW)
+//     ============================== */
+
+//     const refundData = {
+//       bookingId: booking._id.toString(),
+//       totalAmount: booking.totalAmount,
+//       refundAmount,
+//       reason,
+//       bookingStatus: booking.bookingStatus,
+//       checkIn: booking.checkIn,
+//       checkOut: booking.checkOut,
+//       type: "ADMIN_REFUND",
+//     };
+
+//     /* 👤 USER */
+//     await sendNotification({
+//       receiverId: booking.user,
+//       receiverModel: "User",
+//       title: "Refund Processed 💸",
+//       body: `Admin approved refund of ${refundAmount}`,
+//       type: "REFUND",
+//       referenceId: booking._id,
+//       referenceType: "Booking",
+//       data: refundData,
+//     });
+
+//     /* 🧑‍🔧 PROVIDERS */
+//     if (booking.providerBreakdown?.length > 0) {
+//       for (const provider of booking.providerBreakdown) {
+//         await sendNotification({
+//           receiverId: provider.user,
+//           receiverModel: "ServiceUser",
+//           title: "Booking Cancelled ❌",
+//           body: "Booking cancelled with admin refund",
+//           type: "BOOKING",
+//           referenceId: booking._id,
+//           referenceType: "Booking",
+//           data: {
+//             bookingId: booking._id.toString(),
+//             refundAmount,
+//             reason,
+//           },
+//         });
+//       }
+//     }
+
 //     return res.send({
 //       message: "Admin override refund processed successfully",
 //       refundAmount,
-//       refundTransactionId: booking.refundTransactionId
+//       refundTransactionId: booking.refundTransactionId,
 //     });
 
 //   } catch (err) {
@@ -1207,18 +1710,23 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 
 exports.adminOverrideRefund = async (req, res) => {
   try {
+
     const { bookingId } = req.params;
+
     const { refundAmount, reason } = req.body;
 
     const booking = await Booking.findById(bookingId);
 
     if (!booking) {
-      return res.status(404).send({ message: "Booking not found" });
+      return res.status(404).send({
+        message: "Booking not found"
+      });
     }
 
     /* =============================
        VALIDATIONS
     ============================== */
+
     if (booking.isCancelled) {
       return res.status(400).send({
         message: "Booking already cancelled",
@@ -1237,7 +1745,20 @@ exports.adminOverrideRefund = async (req, res) => {
       });
     }
 
-    if (refundAmount > booking.totalAmount) {
+    if (
+      !refundAmount ||
+      isNaN(refundAmount) ||
+      Number(refundAmount) <= 0
+    ) {
+      return res.status(400).send({
+        message: "Valid refundAmount is required",
+      });
+    }
+
+    if (
+      Number(refundAmount) >
+      booking.totalAmount
+    ) {
       return res.status(400).send({
         message: "Refund exceeds total amount",
       });
@@ -1246,36 +1767,66 @@ exports.adminOverrideRefund = async (req, res) => {
     /* =============================
        SAVE ADMIN OVERRIDE
     ============================== */
+
     booking.adminOverride = {
       isOverridden: true,
-      refundAmount,
+      refundAmount: Number(refundAmount),
       reason,
     };
 
     /* =============================
        💰 WALLET HOLD DEDUCTION
     ============================== */
-    if (booking.providerBreakdown?.length > 0) {
-      for (const provider of booking.providerBreakdown) {
-        const ratio = provider.amount / booking.totalAmount;
-        const providerRefund = refundAmount * ratio;
 
-        const wallet = await Wallet.findOne({ user: provider.user });
+    if (
+      booking.providerBreakdown?.length > 0
+    ) {
+
+      for (const provider of booking.providerBreakdown) {
+
+        const ratio =
+          provider.amount /
+          booking.totalAmount;
+
+        const providerRefund =
+          Number(refundAmount) * ratio;
+
+        const wallet =
+          await Wallet.findOne({
+            user: provider.user
+          });
 
         if (!wallet) continue;
-        if (wallet.holdBalance < providerRefund) continue;
+
+        if (
+          wallet.holdBalance <
+          providerRefund
+        ) {
+          continue;
+        }
 
         wallet.holdBalance -= providerRefund;
+
         await wallet.save();
 
         await WalletTransaction.create({
+
           wallet: wallet._id,
+
           user: provider.user,
+
           type: "debit",
+
           amount: providerRefund,
+
           bookingId: booking._id,
-          referenceId: provider.referenceId,
-          description: "Admin override refund deducted",
+
+          referenceId:
+            provider.referenceId,
+
+          description:
+            "Admin override refund deducted",
+
           transactionType: "refund",
         });
       }
@@ -1284,53 +1835,87 @@ exports.adminOverrideRefund = async (req, res) => {
     /* =============================
        💳 TAP REFUND
     ============================== */
-    try {
-      if (refundAmount > 0 && booking.tapChargeId) {
-        const response = await axios.post(
-          "https://api.tap.company/v2/refunds",
-          {
-            charge_id: booking.tapChargeId,
-            amount: refundAmount,
-            currency: "SAR",
-            reason: "Admin override refund",
-            reference: {
-              merchant: booking.orderId,
-            },
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
 
-        booking.refundTransactionId = response.data?.id;
+    try {
+
+      if (
+        Number(refundAmount) > 0 &&
+        booking.tapChargeId
+      ) {
+
+        const response =
+          await axios.post(
+            "https://api.tap.company/v2/refunds",
+            {
+              charge_id:
+                booking.tapChargeId,
+
+              amount:
+                Number(refundAmount),
+
+              currency: "SAR",
+
+              reason:
+                "Admin override refund",
+
+              reference: {
+                merchant:
+                  booking.orderId,
+              },
+            },
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${process.env.TAP_SECRET_KEY}`,
+
+                "Content-Type":
+                  "application/json",
+              },
+            }
+          );
+
+        booking.refundTransactionId =
+          response.data?.id;
       }
+
     } catch (err) {
-      console.error("Refund failed:", err.response?.data || err.message);
+
+      console.error(
+        "Refund failed:",
+        err.response?.data || err.message
+      );
 
       booking.refundStatus = "failed";
+
       await booking.save();
 
       return res.status(500).send({
         message: "Refund failed",
-        error: err.response?.data || err.message,
+        error:
+          err.response?.data || err.message,
       });
     }
 
     /* =============================
        🔥 RELEASE AVAILABILITY
     ============================== */
+
     if (booking.property) {
+
       await HotelAvailability.deleteMany({
         hotel: booking.property,
         booking: booking._id,
       });
     }
 
-    if (booking.services?.length > 0) {
-      const serviceIds = booking.services.map((s) => s.service);
+    if (
+      booking.services?.length > 0
+    ) {
+
+      const serviceIds =
+        booking.services.map(
+          (s) => s.service
+        );
 
       await ServiceAvailability.deleteMany({
         service: { $in: serviceIds },
@@ -1341,57 +1926,112 @@ exports.adminOverrideRefund = async (req, res) => {
     /* =============================
        UPDATE BOOKING
     ============================== */
-    booking.bookingStatus = "cancelled";
-    booking.isCancelled = true;
-    booking.cancellationDate = new Date();
 
-    booking.refundAmount = refundAmount;
-    booking.refundPercentage = null;
-    booking.refundStatus = "processed";
+    booking.bookingStatus =
+      "cancelled";
+
+    booking.isCancelled = true;
+
+    booking.cancellationDate =
+      new Date();
+
+    booking.refundAmount =
+      Number(refundAmount);
+
+    booking.refundPercentage =
+      null;
+
+    booking.refundStatus =
+      "processed";
 
     await booking.save();
 
     /* =============================
-       🔔 NOTIFICATIONS (NEW)
+       🔔 NOTIFICATIONS
     ============================== */
 
     const refundData = {
-      bookingId: booking._id.toString(),
-      totalAmount: booking.totalAmount,
-      refundAmount,
+
+      bookingId:
+        booking._id.toString(),
+
+      totalAmount:
+        booking.totalAmount,
+
+      refundAmount:
+        Number(refundAmount),
+
       reason,
-      bookingStatus: booking.bookingStatus,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
+
+      bookingStatus:
+        booking.bookingStatus,
+
+      checkIn:
+        booking.checkIn,
+
+      checkOut:
+        booking.checkOut,
+
+      bookingType:
+        booking.bookingType,
+
       type: "ADMIN_REFUND",
     };
 
     /* 👤 USER */
+
     await sendNotification({
+
       receiverId: booking.user,
+
       receiverModel: "User",
+
       title: "Refund Processed 💸",
-      body: `Admin approved refund of ${refundAmount}`,
+
+      body:
+        `Admin approved refund of ${refundAmount}`,
+
       type: "REFUND",
+
       referenceId: booking._id,
+
       referenceType: "Booking",
+
       data: refundData,
     });
 
     /* 🧑‍🔧 PROVIDERS */
-    if (booking.providerBreakdown?.length > 0) {
+
+    if (
+      booking.providerBreakdown?.length > 0
+    ) {
+
       for (const provider of booking.providerBreakdown) {
+
         await sendNotification({
+
           receiverId: provider.user,
+
           receiverModel: "ServiceUser",
+
           title: "Booking Cancelled ❌",
-          body: "Booking cancelled with admin refund",
+
+          body:
+            "Booking cancelled with admin refund",
+
           type: "BOOKING",
+
           referenceId: booking._id,
+
           referenceType: "Booking",
+
           data: {
-            bookingId: booking._id.toString(),
-            refundAmount,
+            bookingId:
+              booking._id.toString(),
+
+            refundAmount:
+              Number(refundAmount),
+
             reason,
           },
         });
@@ -1399,19 +2039,28 @@ exports.adminOverrideRefund = async (req, res) => {
     }
 
     return res.send({
-      message: "Admin override refund processed successfully",
-      refundAmount,
-      refundTransactionId: booking.refundTransactionId,
+
+      message:
+        "Admin override refund processed successfully",
+
+      refundAmount:
+        Number(refundAmount),
+
+      refundTransactionId:
+        booking.refundTransactionId,
     });
 
   } catch (err) {
-    return res.status(500).send({ message: err.message });
+
+    return res.status(500).send({
+      message: err.message
+    });
   }
 };
 
+
 // exports.cancelBooking = async (req, res) => {
 //   try {
-
 //     const { bookingId } = req.params;
 
 //     const booking = await Booking.findById(bookingId);
@@ -1422,26 +2071,40 @@ exports.adminOverrideRefund = async (req, res) => {
 //     /* =============================
 //        VALIDATIONS
 //     ============================== */
-
 //     if (booking.isCancelled) {
 //       return res.status(400).send({
-//         message: "Booking already cancelled"
+//         message: "Booking already cancelled",
 //       });
 //     }
 
 //     if (booking.refundTransactionId) {
 //       return res.status(400).send({
-//         message: "Refund already processed"
+//         message: "Refund already processed",
 //       });
 //     }
 
+//     /* =============================
+//        ❌ NO PAYMENT CASE
+//     ============================== */
 //     if (booking.paymentStatus !== "paid") {
 //       booking.bookingStatus = "cancelled";
 //       booking.isCancelled = true;
+
 //       await booking.save();
 
+//       // 🔔 USER
+//       await sendNotification({
+//         receiverId: booking.user,
+//         receiverModel: "User",
+//         title: "Booking Cancelled ❌",
+//         body: "Your booking has been cancelled",
+//         type: "BOOKING",
+//         referenceId: booking._id,
+//         referenceType: "Booking",
+//       });
+
 //       return res.send({
-//         message: "Booking cancelled (no payment)"
+//         message: "Booking cancelled (no payment)",
 //       });
 //     }
 
@@ -1450,7 +2113,6 @@ exports.adminOverrideRefund = async (req, res) => {
 //     /* =============================
 //        ❌ NO REFUND AFTER CHECK-IN
 //     ============================== */
-
 //     if (now >= booking.checkIn) {
 //       booking.bookingStatus = "cancelled";
 //       booking.isCancelled = true;
@@ -1459,16 +2121,26 @@ exports.adminOverrideRefund = async (req, res) => {
 
 //       await booking.save();
 
+//       // 🔔 USER
+//       await sendNotification({
+//         receiverId: booking.user,
+//         receiverModel: "User",
+//         title: "Booking Cancelled ❌",
+//         body: "No refund available after check-in",
+//         type: "REFUND",
+//         referenceId: booking._id,
+//         referenceType: "Booking",
+//       });
+
 //       return res.send({
 //         message: "Cancelled (no refund after check-in)",
-//         refundAmount: 0
+//         refundAmount: 0,
 //       });
 //     }
 
 //     /* =============================
 //        🔥 CALCULATE REFUND
 //     ============================== */
-
 //     let refundPercentage = 0;
 //     let refundAmount = 0;
 
@@ -1477,15 +2149,12 @@ exports.adminOverrideRefund = async (req, res) => {
 //     if (isOverride) {
 //       refundAmount = booking.adminOverride.refundAmount;
 //     } else {
-
 //       const rules = booking.policySnapshot?.rules || [];
 
 //       const diffHours = (booking.checkIn - now) / (1000 * 60 * 60);
 
 //       for (const rule of rules) {
-//         const value = rule.unit === "days"
-//           ? diffHours / 24
-//           : diffHours;
+//         const value = rule.unit === "days" ? diffHours / 24 : diffHours;
 
 //         if (value >= rule.from) {
 //           refundPercentage = rule.refundPercentage;
@@ -1493,8 +2162,7 @@ exports.adminOverrideRefund = async (req, res) => {
 //         }
 //       }
 
-//       refundAmount =
-//         (booking.totalAmount * refundPercentage) / 100;
+//       refundAmount = (booking.totalAmount * refundPercentage) / 100;
 
 //       const cancellationFee =
 //         booking.policySnapshot?.cancellationFee || 0;
@@ -1505,11 +2173,8 @@ exports.adminOverrideRefund = async (req, res) => {
 //     /* =============================
 //        💰 WALLET HOLD DEDUCTION
 //     ============================== */
-
 //     if (booking.providerBreakdown?.length > 0) {
-
 //       for (const provider of booking.providerBreakdown) {
-
 //         let providerRefund = 0;
 
 //         if (isOverride) {
@@ -1537,7 +2202,7 @@ exports.adminOverrideRefund = async (req, res) => {
 //           bookingId: booking._id,
 //           referenceId: provider.referenceId,
 //           description: "Refund deducted from hold",
-//           transactionType: "refund"
+//           transactionType: "refund",
 //         });
 //       }
 //     }
@@ -1545,10 +2210,8 @@ exports.adminOverrideRefund = async (req, res) => {
 //     /* =============================
 //        💳 TAP REFUND
 //     ============================== */
-
 //     try {
 //       if (refundAmount > 0 && booking.tapChargeId) {
-
 //         const response = await axios.post(
 //           "https://api.tap.company/v2/refunds",
 //           {
@@ -1557,22 +2220,20 @@ exports.adminOverrideRefund = async (req, res) => {
 //             currency: "SAR",
 //             reason: "Booking cancellation refund",
 //             reference: {
-//               merchant: booking.orderId
-//             }
+//               merchant: booking.orderId,
+//             },
 //           },
 //           {
 //             headers: {
 //               Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-//               "Content-Type": "application/json"
-//             }
+//               "Content-Type": "application/json",
+//             },
 //           }
 //         );
 
 //         booking.refundTransactionId = response.data?.id;
 //       }
-
 //     } catch (err) {
-
 //       console.error("Refund failed:", err.response?.data || err.message);
 
 //       booking.refundStatus = "failed";
@@ -1580,37 +2241,32 @@ exports.adminOverrideRefund = async (req, res) => {
 
 //       return res.status(500).send({
 //         message: "Refund failed",
-//         error: err.response?.data || err.message
+//         error: err.response?.data || err.message,
 //       });
 //     }
 
 //     /* =============================
-//        🔥 RELEASE AVAILABILITY (NEW)
+//        RELEASE AVAILABILITY
 //     ============================== */
-
-//     // ✅ Property availability
 //     if (booking.property) {
 //       await HotelAvailability.deleteMany({
 //         hotel: booking.property,
-//         booking: booking._id
+//         booking: booking._id,
 //       });
 //     }
 
-//     // ✅ Service availability
 //     if (booking.services?.length > 0) {
-
-//       const serviceIds = booking.services.map(s => s.service);
+//       const serviceIds = booking.services.map((s) => s.service);
 
 //       await ServiceAvailability.deleteMany({
 //         service: { $in: serviceIds },
-//         booking: booking._id
+//         booking: booking._id,
 //       });
 //     }
 
 //     /* =============================
 //        UPDATE BOOKING
 //     ============================== */
-
 //     booking.bookingStatus = "cancelled";
 //     booking.isCancelled = true;
 //     booking.cancellationDate = new Date();
@@ -1620,33 +2276,82 @@ exports.adminOverrideRefund = async (req, res) => {
 
 //     await booking.save();
 
+//     /* =============================
+//        🔔 NOTIFICATIONS
+//     ============================== */
+
+//     const cancelData = {
+//       bookingId: booking._id.toString(),
+//       totalAmount: booking.totalAmount,
+//       refundAmount,
+//       refundPercentage,
+//       bookingStatus: booking.bookingStatus,
+//       checkIn: booking.checkIn,
+//       checkOut: booking.checkOut,
+//     };
+
+//     // 👤 USER
+//     await sendNotification({
+//       receiverId: booking.user,
+//       receiverModel: "User",
+//       title: "Booking Cancelled ❌",
+//       body: `Refund Amount: ${refundAmount}`,
+//       type: "REFUND",
+//       referenceId: booking._id,
+//       referenceType: "Booking",
+//       data: cancelData,
+//     });
+
+//     // 🧑‍🔧 PROVIDERS
+//     if (booking.providerBreakdown?.length > 0) {
+//       for (const provider of booking.providerBreakdown) {
+//         await sendNotification({
+//           receiverId: provider.user,
+//           receiverModel: "ServiceUser",
+//           title: "Booking Cancelled ❌",
+//           body: "A booking has been cancelled",
+//           type: "BOOKING",
+//           referenceId: booking._id,
+//           referenceType: "Booking",
+//           data: {
+//             bookingId: booking._id.toString(),
+//             refundAmount,
+//           },
+//         });
+//       }
+//     }
+
 //     return res.send({
 //       message: "Booking cancelled successfully",
 //       refundAmount,
-//       refundPercentage: isOverride ? null : refundPercentage
+//       refundPercentage: isOverride ? null : refundPercentage,
 //     });
 
 //   } catch (error) {
 //     return res.status(500).send({
-//       message: error.message
+//       message: error.message,
 //     });
 //   }
 // };
 
 
-
 exports.cancelBooking = async (req, res) => {
   try {
+
     const { bookingId } = req.params;
 
     const booking = await Booking.findById(bookingId);
+
     if (!booking) {
-      return res.status(404).send({ message: "Booking not found" });
+      return res.status(404).send({
+        message: "Booking not found"
+      });
     }
 
     /* =============================
        VALIDATIONS
     ============================== */
+
     if (booking.isCancelled) {
       return res.status(400).send({
         message: "Booking already cancelled",
@@ -1659,10 +2364,22 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
+    const now = new Date();
+
+    // ✅ service booking should use current date
+    // property booking uses checkIn
+
+    const bookingStartDate =
+      booking.bookingType === "SERVICE"
+        ? new Date(booking.createdAt)
+        : new Date(booking.checkIn);
+
     /* =============================
        ❌ NO PAYMENT CASE
     ============================== */
+
     if (booking.paymentStatus !== "paid") {
+
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
 
@@ -1684,15 +2401,18 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    const now = new Date();
-
     /* =============================
-       ❌ NO REFUND AFTER CHECK-IN
+       ❌ NO REFUND AFTER START
     ============================== */
-    if (now >= booking.checkIn) {
+
+    if (now >= bookingStartDate) {
+
       booking.bookingStatus = "cancelled";
+
       booking.isCancelled = true;
+
       booking.refundAmount = 0;
+
       booking.refundPercentage = 0;
 
       await booking.save();
@@ -1702,14 +2422,14 @@ exports.cancelBooking = async (req, res) => {
         receiverId: booking.user,
         receiverModel: "User",
         title: "Booking Cancelled ❌",
-        body: "No refund available after check-in",
+        body: "No refund available after booking start",
         type: "REFUND",
         referenceId: booking._id,
         referenceType: "Booking",
       });
 
       return res.send({
-        message: "Cancelled (no refund after check-in)",
+        message: "Cancelled (no refund available)",
         refundAmount: 0,
       });
     }
@@ -1717,67 +2437,122 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        🔥 CALCULATE REFUND
     ============================== */
+
     let refundPercentage = 0;
+
     let refundAmount = 0;
 
-    const isOverride = booking.adminOverride?.isOverridden;
+    const isOverride =
+      booking.adminOverride?.isOverridden;
 
     if (isOverride) {
-      refundAmount = booking.adminOverride.refundAmount;
-    } else {
-      const rules = booking.policySnapshot?.rules || [];
 
-      const diffHours = (booking.checkIn - now) / (1000 * 60 * 60);
+      refundAmount =
+        booking.adminOverride.refundAmount;
+
+    } else {
+
+      const rules =
+        booking.policySnapshot?.rules || [];
+
+      // ✅ service booking uses hours from creation
+      // property booking uses checkIn
+
+      const diffHours =
+        (bookingStartDate - now) /
+        (1000 * 60 * 60);
 
       for (const rule of rules) {
-        const value = rule.unit === "days" ? diffHours / 24 : diffHours;
+
+        const value =
+          rule.unit === "days"
+            ? diffHours / 24
+            : diffHours;
 
         if (value >= rule.from) {
-          refundPercentage = rule.refundPercentage;
+          refundPercentage =
+            rule.refundPercentage;
           break;
         }
       }
 
-      refundAmount = (booking.totalAmount * refundPercentage) / 100;
+      refundAmount =
+        (booking.totalAmount *
+          refundPercentage) / 100;
 
       const cancellationFee =
-        booking.policySnapshot?.cancellationFee || 0;
+        booking.policySnapshot
+          ?.cancellationFee || 0;
 
-      refundAmount = Math.max(refundAmount - cancellationFee, 0);
+      refundAmount = Math.max(
+        refundAmount - cancellationFee,
+        0
+      );
     }
 
     /* =============================
        💰 WALLET HOLD DEDUCTION
     ============================== */
-    if (booking.providerBreakdown?.length > 0) {
+
+    if (
+      booking.providerBreakdown?.length > 0
+    ) {
+
       for (const provider of booking.providerBreakdown) {
+
         let providerRefund = 0;
 
         if (isOverride) {
-          const ratio = provider.amount / booking.totalAmount;
-          providerRefund = refundAmount * ratio;
-        } else {
+
+          const ratio =
+            provider.amount /
+            booking.totalAmount;
+
           providerRefund =
-            provider.amount * (refundPercentage / 100);
+            refundAmount * ratio;
+
+        } else {
+
+          providerRefund =
+            provider.amount *
+            (refundPercentage / 100);
         }
 
-        const wallet = await Wallet.findOne({ user: provider.user });
+        const wallet = await Wallet.findOne({
+          user: provider.user
+        });
 
         if (!wallet) continue;
-        if (wallet.holdBalance < providerRefund) continue;
+
+        if (
+          wallet.holdBalance <
+          providerRefund
+        ) {
+          continue;
+        }
 
         wallet.holdBalance -= providerRefund;
 
         await wallet.save();
 
         await WalletTransaction.create({
+
           wallet: wallet._id,
+
           user: provider.user,
+
           type: "debit",
+
           amount: providerRefund,
+
           bookingId: booking._id,
-          referenceId: provider.referenceId,
-          description: "Refund deducted from hold",
+
+          referenceId:
+            provider.referenceId,
+
+          description:
+            "Refund deducted from hold",
+
           transactionType: "refund",
         });
       }
@@ -1786,53 +2561,78 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        💳 TAP REFUND
     ============================== */
+
     try {
-      if (refundAmount > 0 && booking.tapChargeId) {
+
+      if (
+        refundAmount > 0 &&
+        booking.tapChargeId
+      ) {
+
         const response = await axios.post(
           "https://api.tap.company/v2/refunds",
           {
             charge_id: booking.tapChargeId,
             amount: refundAmount,
             currency: "SAR",
-            reason: "Booking cancellation refund",
+            reason:
+              "Booking cancellation refund",
             reference: {
               merchant: booking.orderId,
             },
           },
           {
             headers: {
-              Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-              "Content-Type": "application/json",
+              Authorization:
+                `Bearer ${process.env.TAP_SECRET_KEY}`,
+              "Content-Type":
+                "application/json",
             },
           }
         );
 
-        booking.refundTransactionId = response.data?.id;
+        booking.refundTransactionId =
+          response.data?.id;
       }
+
     } catch (err) {
-      console.error("Refund failed:", err.response?.data || err.message);
+
+      console.error(
+        "Refund failed:",
+        err.response?.data || err.message
+      );
 
       booking.refundStatus = "failed";
+
       await booking.save();
 
       return res.status(500).send({
         message: "Refund failed",
-        error: err.response?.data || err.message,
+        error:
+          err.response?.data || err.message,
       });
     }
 
     /* =============================
        RELEASE AVAILABILITY
     ============================== */
+
     if (booking.property) {
+
       await HotelAvailability.deleteMany({
         hotel: booking.property,
         booking: booking._id,
       });
     }
 
-    if (booking.services?.length > 0) {
-      const serviceIds = booking.services.map((s) => s.service);
+    if (
+      booking.services?.length > 0
+    ) {
+
+      const serviceIds =
+        booking.services.map(
+          (s) => s.service
+        );
 
       await ServiceAvailability.deleteMany({
         service: { $in: serviceIds },
@@ -1843,12 +2643,24 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        UPDATE BOOKING
     ============================== */
+
     booking.bookingStatus = "cancelled";
+
     booking.isCancelled = true;
-    booking.cancellationDate = new Date();
-    booking.refundAmount = refundAmount;
-    booking.refundPercentage = isOverride ? null : refundPercentage;
-    booking.refundStatus = "processed";
+
+    booking.cancellationDate =
+      new Date();
+
+    booking.refundAmount =
+      refundAmount;
+
+    booking.refundPercentage =
+      isOverride
+        ? null
+        : refundPercentage;
+
+    booking.refundStatus =
+      "processed";
 
     await booking.save();
 
@@ -1857,40 +2669,77 @@ exports.cancelBooking = async (req, res) => {
     ============================== */
 
     const cancelData = {
-      bookingId: booking._id.toString(),
-      totalAmount: booking.totalAmount,
+
+      bookingId:
+        booking._id.toString(),
+
+      totalAmount:
+        booking.totalAmount,
+
       refundAmount,
+
       refundPercentage,
-      bookingStatus: booking.bookingStatus,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
+
+      bookingStatus:
+        booking.bookingStatus,
+
+      checkIn:
+        booking.checkIn,
+
+      checkOut:
+        booking.checkOut,
     };
 
     // 👤 USER
+
     await sendNotification({
+
       receiverId: booking.user,
+
       receiverModel: "User",
+
       title: "Booking Cancelled ❌",
-      body: `Refund Amount: ${refundAmount}`,
+
+      body:
+        `Refund Amount: ${refundAmount}`,
+
       type: "REFUND",
+
       referenceId: booking._id,
+
       referenceType: "Booking",
+
       data: cancelData,
     });
 
     // 🧑‍🔧 PROVIDERS
-    if (booking.providerBreakdown?.length > 0) {
+
+    if (
+      booking.providerBreakdown?.length > 0
+    ) {
+
       for (const provider of booking.providerBreakdown) {
+
         await sendNotification({
+
           receiverId: provider.user,
+
           receiverModel: "ServiceUser",
+
           title: "Booking Cancelled ❌",
-          body: "A booking has been cancelled",
+
+          body:
+            "A booking has been cancelled",
+
           type: "BOOKING",
+
           referenceId: booking._id,
+
           referenceType: "Booking",
+
           data: {
-            bookingId: booking._id.toString(),
+            bookingId:
+              booking._id.toString(),
             refundAmount,
           },
         });
@@ -1898,17 +2747,23 @@ exports.cancelBooking = async (req, res) => {
     }
 
     return res.send({
-      message: "Booking cancelled successfully",
+      message:
+        "Booking cancelled successfully",
       refundAmount,
-      refundPercentage: isOverride ? null : refundPercentage,
+      refundPercentage:
+        isOverride
+          ? null
+          : refundPercentage,
     });
 
   } catch (error) {
+
     return res.status(500).send({
       message: error.message,
     });
   }
 };
+
 
 exports.deletePendingBooking = async (req, res) => {
 
