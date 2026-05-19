@@ -4163,11 +4163,222 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 // 4. NEAR YOU PROPERTIES
 // ======================================================
 
+// const getNearYouProperties = catchAsyncError(async (req, res) => {
+//   const {
+//     lat,
+//     lng,
+//     radius = 50000,
+//     limit = 10,
+//     lastId
+//   } = req.query;
+
+//   if (!lat || !lng) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Latitude and longitude are required"
+//     });
+//   }
+
+//   const parsedRadius = Math.min(
+//     Number(radius) || 5000,
+//     50000
+//   );
+
+//   const parsedLimit = Math.min(
+//     Number(limit) || 10,
+//     50
+//   );
+
+//   const pipeline = [
+
+//     // 🔥 GEO NEAR
+//     {
+//       $geoNear: {
+
+//         key: "address.location",
+
+//         near: {
+//           type: "Point",
+//           coordinates: [
+//             Number(lng),
+//             Number(lat)
+//           ]
+//         },
+
+//         distanceField: "distance",
+
+//         maxDistance: parsedRadius,
+
+//         spherical: true,
+
+//         includeLocs: "address.location",
+
+//         query: {
+//           isDeleted: false,
+//           is_completed: true,
+//           approvalStatus: "approved",
+
+//           "address.location.coordinates": {
+//             $exists: true
+//           }
+//         }
+
+//       }
+//     }
+
+//   ];
+
+//   // 🔥 Cursor Pagination
+//   if (
+//     lastId &&
+//     mongoose.Types.ObjectId.isValid(lastId)
+//   ) {
+//     pipeline.push({
+//       $match: {
+//         _id: {
+//           $lt: new mongoose.Types.ObjectId(lastId)
+//         }
+//       }
+//     });
+//   }
+
+//   // 🔥 Ratings Lookup
+//   pipeline.push({
+
+//     $lookup: {
+//       from: "reviews",
+
+//       let: {
+//         propertyId: "$_id"
+//       },
+
+//       pipeline: [
+
+//         {
+//           $match: {
+//             $expr: {
+//               $and: [
+//                 {
+//                   $eq: [
+//                     "$property",
+//                     "$$propertyId"
+//                   ]
+//                 },
+//                 {
+//                   $eq: [
+//                     "$isDeleted",
+//                     false
+//                   ]
+//                 }
+//               ]
+//             }
+//           }
+//         },
+
+//         {
+//           $group: {
+//             _id: null,
+
+//             averageRating: {
+//               $avg: "$rating"
+//             },
+
+//             totalReviews: {
+//               $sum: 1
+//             }
+//           }
+//         }
+
+//       ],
+
+//       as: "ratingData"
+//     }
+
+//   });
+
+//   // 🔥 Add Ratings
+//   pipeline.push({
+
+//     $addFields: {
+
+//       averageRating: {
+//         $ifNull: [
+//           {
+//             $round: [
+//               {
+//                 $arrayElemAt: [
+//                   "$ratingData.averageRating",
+//                   0
+//                 ]
+//               },
+//               1
+//             ]
+//           },
+//           0
+//         ]
+//       },
+
+//       totalReviews: {
+//         $ifNull: [
+//           {
+//             $arrayElemAt: [
+//               "$ratingData.totalReviews",
+//               0
+//             ]
+//           },
+//           0
+//         ]
+//       }
+
+//     }
+
+//   });
+
+//   // 🔥 Sort nearest first
+//   pipeline.push({
+
+//     $sort: {
+//       distance: 1,
+//       createdAt: -1
+//     }
+
+//   });
+
+//   // 🔥 Limit
+//   pipeline.push({
+//     $limit: parsedLimit
+//   });
+
+//   // 🔥 Remove unwanted fields
+//   pipeline.push({
+//     $project: {
+//       ratingData: 0
+//     }
+//   });
+
+//   const data = await Properties.aggregate(pipeline);
+
+//   // 🔥 Next Cursor
+//   let nextCursor = null;
+
+//   if (data.length > 0) {
+//     nextCursor = data[data.length - 1]._id;
+//   }
+
+//   return res.status(200).json({
+//     success: true,
+//     nextCursor,
+//     count: data.length,
+//     data
+//   });
+
+// });
+
 const getNearYouProperties = catchAsyncError(async (req, res) => {
+
   const {
     lat,
     lng,
-    radius = 50000,
     limit = 10,
     lastId
   } = req.query;
@@ -4179,11 +4390,6 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
     });
   }
 
-  const parsedRadius = Math.min(
-    Number(radius) || 5000,
-    50000
-  );
-
   const parsedLimit = Math.min(
     Number(limit) || 10,
     50
@@ -4191,7 +4397,8 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   const pipeline = [
 
-    // 🔥 GEO NEAR
+    // ✅ GEO SEARCH
+    // nearest properties come first automatically
     {
       $geoNear: {
 
@@ -4207,8 +4414,6 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
         distanceField: "distance",
 
-        maxDistance: parsedRadius,
-
         spherical: true,
 
         includeLocs: "address.location",
@@ -4219,7 +4424,8 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
           approvalStatus: "approved",
 
           "address.location.coordinates": {
-            $exists: true
+            $exists: true,
+            $ne: []
           }
         }
 
@@ -4228,11 +4434,12 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   ];
 
-  // 🔥 Cursor Pagination
+  // ✅ CURSOR PAGINATION
   if (
     lastId &&
     mongoose.Types.ObjectId.isValid(lastId)
   ) {
+
     pipeline.push({
       $match: {
         _id: {
@@ -4240,12 +4447,63 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
         }
       }
     });
+
   }
 
-  // 🔥 Ratings Lookup
+  // ✅ BOOKMARK LOOKUP
   pipeline.push({
 
     $lookup: {
+
+      from: "bookmarks",
+
+      let: {
+        propertyId: "$_id"
+      },
+
+      pipeline: [
+        {
+          $match: {
+            $expr: {
+              $and: [
+
+                {
+                  $eq: [
+                    "$property",
+                    "$$propertyId"
+                  ]
+                },
+
+                {
+                  $eq: [
+                    "$user",
+                    new mongoose.Types.ObjectId(req.user._id)
+                  ]
+                },
+
+                {
+                  $eq: [
+                    "$isDeleted",
+                    false
+                  ]
+                }
+
+              ]
+            }
+          }
+        }
+      ],
+
+      as: "bookmarkData"
+    }
+
+  });
+
+  // ✅ RATINGS LOOKUP
+  pipeline.push({
+
+    $lookup: {
+
       from: "reviews",
 
       let: {
@@ -4258,18 +4516,21 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
           $match: {
             $expr: {
               $and: [
+
                 {
                   $eq: [
                     "$property",
                     "$$propertyId"
                   ]
                 },
+
                 {
                   $eq: [
                     "$isDeleted",
                     false
                   ]
                 }
+
               ]
             }
           }
@@ -4277,6 +4538,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
         {
           $group: {
+
             _id: null,
 
             averageRating: {
@@ -4286,6 +4548,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
             totalReviews: {
               $sum: 1
             }
+
           }
         }
 
@@ -4296,10 +4559,29 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   });
 
-  // 🔥 Add Ratings
+  // ✅ ADD EXTRA FIELDS
   pipeline.push({
 
     $addFields: {
+
+      // distance in KM
+      distance: {
+        $round: [
+          {
+            $divide: ["$distance", 1000]
+          },
+          2
+        ]
+      },
+
+      isFavorite: {
+        $gt: [
+          {
+            $size: "$bookmarkData"
+          },
+          0
+        ]
+      },
 
       averageRating: {
         $ifNull: [
@@ -4334,7 +4616,8 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   });
 
-  // 🔥 Sort nearest first
+  // ✅ SORT
+  // nearest first
   pipeline.push({
 
     $sort: {
@@ -4344,21 +4627,24 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   });
 
-  // 🔥 Limit
+  // ✅ LIMIT
   pipeline.push({
     $limit: parsedLimit
   });
 
-  // 🔥 Remove unwanted fields
+  // ✅ REMOVE UNWANTED FIELDS
   pipeline.push({
+
     $project: {
-      ratingData: 0
+      ratingData: 0,
+      bookmarkData: 0
     }
+
   });
 
   const data = await Properties.aggregate(pipeline);
 
-  // 🔥 Next Cursor
+  // ✅ NEXT CURSOR
   let nextCursor = null;
 
   if (data.length > 0) {
@@ -4373,6 +4659,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
   });
 
 });
+
 
 const deleteAccount = catchAsyncError(async (req, res) => {
   const userId = req.user._id;
@@ -4449,6 +4736,7 @@ const shareItem = catchAsyncError(async (req, res) => {
   });
 
 });
+
 
 module.exports = {
   userLogin,
