@@ -1,9 +1,43 @@
 const mongoose = require("mongoose");
 
+const generateCode = () => {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+  let code = "";
+
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(
+      Math.floor(Math.random() * chars.length)
+    );
+  }
+
+  return code;
+};
+
+const generateUniqueShareCode = async (Model) => {
+  let code;
+  let exists = true;
+
+  while (exists) {
+    code = generateCode();
+
+    exists = await Model.findOne({
+      shareCode: code,
+    });
+  }
+
+  return code;
+};
+
 const propertiesSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId },
     name: { type: String },
+     shareCode: {
+      type: String,
+      unique: true,
+      index: true,
+    },
     category: { type: mongoose.Schema.Types.ObjectId },
     address: {
       fullAddress: String,
@@ -94,6 +128,13 @@ propertiesSchema.index(
     }
   }
 );
+propertiesSchema.pre("save", async function () {
+
+  if (!this.shareCode) {
+    this.shareCode = await generateUniqueShareCode(this.constructor);
+  }
+
+});
 propertiesSchema.index({ maxGuests: 1 });
 propertiesSchema.index({ is_completed: 1, isDeleted: 1 });
 module.exports = mongoose.model("Properties", propertiesSchema);

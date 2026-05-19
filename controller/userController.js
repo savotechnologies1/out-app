@@ -1568,6 +1568,7 @@ const search = catchAsyncError(async (req, res) => {
 
   const {
     type,
+    shareCode,
     searchMode = "NEARBY",
     lat,
     lng,
@@ -1576,7 +1577,7 @@ const search = catchAsyncError(async (req, res) => {
     checkOut,
   } = req.body;
 
-  if (!lat || !lng) {
+  if (!shareCode && (!lat || !lng)) {
     return res.status(400).json({
       success: false,
       message: "Latitude and longitude required"
@@ -1606,7 +1607,98 @@ const search = catchAsyncError(async (req, res) => {
   // =========================================================
 
   if (type === "PROPERTY") {
+    if (shareCode) {
 
+      const properties = await Properties.aggregate([
+
+        {
+          $match: {
+            shareCode: shareCode.toUpperCase(),
+            isDeleted: false,
+            is_completed: true,
+            approvalStatus: "approved"
+          }
+        },
+
+        // ✅ FAVORITE LOOKUP
+        {
+          $lookup: {
+
+            from: "bookmarks",
+
+            let: {
+              propertyId: "$_id"
+            },
+
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+
+                      {
+                        $eq: [
+                          "$property",
+                          "$$propertyId"
+                        ]
+                      },
+
+                      {
+                        $eq: [
+                          "$user",
+                          new mongoose.Types.ObjectId(req.user._id)
+                        ]
+                      },
+
+                      {
+                        $eq: [
+                          "$isDeleted",
+                          false
+                        ]
+                      }
+
+                    ]
+                  }
+                }
+              }
+            ],
+
+            as: "bookmarkData"
+          }
+        },
+
+        {
+          $addFields: {
+            isFavorite: {
+              $gt: [
+                {
+                  $size: "$bookmarkData"
+                },
+                0
+              ]
+            },
+
+            distance: 0
+          }
+        }
+
+      ]);
+
+      if (!properties.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Property not found"
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        type: "PROPERTY",
+        count: properties.length,
+        data: properties
+      });
+
+    }
     const properties = await Properties.aggregate([
 
       // ✅ GEO SEARCH INSIDE RADIUS CIRCLE
@@ -1798,6 +1890,7 @@ const search = catchAsyncError(async (req, res) => {
           price: 1,
           maxGuests: 1,
           address: 1,
+          shareCode: 1,
           media: 1,
           distance: 1,
           isFavorite: 1
@@ -1830,7 +1923,104 @@ const search = catchAsyncError(async (req, res) => {
   // =========================================================
 
   if (type === "SERVICE") {
+    if (shareCode) {
 
+      const services = await Service.aggregate([
+
+        {
+          $match: {
+            shareCode: shareCode.toUpperCase(),
+            isDeleted: false,
+            isActive: true,
+            approvalStatus: "approved"
+          }
+        },
+
+        // ✅ BOOKMARK LOOKUP
+        {
+          $lookup: {
+
+            from: "bookmarks",
+
+            let: {
+              serviceId: "$_id"
+            },
+
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+
+                      {
+                        $eq: [
+                          "$service",
+                          "$$serviceId"
+                        ]
+                      },
+
+                      {
+                        $eq: [
+                          "$user",
+                          new mongoose.Types.ObjectId(req.user._id)
+                        ]
+                      },
+
+                      {
+                        $eq: [
+                          "$isDeleted",
+                          false
+                        ]
+                      }
+
+                    ]
+                  }
+                }
+              }
+            ],
+
+            as: "bookmarkData"
+          }
+        },
+
+        // ✅ ADD EXTRA FIELDS
+        {
+          $addFields: {
+
+            isFavorite: {
+              $gt: [
+                {
+                  $size: "$bookmarkData"
+                },
+                0
+              ]
+            },
+
+            distance: 0,
+
+            matchedDaysCount: 0,
+
+            isExactMatch: 1
+          }
+        }
+
+      ]);
+
+      if (!services.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Service not found"
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        type: "SERVICE",
+        count: services.length,
+        data: services
+      });
+
+    }
     if (!checkIn || !checkOut) {
       return res.status(400).json({
         success: false,
@@ -4200,6 +4390,66 @@ const deleteAccount = catchAsyncError(async (req, res) => {
   });
 });
 
+
+const shareItem = catchAsyncError(async (req, res) => {
+
+  const { id, type } = req.params;
+
+  let data = null;
+
+  // ✅ SERVICE
+  if (type === "service") {
+
+    data = await Service.findOne({
+      _id: id,
+      isDeleted: false,
+      isActive: true,
+      approvalStatus: "approved",
+    }).select("name shareCode");
+
+  }
+
+  // ✅ PROPERTY
+  if (type === "property") {
+
+    data = await Properties.findOne({
+      _id: id,
+      isDeleted: false,
+      approvalStatus: "approved",
+    }).select("name shareCode");
+
+  }
+
+  if (!data) {
+    return res.status(404).json({
+      success: false,
+      message: `${type} not found`,
+    });
+  }
+
+  // ✅ FRONTEND URL
+  const baseUrl = process.env.APP_DEEP_LINK;
+
+  // ✅ SHAREABLE LINK
+  const shareLink = `${baseUrl}${type}/${id}?code=${data.shareCode}`;
+
+  return res.status(200).json({
+    success: true,
+    message: "Share data fetched successfully",
+    data: {
+      id: data._id,
+      name: data.name,
+      shareCode: data.shareCode,
+      shareLink,
+      shareMessage:
+        `Check this ${type} on Out App\n\n` +
+        `Code: ${data.shareCode}\n\n` +
+        `Link: ${shareLink}`
+    }
+  });
+
+});
+
 module.exports = {
   userLogin,
   userSignUp,
@@ -4240,5 +4490,6 @@ module.exports = {
   getTopRatedProperties,
   getRecommendedProperties,
   getNearYouProperties,
-  deleteAccount
+  deleteAccount,
+  shareItem
 };

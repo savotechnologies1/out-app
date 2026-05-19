@@ -39,7 +39,8 @@ const {
   getTopRatedProperties,
   getRecommendedProperties,
   getNearYouProperties,
-  deleteAccount
+  deleteAccount,
+  shareItem
 } = require("../controller/userController");
 const validateToken = require("../middleware/validateTokenHandler");
 const {
@@ -148,6 +149,8 @@ router.get("/getRecommendedProperties", validateToken, getRecommendedProperties)
 
 router.get("/getNearYouProperties", validateToken, getNearYouProperties);
 
-router.delete("/deleteAccount", validateToken, deleteAccount)
+router.delete("/deleteAccount", validateToken, deleteAccount);
+
+router.get("/share/:type/:id", validateToken, shareItem);
 
 module.exports = router;

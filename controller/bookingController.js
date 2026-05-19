@@ -2756,6 +2756,7 @@ exports.cancelBooking = async (req, res) => {
           : refundPercentage,
     });
 
+    
   } catch (error) {
 
     return res.status(500).send({
@@ -2847,5 +2848,4 @@ exports.deletePendingBooking = async (req, res) => {
     success: true,
     message: "Pending booking deleted permanently"
   });
-
 };
