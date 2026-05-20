@@ -3589,7 +3589,7 @@ const serviceUserLoginByUserToken = catchAsyncError(
     // ❌ Pending approval
     if (serviceUser.isApproved === "pending") {
       return res.status(400).send({
-        message: "You are not approved yet",
+        message: "Your application has not been approved by the admin yet. Please try logging in again later.",
       });
     }
 
@@ -4734,7 +4734,6 @@ const shareItem = catchAsyncError(async (req, res) => {
         `Link: ${shareLink}`
     }
   });
-
 });
 
 

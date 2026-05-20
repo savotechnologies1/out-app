@@ -1,6 +1,0 @@
-2026-03-02 18:07:20 ERROR Cannot read properties of null (reading 'isActive')
-{}
-TypeError: Cannot read properties of null (reading 'isActive')
-    at /Users/amanneema/Documents/out_backend-atul/controller/userController.js:36:13
-    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    at async /Users/amanneema/Documents/out_backend-atul/functions/catchAsyncError.js:7:7 

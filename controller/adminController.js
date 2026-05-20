@@ -2407,6 +2407,7 @@ const updateBanner = async (req, res) => {
   }
 };
 
+
 // ✅ Delete Banner
 const deleteBanner = async (req, res) => {
   try {
@@ -2446,6 +2447,7 @@ const deleteBanner = async (req, res) => {
     });
   }
 };
+
 
 // ✅ Get All Banners
 const getAllBanners = async (req, res) => {
@@ -2491,109 +2493,6 @@ const getAllBanners = async (req, res) => {
 
   }
 };
-
-
-// const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
-
-//   let { page = 1, limit = 10, type, paymentStatus, search } = req.query;
-//   const { status } = req.params;
-
-//   page = parseInt(page);
-//   limit = parseInt(limit);
-//   const skip = (page - 1) * limit;
-
-//   /* ========================
-//      📅 TODAY RANGE
-//   ======================== */
-//   const today = new Date();
-//   const endOfToday = new Date();
-//   endOfToday.setHours(23, 59, 59, 999);
-
-//   /* ========================
-//      🔍 FILTER
-//   ======================== */
-//   const filter = {};
-
-//   /* ✅ STATUS FILTER */
-//   if (status === "all") {
-//     filter.bookingStatus = { $in: ["confirmed", "cancelled"] };
-
-//   } else if (status === "completed") {
-//     // ✅ COMPLETED BOOKINGS
-//     filter.bookingStatus = "confirmed";
-//     filter.checkOut = { $lte: endOfToday };
-
-//   } else if (["confirmed", "cancelled", "pending"].includes(status)) {
-//     filter.bookingStatus = status;
-
-//   } else {
-//     return res.status(400).json({
-//       success: false,
-//       message: "Invalid booking status"
-//     });
-//   }
-
-//   /* ✅ PAYMENT STATUS */
-//   if (paymentStatus) {
-//     filter.paymentStatus = paymentStatus;
-//   } else {
-//     filter.paymentStatus = "paid";
-//   }
-
-//   /* ✅ BOOKING TYPE */
-//   if (type) {
-//     filter.bookingType = type;
-//   }
-
-//   /* ✅ SEARCH */
-//   if (search) {
-//     filter.orderId = { $regex: search, $options: "i" };
-//   }
-
-//   /* ========================
-//      📦 FETCH DATA
-//   ======================== */
-//   const [bookings, total] = await Promise.all([
-//     Booking.find(filter)
-//       .populate({
-//         path: "property",
-//         select: "name price address"
-//       })
-//       .populate({
-//         path: "services.service",
-//         select: "name price"
-//       })
-//       .populate({
-//         path: "user",
-//         select: "firstName lastName email phone"
-//       })
-//       .sort({ createdAt: -1 })
-//       .skip(skip)
-//       .limit(limit)
-//       .lean(),
-
-//     Booking.countDocuments(filter)
-//   ]);
-
-//   const totalPages = Math.ceil(total / limit);
-
-//   return res.status(200).json({
-//     success: true,
-//     data: bookings,
-//     page,
-//     limit,
-//     total,
-//     totalPages,
-//     previousDisabled: page <= 1,
-//     nextPage: page < totalPages ? page + 1 : null,
-//     previousPage: page > 1 ? page - 1 : null,
-//     nextDisabled: page >= totalPages,
-//     message: bookings.length
-//       ? "Bookings fetched successfully"
-//       : "No bookings found"
-//   });
-
-// });
 
 
 const getAllBookingsAdmin = catchAsyncError(async (req, res, next) => {
@@ -3319,7 +3218,6 @@ const getAdminBookingCalendar = catchAsyncError(async (req, res) => {
       ? "Calendar data fetched"
       : "No bookings found for this property"
   });
-
 });
 
 const getAllWalletTransactions = async (req, res) => {

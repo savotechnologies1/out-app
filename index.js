@@ -31,6 +31,7 @@ app.use(
 app.use(express.json({ limit: "30mb" }));
 app.use(express.urlencoded({ extended: true, limit: "30mb" }));
 const directory = path.join(__dirname);
+
 // app.use(express.static(directory));
 app.use(
   "/uploads",

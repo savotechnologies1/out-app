@@ -75,7 +75,7 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   // Approval status check
   if (user.isApproved === "pending") {
     return res.status(403).send({
-      message: "Admin has not approved your request yet.",
+      message: "Your application has not been approved by the admin yet. Please try logging in again later.",
     });
   }
 
