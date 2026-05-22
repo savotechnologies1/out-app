@@ -443,6 +443,7 @@ const editServiceUser = catchAsyncError(async (req, res, next) => {
 });
 
 
+
 const getIncompleteProperty = catchAsyncError(async (req, res) => {
   const property = await Properties.findOne({
     user: req.user._id,
@@ -1485,7 +1486,6 @@ const getUpcomingBookings = catchAsyncError(async (req, res) => {
       ? "Upcoming bookings fetched"
       : "No upcoming bookings"
   });
-
 });
 
 const getBookingHistory = catchAsyncError(async (req, res) => {
@@ -1560,6 +1560,7 @@ const getBookingCalendar = catchAsyncError(async (req, res) => {
   });
 
 });
+
 
 const addBankDetails = async (req, res) => {
   try {
@@ -1912,6 +1913,7 @@ const createWithdrawRequest = async (req, res) => {
   }
 };
 
+
 const getWithdrawHistory = async (req, res) => {
   try {
 
@@ -1952,9 +1954,9 @@ const getWithdrawHistory = async (req, res) => {
       success: false,
       message: error.message
     });
-
   }
 };
+
 
 const getServiceUserBookingDetail = async (req, res) => {
   try {
@@ -2020,6 +2022,7 @@ const getServiceUserBookingDetail = async (req, res) => {
   }
 };
 
+
 const getActiveServiceCategories = async (req, res) => {
   try {
     const categories = await ServiceCategory.find({ isActive: true })
@@ -2049,184 +2052,13 @@ function convertToMinutes(time) {
   return hours * 60 + minutes;
 }
 
-// const createService = async (req, res) => {
-//   try {
-
-//     const {
-//       name,
-//       category,
-//       price,
-//       priceType,
-//       description,
-//       workingDays,
-//       start,
-//       end,
-//       city,
-//       state,
-//       country,
-//       lat,
-//       lng,
-//       cancellationPolicy
-//     } = req.body;
-
-//     if (!name || !category || !price || !lat || !lng) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "name, category, price, lat, lng are required"
-//       });
-//     }
-
-//     // ✅ FILES FIX
-//     const files = req.files || {};
-
-//     const serviceMedia = files.serviceMedia || [];
-//     const documentFile = files.document || [];
-
-//     const images = serviceMedia.map(file => file.filename);
-
-//     const document = documentFile.length ? documentFile[0].filename : null;
-
-//     // ❗ Since schema requires document
-//     if (!document) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Document is required"
-//       });
-//     }
-
-//     // ----------- VALIDATIONS (same as yours) -----------
-
-//     if (isNaN(price) || Number(price) <= 0) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Price must be a valid positive number"
-//       });
-//     }
-
-//     const validPriceTypes = ["per_person", "flat"];
-
-//     if (priceType && !validPriceTypes.includes(priceType)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid priceType"
-//       });
-//     }
-
-//     const latitude = parseFloat(lat);
-//     const longitude = parseFloat(lng);
-
-//     if (
-//       isNaN(latitude) || latitude < -90 || latitude > 90 ||
-//       isNaN(longitude) || longitude < -180 || longitude > 180
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid latitude or longitude"
-//       });
-//     }
-
-//     let duration = null;
-
-//     if (start && end) {
-//       const startMinutes = convertToMinutes(start);
-//       const endMinutes = convertToMinutes(end);
-
-//       if (endMinutes <= startMinutes) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "End time must be greater than start time"
-//         });
-//       }
-
-//       duration = endMinutes - startMinutes;
-//     }
-
-//     const policy = await CancellationPolicy.findOne({
-//       _id: cancellationPolicy,
-//       isActive: true
-//     });
-
-//     if (!policy) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid or inactive cancellation policy"
-//       });
-//     }
-//     // ----------- CREATE SERVICE -----------
-
-//     const service = await Service.create({
-
-//       user: req.user._id,
-//       name,
-//       category,
-//       price: Number(price),
-//       priceType: priceType || "flat",
-//       duration,
-//       description,
-//       workingDays,
-
-//       document,
-//       cancellationPolicy: policy._id,
-//       workingHours: {
-//         start,
-//         end
-//       },
-
-//       media: {
-//         images
-//       },
-
-//       location: {
-//         city,
-//         state,
-//         country,
-//         coordinates: {
-//           type: "Point",
-//           coordinates: [longitude, latitude]
-//         }
-//       }
-
-//     });
-
-//     const admins = await Admin.find({}, "_id");
-
-//     for (let admin of admins) {
-//       await sendNotification({
-//         receiverId: admin._id,
-//         receiverModel: "Admin",
-//         senderId: req.user._id,
-//         senderModel: "ServiceUser",
-//         title: "New Service Added 🛠️",
-//         body: "A new service has been submitted for approval.",
-//         type: "SERVICE",
-//         referenceId: service._id,
-//         referenceType: "Service",
-//         data: {
-//           serviceId: service._id,
-//         },
-//       });
-//     }
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Service created successfully",
-//       data: service
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
 
 const createService = async (req, res) => {
   try {
     const {
       name,
       category,
+      oldPrice,
       price,
       priceType,
       maxPersons,
@@ -2243,13 +2075,30 @@ const createService = async (req, res) => {
       cancellationPolicy
     } = req.body;
 
-    if (!name || !category || !price || !lat || !lng) {
+    if (!name || !category || !price || !lat || !lng || !oldPrice) {
       return res.status(400).json({
         success: false,
-        message: "name, category, price, lat, lng are required"
+        message: "name, category, price, lat, lng, oldPrice are required"
       });
     }
 
+    if (
+      oldPrice &&
+      (isNaN(oldPrice) || Number(oldPrice) <= Number(price))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "oldPrice must be greater than price"
+      });
+    }
+
+    let discountPercent = 0;
+
+    if (oldPrice && Number(oldPrice) > Number(price)) {
+      discountPercent = Math.round(
+        ((Number(oldPrice) - Number(price)) / Number(oldPrice)) * 100
+      );
+    }
     // ✅ FILES FIX
     const files = req.files || {};
 
@@ -2358,9 +2207,9 @@ const createService = async (req, res) => {
       name,
 
       category,
-
+      oldPrice: Number(oldPrice) || null,
       price: Number(price),
-
+      discountPercent,
       priceType: priceType || "flat",
 
       // ✅ NEW
@@ -2475,258 +2324,6 @@ const getSingleService = async (req, res) => {
   }
 };
 
-
-// const updateService = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-
-//     const service = await Service.findOne({
-//       _id: id,
-//       user: req.user._id,
-//       isDeleted: false
-//     });
-
-//     if (!service) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Service not found"
-//       });
-//     }
-
-//     const {
-//       name,
-//       category,
-//       price,
-//       priceType,
-//       description,
-//       workingDays,
-//       start,
-//       end,
-//       city,
-//       state,
-//       country,
-//       lat,
-//       lng,
-//       cancellationPolicy
-//     } = req.body;
-
-//     // ✅ FILE HANDLING FIX
-//     const files = req.files || {};
-//     const serviceMedia = files.serviceMedia || [];
-//     const documentFile = files.document || [];
-
-//     // ---------------- VALIDATIONS ----------------
-
-//     if (price && (isNaN(price) || Number(price) <= 0)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid price"
-//       });
-//     }
-
-//     const validPriceTypes = ["per_person", "flat"];
-//     if (priceType && !validPriceTypes.includes(priceType)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid priceType"
-//       });
-//     }
-
-//     if ((start && !end) || (!start && end)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Start and end time must be together"
-//       });
-//     }
-
-//     if ((lat && !lng) || (!lat && lng)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Both lat and lng are required"
-//       });
-//     }
-
-//     // ---------------- LOCATION UPDATE ----------------
-
-//     if (lat && lng) {
-//       const latitude = parseFloat(lat);
-//       const longitude = parseFloat(lng);
-
-//       if (
-//         isNaN(latitude) || latitude < -90 || latitude > 90 ||
-//         isNaN(longitude) || longitude < -180 || longitude > 180
-//       ) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Invalid coordinates"
-//         });
-//       }
-
-//       service.location.coordinates = {
-//         type: "Point",
-//         coordinates: [longitude, latitude]
-//       };
-//     }
-
-//     // ---------------- IMAGE UPDATE ----------------
-
-//     if (serviceMedia.length > 0) {
-//       try {
-//         if (service.media?.images?.length) {
-//           service.media.images.forEach(img => {
-//             const filePath = path.join(
-//               __dirname,
-//               "../uploads/serviceMedia",
-//               img
-//             );
-
-//             if (fs.existsSync(filePath)) {
-//               fs.unlinkSync(filePath);
-//             }
-//           });
-//         }
-//       } catch (err) {
-//         console.log("Image delete error:", err.message);
-//       }
-
-//       service.media.images = serviceMedia.map(file => file.filename);
-//     }
-
-//     // ---------------- DOCUMENT UPDATE + RESET APPROVAL ----------------
-
-//     if (documentFile.length > 0) {
-
-//       try {
-//         if (service.document) {
-//           const oldPath = path.join(
-//             __dirname,
-//             "../uploads/propertyDocument",
-//             service.document
-//           );
-
-//           if (fs.existsSync(oldPath)) {
-//             fs.unlinkSync(oldPath);
-//           }
-//         }
-//       } catch (err) {
-//         console.log("Document delete error:", err.message);
-//       }
-
-//       service.document = documentFile[0].filename;
-
-//       // 🔥 RESET APPROVAL
-//       service.approvalStatus = "pending";
-//       service.approvedBy = null;
-//       service.approvedAt = null;
-//       service.rejectionReason = null;
-//     }
-
-//     // ---------------- BASIC FIELD UPDATES ----------------
-
-//     if (name) service.name = name.trim();
-//     if (category) service.category = category;
-//     if (price) service.price = Number(price);
-//     if (priceType) service.priceType = priceType;
-//     if (description) service.description = description.trim();
-
-//     // ---------------- WORKING DAYS ----------------
-
-//     if (workingDays) {
-//       const validDays = [
-//         "Monday", "Tuesday", "Wednesday",
-//         "Thursday", "Friday", "Saturday", "Sunday"
-//       ];
-
-//       const invalid = workingDays.filter(day => !validDays.includes(day));
-
-//       if (invalid.length > 0) {
-//         return res.status(400).json({
-//           success: false,
-//           message: `Invalid workingDays: ${invalid.join(", ")}`
-//         });
-//       }
-
-//       service.workingDays = workingDays;
-//     }
-
-//     // ---------------- TIME + DURATION ----------------
-
-//     if (start || end) {
-//       const newStart = start || service.workingHours.start;
-//       const newEnd = end || service.workingHours.end;
-
-//       const startMinutes = convertToMinutes(newStart);
-//       const endMinutes = convertToMinutes(newEnd);
-
-//       if (endMinutes <= startMinutes) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "End time must be greater than start time"
-//         });
-//       }
-
-//       service.workingHours.start = newStart;
-//       service.workingHours.end = newEnd;
-//       service.duration = endMinutes - startMinutes;
-//     }
-
-//     // ---------------- LOCATION TEXT ----------------
-
-//     if (city) service.location.city = city;
-//     if (state) service.location.state = state;
-//     if (country) service.location.country = country;
-//     if (cancellationPolicy) {
-//       const policy = await CancellationPolicy.findOne({
-//         _id: cancellationPolicy,
-//         isActive: true
-//       });
-
-//       if (!policy) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Invalid or inactive cancellation policy"
-//         });
-//       }
-//       service.cancellationPolicy = policy._id;
-//     }
-//     // ---------------- SAVE ----------------
-
-//     await service.save();
-
-//     if (service.approvalStatus === "pending") {
-//       const admins = await Admin.find({}, "_id");
-
-//       for (let admin of admins) {
-//         await sendNotification({
-//           receiverId: admin._id,
-//           receiverModel: "Admin",
-//           senderId: req.user._id,
-//           senderModel: "ServiceUser",
-//           title: "Service Updated for Review 🔄",
-//           body: "A service has been updated and needs approval again.",
-//           type: "SERVICE",
-//           referenceId: service._id,
-//           referenceType: "Service",
-//           data: {
-//             serviceId: service._id,
-//           },
-//         });
-//       }
-//     }
-
-//     res.json({
-//       success: true,
-//       message: "Service updated successfully",
-//       data: service
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
 
 
 const updateService = async (req, res) => {
@@ -3829,20 +3426,33 @@ const getServiceProviderDashboard = async (req, res) => {
 
 const getAllCommissionsForServiceUser = catchAsyncError(async (req, res, next) => {
   try {
-    // Get global commission
-    const globalCommission = await Commission.findOne({
-      scope: "GLOBAL",
+
+    const { type } = req.query;
+
+    const query = {
       isActive: true,
       isDeleted: false,
+    };
+
+    // Filter by type if provided
+    if (type) {
+      query.type = type;
+    }
+
+    // Get global commission
+    const globalCommission = await Commission.findOne({
+      ...query,
+      scope: "GLOBAL",
     }).lean();
 
     // Get category commissions
     const categoryCommissions = await Commission.find({
+      ...query,
       scope: "CATEGORY",
-      isActive: true,
-      isDeleted: false,
     })
-      .populate("categoryId", "category") // optional (if you have category collection)
+      .populate("categoryId", "category")
+      .populate("serviceCategoryId", "name")
+      .populate("serviceId", "title")
       .lean();
 
     res.status(200).json({
@@ -3853,6 +3463,7 @@ const getAllCommissionsForServiceUser = catchAsyncError(async (req, res, next) =
         categories: categoryCommissions || [],
       },
     });
+
   } catch (error) {
     return next(error);
   }

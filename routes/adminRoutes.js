@@ -100,7 +100,9 @@ const {
   softDeleteProperty,
   softDeleteService,
   getBookingsByServiceId,
-  toggleRecommendedProperty
+  toggleRecommendedProperty,
+  getAllServiceCategoriesForCommission,
+  getAllServicesForCommission
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -192,6 +194,8 @@ router.get("/getAllCommissions", validateAdminToken, getAllCommissions);
 router.post("/createCommission", validateAdminToken, createCommission);
 router.put("/updateCommission/:id", validateAdminToken, updateCommission);
 router.delete("/deleteCommission/:id", validateAdminToken, deleteCommission);
+router.get("/getAllServiceCategoriesForCommission", validateAdminToken, getAllServiceCategoriesForCommission)
+router.get("/getAllServicesForCommission", validateAdminToken, getAllServicesForCommission);
 
 router.post(
   "/create",

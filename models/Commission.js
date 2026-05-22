@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const commissionSchema = new mongoose.Schema(
   {
+    // GLOBAL or CATEGORY based commission
     scope: {
       type: String,
       enum: ["GLOBAL", "CATEGORY"],
@@ -9,9 +10,34 @@ const commissionSchema = new mongoose.Schema(
       index: true,
     },
 
+    // Commission apply type
+    type: {
+      type: String,
+      enum: ["SERVICE", "PROPERTY"],
+      required: true,
+      index: true,
+    },
+
+    // Main category
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
+      default: null,
+      index: true,
+    },
+
+    // Service category
+    serviceCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ServiceCategory",
+      default: null,
+      index: true,
+    },
+
+    // Specific service
+    serviceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
       default: null,
       index: true,
     },
@@ -46,7 +72,13 @@ const commissionSchema = new mongoose.Schema(
 );
 
 commissionSchema.index(
-  { scope: 1, categoryId: 1 },
+  {
+    scope: 1,
+    type: 1,
+    categoryId: 1,
+    serviceCategoryId: 1,
+    serviceId: 1,
+  },
   {
     unique: true,
     partialFilterExpression: {

@@ -43,7 +43,14 @@ const serviceSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "ServiceCategory",
     },
-
+    oldPrice: {
+      type: Number,
+      required: true
+    },
+    discountPercent: {
+      type: Number,
+      default: 0
+    },
     price: {
       type: Number,
       required: true

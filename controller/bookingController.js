@@ -966,6 +966,385 @@ exports.checkAvailability = async (req, res) => {
 //   }
 // };
 
+// exports.createBooking = async (req, res) => {
+//   try {
+
+//     const {
+//       bookingType,
+//       propertyId,
+//       packageId,
+//       services = [],
+//       checkIn,
+//       checkOut,
+//       adults = 1,
+//       children = 0,
+//       priceDetails,
+//       couponId = null
+//     } = req.body;
+
+//     const totalGuests = Number(children) + Number(adults);
+
+//     const dates = getDatesBetween(checkIn, checkOut);
+
+//     let property = null;
+
+//     let selectedPolicy = null;
+
+//     let policySnapshot = null;
+
+//     let providerBreakdown = [];
+
+//     /* =================================================
+//        ❌ BLOCK INVALID SERVICE COMBINATION
+//     ================================================= */
+
+//     if (bookingType === "SERVICE" && propertyId) {
+//       return res.status(400).send({
+//         message: "SERVICE booking should not have property"
+//       });
+//     }
+
+//     /* =================================================
+//        PROPERTY VALIDATION + POLICY
+//     ================================================= */
+
+//     if (
+//       ["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"]
+//         .includes(bookingType)
+//     ) {
+
+//       property = await Properties.findById(propertyId)
+//         .populate("cancellationPolicy")
+//         .select(
+//           "maxGuests category user cancellationPolicy"
+//         );
+
+//       if (!property) {
+//         return res.status(404).send({
+//           message: "Property not found"
+//         });
+//       }
+
+//       // ✅ only property bookings validate guests
+//       if (totalGuests > property.maxGuests) {
+//         return res.status(400).send({
+//           message: `Maximum ${property.maxGuests} guests allowed`
+//         });
+//       }
+
+//       const bookedDates = await HotelAvailability.find({
+//         hotel: propertyId,
+//         date: { $in: dates },
+//         isBooked: true
+//       });
+
+//       if (bookedDates.length > 0) {
+//         return res.status(400).send({
+//           message: "Selected dates are not available"
+//         });
+//       }
+//     }
+
+//     /* =================================================
+//        SERVICE VALIDATION + POLICY
+//     ================================================= */
+
+//     let servicesData = [];
+
+//     if (services.length > 0) {
+
+//       const serviceIds = services.map(
+//         s => s.service
+//       );
+
+//       servicesData = await Service.find({
+//         _id: { $in: serviceIds }
+//       }).populate("cancellationPolicy");
+
+//       if (servicesData.length !== services.length) {
+//         return res.status(400).send({
+//           message: "Some services not found"
+//         });
+//       }
+
+//       const bookedServices =
+//         await ServiceAvailability.find({
+//           service: { $in: serviceIds },
+//           date: { $in: dates },
+//           isBooked: true
+//         });
+
+//       if (bookedServices.length > 0) {
+//         return res.status(400).send({
+//           message: "Some services are not available"
+//         });
+//       }
+
+//       // ✅ validate service maxPersons
+
+//       for (const service of servicesData) {
+
+//         if (
+//           service.priceType === "flat" &&
+//           totalGuests > (service.maxPersons || 1)
+//         ) {
+//           return res.status(400).send({
+//             message:
+//               `${service.name} allows maximum ` +
+//               `${service.maxPersons} persons`
+//           });
+//         }
+//       }
+//     }
+
+//     /* =================================================
+//        🔥 SELECT POLICY
+//     ================================================= */
+
+//     let policies = [];
+
+//     if (property?.cancellationPolicy) {
+//       policies.push(property.cancellationPolicy);
+//     }
+
+//     servicesData.forEach(s => {
+//       if (s.cancellationPolicy) {
+//         policies.push(s.cancellationPolicy);
+//       }
+//     });
+
+//     if (policies.length > 0) {
+
+//       // 👉 choose strictest later if needed
+//       selectedPolicy = policies[0];
+
+//       policySnapshot = {
+//         name: selectedPolicy.name,
+//         rules: selectedPolicy.rules,
+//         cancellationFee:
+//           selectedPolicy.cancellationFee || 0,
+
+//         // ✅ NEW SERVICE POLICIES
+//         servicePolicies: servicesData.map(s => ({
+//           serviceId: s._id,
+//           serviceName: s.name,
+//           policies: s.policies || []
+//         }))
+//       };
+//     }
+
+//     /* =================================================
+//        PRICE CALCULATION
+//     ================================================= */
+
+//     // ⚠️ currently frontend controlled
+//     // recommended later: calculate on backend
+//     let baseAmount = Number(
+//       priceDetails.finalAmount
+//     );
+
+//     const platformFeeRule =
+//       await PlatformFee.findOne({
+//         isActive: true,
+//         isDeleted: false
+//       });
+
+//     let platformFee = 0;
+
+//     if (platformFeeRule) {
+
+//       platformFee =
+//         platformFeeRule.feeType === "PERCENTAGE"
+//           ? (baseAmount * platformFeeRule.value) / 100
+//           : platformFeeRule.value;
+//     }
+
+//     const subTotal = baseAmount + platformFee;
+
+//     const taxRule = await Tax.findOne({
+//       isActive: true,
+//       isDeleted: false
+//     });
+
+//     const tax = taxRule
+//       ? (subTotal * taxRule.percentage) / 100
+//       : 0;
+
+//     const totalAmount = subTotal + tax;
+
+//     /* =================================================
+//        COMMISSION
+//     ================================================= */
+
+//     let commissionRule =
+//       await Commission.findOne({
+//         scope: "CATEGORY",
+//         categoryId: property?.category,
+//         isActive: true,
+//         isDeleted: false
+//       }) ||
+
+//       await Commission.findOne({
+//         scope: "GLOBAL",
+//         isActive: true,
+//         isDeleted: false
+//       });
+
+//     let commissionAmount = 0;
+
+//     if (commissionRule) {
+
+//       commissionAmount =
+//         commissionRule.commissionType === "PERCENTAGE"
+//           ? (baseAmount * commissionRule.value) / 100
+//           : commissionRule.value;
+//     }
+
+//     const providerAmount =
+//       baseAmount - commissionAmount;
+
+//     /* =================================================
+//        🔥 PROVIDER BREAKDOWN
+//     ================================================= */
+
+//     let serviceTotal = 0;
+
+//     for (const s of servicesData) {
+
+//       const item = services.find(
+//         x => x.service.toString() === s._id.toString()
+//       );
+
+//       serviceTotal += item.price;
+//     }
+
+//     const propertyAmount =
+//       baseAmount - serviceTotal;
+
+//     if (property && propertyAmount > 0) {
+
+//       providerBreakdown.push({
+//         user: property.user,
+//         amount: propertyAmount,
+//         type: "property",
+//         referenceId: property._id
+//       });
+//     }
+
+//     servicesData.forEach(s => {
+
+//       const item = services.find(
+//         x => x.service.toString() === s._id.toString()
+//       );
+
+//       providerBreakdown.push({
+//         user: s.user,
+//         amount: item.price,
+//         type: "service",
+//         referenceId: s._id
+//       });
+//     });
+
+//     /* =================================================
+//        ORDER ID
+//     ================================================= */
+
+//     const orderId =
+//       "ORD_" +
+//       uuidv4().slice(0, 8).toUpperCase();
+
+//     /* =================================================
+//        CREATE BOOKING
+//     ================================================= */
+
+//     const booking = await Booking.create({
+
+//       bookingType,
+
+//       user: req.user._id,
+
+//       property:
+//         bookingType === "SERVICE"
+//           ? null
+//           : propertyId,
+
+//       package: packageId || null,
+
+//       services,
+
+//       couponId,
+
+//       checkIn,
+
+//       checkOut,
+
+//       adults,
+
+//       children,
+
+//       priceBreakdown: {
+
+//         propertyPrice:
+//           priceDetails.basePrice,
+
+//         packagePrice:
+//           bookingType === "PACKAGE"
+//             ? priceDetails.basePrice
+//             : 0,
+
+//         servicePrice:
+//           priceDetails.servicesTotal
+//       },
+
+//       totalAmount,
+
+//       commissionAmount,
+
+//       providerAmount,
+
+//       platformFee,
+
+//       tax,
+
+//       /* 🔥 POLICY */
+
+//       cancellationPolicy:
+//         selectedPolicy?._id || null,
+
+//       policySnapshot,
+
+//       /* 🔥 PROVIDERS */
+
+//       providerBreakdown,
+
+//       orderId,
+
+//       paymentStatus: "pending",
+
+//       bookingStatus: "pending",
+
+//       pendingReason: "payment_pending"
+//     });
+
+//     return res.status(201).send({
+//       message: "Booking created successfully",
+//       bookingId: booking._id,
+//       orderId,
+//       totalAmount,
+//       totalGuests
+//     });
+
+//   } catch (error) {
+
+//     return res.status(500).send({
+//       message: error.message
+//     });
+
+//   }
+// };
+
+
+
 exports.createBooking = async (req, res) => {
   try {
 
@@ -1059,7 +1438,11 @@ exports.createBooking = async (req, res) => {
 
       servicesData = await Service.find({
         _id: { $in: serviceIds }
-      }).populate("cancellationPolicy");
+      })
+        .populate("cancellationPolicy")
+        .select(
+          "user category name policies cancellationPolicy priceType maxPersons"
+        );
 
       if (servicesData.length !== services.length) {
         return res.status(400).send({
@@ -1115,7 +1498,6 @@ exports.createBooking = async (req, res) => {
 
     if (policies.length > 0) {
 
-      // 👉 choose strictest later if needed
       selectedPolicy = policies[0];
 
       policySnapshot = {
@@ -1124,7 +1506,6 @@ exports.createBooking = async (req, res) => {
         cancellationFee:
           selectedPolicy.cancellationFee || 0,
 
-        // ✅ NEW SERVICE POLICIES
         servicePolicies: servicesData.map(s => ({
           serviceId: s._id,
           serviceName: s.name,
@@ -1137,8 +1518,6 @@ exports.createBooking = async (req, res) => {
        PRICE CALCULATION
     ================================================= */
 
-    // ⚠️ currently frontend controlled
-    // recommended later: calculate on backend
     let baseAmount = Number(
       priceDetails.finalAmount
     );
@@ -1173,38 +1552,7 @@ exports.createBooking = async (req, res) => {
     const totalAmount = subTotal + tax;
 
     /* =================================================
-       COMMISSION
-    ================================================= */
-
-    let commissionRule =
-      await Commission.findOne({
-        scope: "CATEGORY",
-        categoryId: property?.category,
-        isActive: true,
-        isDeleted: false
-      }) ||
-
-      await Commission.findOne({
-        scope: "GLOBAL",
-        isActive: true,
-        isDeleted: false
-      });
-
-    let commissionAmount = 0;
-
-    if (commissionRule) {
-
-      commissionAmount =
-        commissionRule.commissionType === "PERCENTAGE"
-          ? (baseAmount * commissionRule.value) / 100
-          : commissionRule.value;
-    }
-
-    const providerAmount =
-      baseAmount - commissionAmount;
-
-    /* =================================================
-       🔥 PROVIDER BREAKDOWN
+       SERVICE TOTAL
     ================================================= */
 
     let serviceTotal = 0;
@@ -1215,11 +1563,115 @@ exports.createBooking = async (req, res) => {
         x => x.service.toString() === s._id.toString()
       );
 
-      serviceTotal += item.price;
+      if (item) {
+        serviceTotal += item.price;
+      }
     }
 
     const propertyAmount =
       baseAmount - serviceTotal;
+
+    /* =================================================
+       COMMISSION
+    ================================================= */
+
+    let commissionAmount = 0;
+
+    /* ---------------- PROPERTY COMMISSION ---------------- */
+
+    if (property && propertyAmount > 0) {
+
+      const propertyCommissionRule =
+
+        await Commission.findOne({
+          scope: "CATEGORY",
+          type: "PROPERTY",
+          categoryId: property.category,
+          isActive: true,
+          isDeleted: false
+        }) ||
+
+        await Commission.findOne({
+          scope: "GLOBAL",
+          type: "PROPERTY",
+          isActive: true,
+          isDeleted: false
+        });
+
+      if (propertyCommissionRule) {
+
+        const propertyCommission =
+
+          propertyCommissionRule.commissionType === "PERCENTAGE"
+            ? (propertyAmount * propertyCommissionRule.value) / 100
+            : propertyCommissionRule.value;
+
+        commissionAmount += propertyCommission;
+      }
+    }
+
+    /* ---------------- SERVICE COMMISSION ---------------- */
+
+    for (const s of servicesData) {
+
+      const item = services.find(
+        x => x.service.toString() === s._id.toString()
+      );
+
+      if (!item) continue;
+
+      const serviceAmount = item.price;
+
+      let serviceCommissionRule =
+
+        // Specific service commission
+        await Commission.findOne({
+          scope: "CATEGORY",
+          type: "SERVICE",
+          serviceId: s._id,
+          isActive: true,
+          isDeleted: false
+        }) ||
+
+        // Service category commission
+        await Commission.findOne({
+          scope: "CATEGORY",
+          type: "SERVICE",
+          serviceCategoryId: s.category,
+          isActive: true,
+          isDeleted: false
+        }) ||
+
+        // Global service commission
+        await Commission.findOne({
+          scope: "GLOBAL",
+          type: "SERVICE",
+          isActive: true,
+          isDeleted: false
+        });
+
+      if (serviceCommissionRule) {
+
+        const serviceCommission =
+
+          serviceCommissionRule.commissionType === "PERCENTAGE"
+            ? (serviceAmount * serviceCommissionRule.value) / 100
+            : serviceCommissionRule.value;
+
+        commissionAmount += serviceCommission;
+      }
+    }
+
+    /* =================================================
+       PROVIDER AMOUNT
+    ================================================= */
+
+    const providerAmount =
+      baseAmount - commissionAmount;
+
+    /* =================================================
+       🔥 PROVIDER BREAKDOWN
+    ================================================= */
 
     if (property && propertyAmount > 0) {
 
@@ -1285,7 +1737,7 @@ exports.createBooking = async (req, res) => {
       priceBreakdown: {
 
         propertyPrice:
-          priceDetails.basePrice,
+          propertyAmount,
 
         packagePrice:
           bookingType === "PACKAGE"
@@ -1293,7 +1745,7 @@ exports.createBooking = async (req, res) => {
             : 0,
 
         servicePrice:
-          priceDetails.servicesTotal
+          serviceTotal
       },
 
       totalAmount,
@@ -1306,14 +1758,10 @@ exports.createBooking = async (req, res) => {
 
       tax,
 
-      /* 🔥 POLICY */
-
       cancellationPolicy:
         selectedPolicy?._id || null,
 
       policySnapshot,
-
-      /* 🔥 PROVIDERS */
 
       providerBreakdown,
 
@@ -1782,11 +2230,18 @@ exports.adminOverrideRefund = async (req, res) => {
       booking.providerBreakdown?.length > 0
     ) {
 
+      const totalProviderAmount =
+        booking.providerBreakdown.reduce(
+          (sum, provider) =>
+            sum + provider.amount,
+          0
+        );
+
       for (const provider of booking.providerBreakdown) {
 
         const ratio =
           provider.amount /
-          booking.totalAmount;
+          totalProviderAmount;
 
         const providerRefund =
           Number(refundAmount) * ratio;
@@ -1825,7 +2280,7 @@ exports.adminOverrideRefund = async (req, res) => {
             provider.referenceId,
 
           description:
-            "Admin override refund deducted",
+            `Admin refund deducted for ${provider.type}`,
 
           transactionType: "refund",
         });
@@ -2017,7 +2472,7 @@ exports.adminOverrideRefund = async (req, res) => {
           title: "Booking Cancelled ❌",
 
           body:
-            "Booking cancelled with admin refund",
+            `Booking cancelled with refund for ${provider.type}`,
 
           type: "BOOKING",
 
@@ -2033,6 +2488,9 @@ exports.adminOverrideRefund = async (req, res) => {
               Number(refundAmount),
 
             reason,
+
+            providerType:
+              provider.type,
           },
         });
       }
@@ -2366,9 +2824,6 @@ exports.cancelBooking = async (req, res) => {
 
     const now = new Date();
 
-    // ✅ service booking should use current date
-    // property booking uses checkIn
-
     const bookingStartDate =
       booking.bookingType === "SERVICE"
         ? new Date(booking.createdAt)
@@ -2381,11 +2836,11 @@ exports.cancelBooking = async (req, res) => {
     if (booking.paymentStatus !== "paid") {
 
       booking.bookingStatus = "cancelled";
+
       booking.isCancelled = true;
 
       await booking.save();
 
-      // 🔔 USER
       await sendNotification({
         receiverId: booking.user,
         receiverModel: "User",
@@ -2417,7 +2872,6 @@ exports.cancelBooking = async (req, res) => {
 
       await booking.save();
 
-      // 🔔 USER
       await sendNotification({
         receiverId: booking.user,
         receiverModel: "User",
@@ -2445,6 +2899,10 @@ exports.cancelBooking = async (req, res) => {
     const isOverride =
       booking.adminOverride?.isOverridden;
 
+    /* -----------------------------
+       ADMIN OVERRIDE REFUND
+    ----------------------------- */
+
     if (isOverride) {
 
       refundAmount =
@@ -2452,42 +2910,120 @@ exports.cancelBooking = async (req, res) => {
 
     } else {
 
-      const rules =
-        booking.policySnapshot?.rules || [];
+      let totalRefund = 0;
 
-      // ✅ service booking uses hours from creation
-      // property booking uses checkIn
+      /* =========================================
+         PROPERTY REFUND
+      ========================================= */
 
-      const diffHours =
-        (bookingStartDate - now) /
-        (1000 * 60 * 60);
+      if (
+        booking.priceBreakdown?.propertyPrice > 0 &&
+        booking.policySnapshot?.propertyPolicy
+      ) {
 
-      for (const rule of rules) {
+        const propertyPolicy =
+          booking.policySnapshot.propertyPolicy;
 
-        const value =
-          rule.unit === "days"
-            ? diffHours / 24
-            : diffHours;
+        const diffHours =
+          (new Date(booking.checkIn) - now) /
+          (1000 * 60 * 60);
 
-        if (value >= rule.from) {
-          refundPercentage =
-            rule.refundPercentage;
-          break;
+        let propertyRefundPercentage = 0;
+
+        for (const rule of propertyPolicy.rules || []) {
+
+          const value =
+            rule.unit === "days"
+              ? diffHours / 24
+              : diffHours;
+
+          if (value >= rule.from) {
+
+            propertyRefundPercentage =
+              rule.refundPercentage;
+
+            break;
+          }
+        }
+
+        let propertyRefund =
+
+          (
+            booking.priceBreakdown.propertyPrice *
+            propertyRefundPercentage
+          ) / 100;
+
+        propertyRefund = Math.max(
+          propertyRefund -
+          (propertyPolicy.cancellationFee || 0),
+          0
+        );
+
+        totalRefund += propertyRefund;
+      }
+
+      /* =========================================
+         SERVICE REFUND
+      ========================================= */
+
+      if (
+        booking.priceBreakdown?.servicePrice > 0 &&
+        booking.policySnapshot?.servicePolicies?.length > 0
+      ) {
+
+        const diffHours =
+          (bookingStartDate - now) /
+          (1000 * 60 * 60);
+
+        for (const servicePolicy of booking.policySnapshot.servicePolicies) {
+
+          const bookingService =
+            booking.services.find(
+              s =>
+                s.service.toString() ===
+                servicePolicy.serviceId.toString()
+            );
+
+          if (!bookingService) continue;
+
+          let serviceRefundPercentage = 0;
+
+          for (const rule of servicePolicy.rules || []) {
+
+            const value =
+              rule.unit === "days"
+                ? diffHours / 24
+                : diffHours;
+
+            if (value >= rule.from) {
+
+              serviceRefundPercentage =
+                rule.refundPercentage;
+
+              break;
+            }
+          }
+
+          let serviceRefund =
+
+            (
+              bookingService.price *
+              serviceRefundPercentage
+            ) / 100;
+
+          serviceRefund = Math.max(
+            serviceRefund -
+            (servicePolicy.cancellationFee || 0),
+            0
+          );
+
+          totalRefund += serviceRefund;
         }
       }
 
-      refundAmount =
-        (booking.totalAmount *
-          refundPercentage) / 100;
+      refundAmount = totalRefund;
 
-      const cancellationFee =
-        booking.policySnapshot
-          ?.cancellationFee || 0;
-
-      refundAmount = Math.max(
-        refundAmount - cancellationFee,
-        0
-      );
+      refundPercentage = null;
     }
 
     /* =============================
@@ -2498,6 +3034,13 @@ exports.cancelBooking = async (req, res) => {
       booking.providerBreakdown?.length > 0
     ) {
 
+      const totalProviderAmount =
+        booking.providerBreakdown.reduce(
+          (sum, provider) =>
+            sum + provider.amount,
+          0
+        );
+
       for (const provider of booking.providerBreakdown) {
 
         let providerRefund = 0;
@@ -2506,16 +3049,19 @@ exports.cancelBooking = async (req, res) => {
 
           const ratio =
             provider.amount /
-            booking.totalAmount;
+            totalProviderAmount;
 
           providerRefund =
             refundAmount * ratio;
 
         } else {
 
+          const ratio =
+            provider.amount /
+            totalProviderAmount;
+
           providerRefund =
-            provider.amount *
-            (refundPercentage / 100);
+            refundAmount * ratio;
         }
 
         const wallet = await Wallet.findOne({
@@ -2551,7 +3097,7 @@ exports.cancelBooking = async (req, res) => {
             provider.referenceId,
 
           description:
-            "Refund deducted from hold",
+            `Refund deducted from ${provider.type}`,
 
           transactionType: "refund",
         });
@@ -2655,9 +3201,7 @@ exports.cancelBooking = async (req, res) => {
       refundAmount;
 
     booking.refundPercentage =
-      isOverride
-        ? null
-        : refundPercentage;
+      refundPercentage;
 
     booking.refundStatus =
       "processed";
@@ -2688,9 +3232,12 @@ exports.cancelBooking = async (req, res) => {
 
       checkOut:
         booking.checkOut,
+
+      bookingType:
+        booking.bookingType,
     };
 
-    // 👤 USER
+    /* 👤 USER */
 
     await sendNotification({
 
@@ -2712,7 +3259,7 @@ exports.cancelBooking = async (req, res) => {
       data: cancelData,
     });
 
-    // 🧑‍🔧 PROVIDERS
+    /* 🧑‍🔧 PROVIDERS */
 
     if (
       booking.providerBreakdown?.length > 0
@@ -2729,7 +3276,7 @@ exports.cancelBooking = async (req, res) => {
           title: "Booking Cancelled ❌",
 
           body:
-            "A booking has been cancelled",
+            `Booking cancelled for ${provider.type}`,
 
           type: "BOOKING",
 
@@ -2740,7 +3287,11 @@ exports.cancelBooking = async (req, res) => {
           data: {
             bookingId:
               booking._id.toString(),
+
             refundAmount,
+
+            providerType:
+              provider.type,
           },
         });
       }
@@ -2750,13 +3301,9 @@ exports.cancelBooking = async (req, res) => {
       message:
         "Booking cancelled successfully",
       refundAmount,
-      refundPercentage:
-        isOverride
-          ? null
-          : refundPercentage,
+      refundPercentage,
     });
 
-    
   } catch (error) {
 
     return res.status(500).send({

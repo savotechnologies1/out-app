@@ -2190,53 +2190,227 @@ const deleteCoupon = catchAsyncError(async (req, res) => {
 });
 
 const createCommission = catchAsyncError(async (req, res, next) => {
-  const { scope, categoryId, commissionType, value } = req.body;
 
-  if (!scope || !commissionType || value === undefined) {
+  const {
+    scope,
+    type,
+    categoryId,
+    serviceCategoryId,
+    serviceId,
+    commissionType,
+    value,
+  } = req.body;
+
+  /* =========================================
+     REQUIRED VALIDATIONS
+  ========================================= */
+
+  if (
+    !scope ||
+    !type ||
+    !commissionType ||
+    value === undefined
+  ) {
     return res.status(400).json({
       success: false,
       message: "All required fields must be provided",
     });
   }
 
-  if (scope === "CATEGORY" && !categoryId) {
+  /* =========================================
+     PROPERTY CATEGORY VALIDATION
+  ========================================= */
+
+  if (
+    scope === "CATEGORY" &&
+    type === "PROPERTY" &&
+    !categoryId
+  ) {
     return res.status(400).json({
       success: false,
-      message: "CategoryId is required for CATEGORY commission",
+      message:
+        "categoryId is required for PROPERTY category commission",
     });
   }
 
-  if (scope === "GLOBAL") {
-    req.body.categoryId = null;
+  /* =========================================
+     PROPERTY VALIDATION
+  ========================================= */
+
+  if (
+    type === "PROPERTY" &&
+    (serviceCategoryId || serviceId)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "serviceCategoryId and serviceId are not allowed for PROPERTY type",
+    });
   }
 
-  await Commission.updateMany(
-    {
+  /* =========================================
+     SERVICE VALIDATION
+  ========================================= */
+
+  if (
+    type === "SERVICE" &&
+    scope === "CATEGORY" &&
+    !serviceCategoryId &&
+    !serviceId
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "serviceCategoryId or serviceId is required for SERVICE category commission",
+    });
+  }
+
+  /* =========================================
+     FINAL VALUES
+  ========================================= */
+
+  const finalCategoryId =
+    scope === "GLOBAL"
+      ? null
+      : categoryId || null;
+
+  const finalServiceCategoryId =
+    type === "PROPERTY"
+      ? null
+      : serviceCategoryId || null;
+
+  const finalServiceId =
+    type === "PROPERTY"
+      ? null
+      : serviceId || null;
+
+  /* =========================================
+     🔥 SINGLE ACTIVE GLOBAL COMMISSION
+     PER TYPE
+  ========================================= */
+
+  if (scope === "GLOBAL") {
+
+    const existingGlobal =
+      await Commission.findOne({
+        scope: "GLOBAL",
+        type,
+        isActive: true,
+        isDeleted: false,
+      });
+
+    if (existingGlobal) {
+      return res.status(400).json({
+        success: false,
+        message:
+          `Only one active GLOBAL ${type} commission allowed`,
+      });
+    }
+  }
+
+  /* =========================================
+     🔥 SINGLE CATEGORY COMMISSION
+  ========================================= */
+
+  let existingCategoryCommission = null;
+
+  if (scope === "CATEGORY") {
+
+    /* -------- PROPERTY CATEGORY -------- */
+
+    if (type === "PROPERTY") {
+
+      existingCategoryCommission =
+        await Commission.findOne({
+          scope: "CATEGORY",
+          type: "PROPERTY",
+          categoryId: finalCategoryId,
+          isActive: true,
+          isDeleted: false,
+        });
+    }
+
+    /* -------- SERVICE CATEGORY -------- */
+
+    if (type === "SERVICE") {
+
+      existingCategoryCommission =
+        await Commission.findOne({
+          scope: "CATEGORY",
+          type: "SERVICE",
+
+          $or: [
+            {
+              serviceCategoryId:
+                finalServiceCategoryId,
+            },
+            {
+              serviceId:
+                finalServiceId,
+            }
+          ],
+
+          isActive: true,
+          isDeleted: false,
+        });
+    }
+
+    if (existingCategoryCommission) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Commission already exists for this category/service",
+      });
+    }
+  }
+
+  /* =========================================
+     CREATE COMMISSION
+  ========================================= */
+
+  const commission =
+    await Commission.create({
+
       scope,
-      categoryId: scope === "CATEGORY" ? categoryId : null,
-      isActive: true,
-      isDeleted: false,
-    },
-    { isActive: false }
-  );
 
-  const commission = await Commission.create({
-    scope,
-    categoryId: scope === "CATEGORY" ? categoryId : null,
-    commissionType,
-    value,
-  });
+      type,
 
-  res.status(201).json({
+      categoryId:
+        finalCategoryId,
+
+      serviceCategoryId:
+        finalServiceCategoryId,
+
+      serviceId:
+        finalServiceId,
+
+      commissionType,
+
+      value,
+    });
+
+  return res.status(201).json({
     success: true,
-    message: "Commission created successfully",
+    message:
+      "Commission created successfully",
     data: commission,
   });
+
 });
 
 const updateCommission = catchAsyncError(async (req, res, next) => {
   const { id } = req.params;
-  const { commissionType, value, isActive } = req.body;
+
+  const {
+    scope,
+    type,
+    categoryId,
+    serviceCategoryId,
+    serviceId,
+    commissionType,
+    value,
+    isActive,
+  } = req.body;
 
   const commission = await Commission.findById(id);
 
@@ -2247,9 +2421,67 @@ const updateCommission = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  if (commissionType) commission.commissionType = commissionType;
-  if (value !== undefined) commission.value = value;
-  if (isActive !== undefined) commission.isActive = isActive;
+  // CATEGORY validation
+  if (
+    (scope || commission.scope) === "CATEGORY" &&
+    !(categoryId || commission.categoryId)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "categoryId is required for CATEGORY commission",
+    });
+  }
+
+  // PROPERTY validation
+  const finalType = type || commission.type;
+
+  if (
+    finalType === "PROPERTY" &&
+    (serviceCategoryId || serviceId)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "serviceCategoryId and serviceId are not allowed for PROPERTY type",
+    });
+  }
+
+  // Update fields
+  if (scope) commission.scope = scope;
+
+  if (type) commission.type = type;
+
+  if (categoryId !== undefined) {
+    commission.categoryId =
+      (scope || commission.scope) === "GLOBAL"
+        ? null
+        : categoryId;
+  }
+
+  if (finalType === "PROPERTY") {
+    commission.serviceCategoryId = null;
+    commission.serviceId = null;
+  } else {
+    if (serviceCategoryId !== undefined) {
+      commission.serviceCategoryId = serviceCategoryId;
+    }
+
+    if (serviceId !== undefined) {
+      commission.serviceId = serviceId;
+    }
+  }
+
+  if (commissionType) {
+    commission.commissionType = commissionType;
+  }
+
+  if (value !== undefined) {
+    commission.value = value;
+  }
+
+  if (isActive !== undefined) {
+    commission.isActive = isActive;
+  }
 
   await commission.save();
 
@@ -2286,18 +2518,33 @@ const deleteCommission = catchAsyncError(async (req, res, next) => {
 
 const getAllCommissions = catchAsyncError(async (req, res, next) => {
 
-  const { page = 1, limit = 10, scope, isActive } = req.query;
+  const {
+    page = 1,
+    limit = 10,
+    scope,
+    type,
+    isActive,
+  } = req.query;
 
   const pageNumber = Number(page);
   const pageSize = Number(limit);
   const skip = (pageNumber - 1) * pageSize;
 
-  const query = { isDeleted: false };
+  const query = {
+    isDeleted: false,
+  };
 
+  // Filter by scope
   if (scope) {
     query.scope = scope;
   }
 
+  // Filter by type (SERVICE / PROPERTY)
+  if (type) {
+    query.type = type;
+  }
+
+  // Filter by active status
   if (isActive !== undefined) {
     query.isActive = isActive === "true";
   }
@@ -2305,6 +2552,8 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
   const [commissions, total] = await Promise.all([
     Commission.find(query)
       .populate("categoryId", "category")
+      .populate("serviceCategoryId", "name")
+      .populate("serviceId", "title")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(pageSize)
@@ -2323,8 +2572,8 @@ const getAllCommissions = catchAsyncError(async (req, res, next) => {
     total,
     totalPages,
     previousDisabled: pageNumber <= 1,
-    nextPage: pageNumber + 1,
-    previousPage: pageNumber - 1,
+    nextPage: pageNumber < totalPages ? pageNumber + 1 : null,
+    previousPage: pageNumber > 1 ? pageNumber - 1 : null,
     nextDisabled: pageNumber >= totalPages
   });
 
@@ -3594,195 +3843,23 @@ const getAllServiceCategories = async (req, res) => {
   }
 };
 
-// const getAllServicesAdmin = async (req, res) => {
-//   try {
-//     let { page = 1, limit = 10 } = req.query;
 
-//     const pageNumber = parseInt(page);
-//     const limitNumber = parseInt(limit);
-//     const skip = (pageNumber - 1) * limitNumber;
+const getAllServiceCategoriesForCommission = catchAsyncError(async (req, res, next) => {
 
-//     // ✅ Filter
-//     const filter = {
-//       isDeleted: false,
-//       approvalStatus: "approved"
-//     };;
+  const serviceCategories = await ServiceCategory.find({
+    isActive: true
+  })
+    .select("_id name")
+    .sort({ name: 1 })
+    .lean();
 
-//     // ✅ Total count
-//     const total = await Service.countDocuments(filter);
+  res.status(200).json({
+    success: true,
+    count: serviceCategories.length,
+    data: serviceCategories,
+  });
 
-//     // ✅ Fetch paginated data
-//     const services = await Service.find(filter)
-//       .populate("user", "firstName lastName profile email")
-//       .populate("category", "name")
-//       .sort({ createdAt: -1 })
-//       .skip(skip)
-//       .limit(limitNumber);
-
-//     const totalPages = Math.ceil(total / limitNumber);
-
-//     res.send({
-//       success: true,
-//       data: services,
-//       page: pageNumber,
-//       limit: limitNumber,
-//       total,
-//       totalPages,
-//       previousDisabled: pageNumber <= 1,
-//       nextPage: pageNumber + 1,
-//       previousPage: pageNumber - 1,
-//       nextDisabled: pageNumber >= totalPages
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
-// const getAllServicesAdmin = catchAsyncError(async (req, res, next) => {
-
-//   const page = parseInt(req.query.page) || 1;
-//   const limit = parseInt(req.query.limit) || 10;
-//   const skip = (page - 1) * limit;
-
-//   /* ========================
-//      🔍 MATCH
-//   ======================== */
-//   const matchStage = {
-//     isDeleted: false
-//   };
-
-//   /* ========================
-//      📊 TOTAL COUNT
-//   ======================== */
-//   const total = await Service.countDocuments(matchStage);
-
-//   /* ========================
-//      📦 AGGREGATION
-//   ======================== */
-//   const services = await Service.aggregate([
-//     { $match: matchStage },
-
-//     /* ========================
-//        👤 PROVIDER INFO
-//     ======================== */
-//     {
-//       $lookup: {
-//         from: "serviceusers",
-//         localField: "user",
-//         foreignField: "_id",
-//         as: "provider"
-//       }
-//     },
-//     {
-//       $unwind: {
-//         path: "$provider",
-//         preserveNullAndEmptyArrays: true
-//       }
-//     },
-
-//     /* ========================
-//        ⭐ SERVICE REVIEWS
-//     ======================== */
-//     {
-//       $lookup: {
-//         from: "reviews",
-//         let: { serviceId: "$_id" },
-//         pipeline: [
-//           {
-//             $match: {
-//               $expr: { $eq: ["$service", "$$serviceId"] },
-//               isDeleted: false,
-//               reviewType: "service"
-//             }
-//           },
-//           {
-//             $group: {
-//               _id: null,
-//               avgRating: { $avg: "$rating" },
-//               totalReviews: { $sum: 1 }
-//             }
-//           }
-//         ],
-//         as: "ratingData"
-//       }
-//     },
-
-//     /* ========================
-//        🎯 FORMAT RATING
-//     ======================== */
-//     {
-//       $addFields: {
-//         avgRating: {
-//           $ifNull: [
-//             { $round: [{ $arrayElemAt: ["$ratingData.avgRating", 0] }, 1] },
-//             0
-//           ]
-//         },
-//         totalReviews: {
-//           $ifNull: [
-//             { $arrayElemAt: ["$ratingData.totalReviews", 0] },
-//             0
-//           ]
-//         }
-//       }
-//     },
-
-//     {
-//       $project: {
-//         ratingData: 0
-//       }
-//     },
-
-//     /* ========================
-//        📤 RESPONSE FORMAT
-//     ======================== */
-//     {
-//       $project: {
-//         _id: 1,
-//         title: 1,
-//         price: 1,
-//         category: 1,
-//         avgRating: 1,
-//         totalReviews: 1,
-//         provider: {
-//           _id: "$provider._id",
-//           name: {
-//             $concat: ["$provider.firstName", " ", "$provider.lastName"]
-//           },
-//           email: "$provider.email"
-//         }
-//       }
-//     },
-
-//     { $sort: { createdAt: -1 } },
-//     { $skip: skip },
-//     { $limit: limit }
-//   ]);
-
-//   const totalPages = Math.ceil(total / limit);
-
-//   /* ========================
-//      📤 FINAL RESPONSE
-//   ======================== */
-//   return res.status(200).json({
-//     message: "Services fetched successfully",
-//     data: services,
-//     page,
-//     limit,
-//     total,
-//     totalPages,
-//     previousDisabled: page <= 1,
-//     nextPage: page < totalPages ? page + 1 : null,
-//     previousPage: page > 1 ? page - 1 : null,
-//     nextDisabled: page >= totalPages
-//   });
-
-// });
-
+});
 
 const getAllServicesAdmin = catchAsyncError(async (req, res, next) => {
 
@@ -6410,6 +6487,25 @@ const toggleRecommendedProperty = catchAsyncError(async (req, res) => {
 
 });
 
+const getAllServicesForCommission = catchAsyncError(async (req, res, next) => {
+
+  const services = await Service.find({
+    isActive: true,
+    isDeleted: false,
+    approvalStatus: "approved",
+  })
+    .select("_id name")
+    .sort({ name: 1 })
+    .lean();
+
+  res.status(200).json({
+    success: true,
+    count: services.length,
+    data: services,
+  });
+
+});
+
 module.exports = {
   adminLogin,
   sendForgotPasswordOTP,
@@ -6510,6 +6606,8 @@ module.exports = {
   softDeleteService,
   softDeleteProperty,
   getBookingsByServiceId,
-  toggleRecommendedProperty
+  toggleRecommendedProperty,
+  getAllServiceCategoriesForCommission,
+  getAllServicesForCommission
 };
 
