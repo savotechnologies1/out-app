@@ -333,7 +333,6 @@ function getDatesBetween(startDate, endDate) {
 //   }
 // };
 
-
 exports.checkAvailability = async (req, res) => {
   try {
 
@@ -383,13 +382,6 @@ exports.checkAvailability = async (req, res) => {
       const hotel = await Properties.findById(hotelId)
         .select("price name");
 
-      if (!hotel) {
-        return res.status(404).send({
-          available: false,
-          message: "Property not found"
-        });
-      }
-
       basePrice = hotel.price;
 
       finalAmount = hotel.price * nights;
@@ -426,16 +418,21 @@ exports.checkAvailability = async (req, res) => {
         _id: { $in: availableServiceIds },
         isDeleted: false,
         isActive: true
-      }).select(
-        "_id name price priceType maxPersons policies"
-      );
+      }).select("_id name price priceType");
+
+      /* -------- SERVICE PRICE * NIGHTS -------- */
+
+      availableServices = availableServices.map(service => ({
+        ...service.toObject(),
+        originalPrice: service.price,
+        price: service.price * nights
+      }));
 
       servicesTotal = availableServices.reduce(
         (sum, s) => sum + s.price,
         0
       );
 
-      // ✅ service is one-time charge
       finalAmount = servicesTotal;
     }
 
@@ -462,13 +459,6 @@ exports.checkAvailability = async (req, res) => {
 
       const hotel = await Properties.findById(hotelId)
         .select("price name");
-
-      if (!hotel) {
-        return res.status(404).send({
-          available: false,
-          message: "Property not found"
-        });
-      }
 
       basePrice = hotel.price;
 
@@ -499,17 +489,23 @@ exports.checkAvailability = async (req, res) => {
         _id: { $in: availableServiceIds },
         isDeleted: false,
         isActive: true
-      }).select(
-        "_id name price priceType maxPersons policies"
-      );
+      }).select("_id name price priceType");
+
+      /* -------- SERVICE PRICE * NIGHTS -------- */
+
+      availableServices = availableServices.map(service => ({
+        ...service.toObject(),
+        originalPrice: service.price,
+        price: service.price * nights
+      }));
 
       servicesTotal = availableServices.reduce(
         (sum, s) => sum + s.price,
         0
       );
 
-      // ✅ property nightly + service one-time
-      finalAmount = (basePrice * nights) + servicesTotal;
+      finalAmount =
+        (basePrice * nights) + servicesTotal;
     }
 
     /* =================================================
@@ -520,10 +516,7 @@ exports.checkAvailability = async (req, res) => {
 
       const pkg = await Package.findById(packageId)
         .populate("property")
-        .populate(
-          "services.service",
-          "name maxPersons policies"
-        );
+        .populate("services.service", "name");
 
       if (!pkg) {
         return res.status(404).send({
@@ -533,8 +526,6 @@ exports.checkAvailability = async (req, res) => {
       }
 
       basePrice = pkg.basePrice || 0;
-
-      /* -------- PROPERTY CHECK -------- */
 
       const bookedProperty = await HotelAvailability.find({
         hotel: pkg.property._id,
@@ -567,17 +558,17 @@ exports.checkAvailability = async (req, res) => {
 
       availableServices = pkg.services
         .filter(
-          s => !bookedServiceIds.includes(
-            s.service._id.toString()
-          )
+          s =>
+            !bookedServiceIds.includes(
+              s.service._id.toString()
+            )
         )
         .map(s => ({
           serviceId: s.service._id,
           name: s.service.name,
-          price: s.price,
-          priceType: s.priceType,
-          maxPersons: s.service.maxPersons || 1,
-          policies: s.service.policies || []
+          originalPrice: s.price,
+          price: s.price * nights,
+          priceType: s.priceType
         }));
 
       if (availableServices.length === 0) {
@@ -592,12 +583,12 @@ exports.checkAvailability = async (req, res) => {
         0
       );
 
-      // ✅ property nightly + services one-time
-      finalAmount = (basePrice * nights) + servicesTotal;
+      finalAmount =
+        (basePrice * nights) + servicesTotal;
     }
 
     /* =================================================
-       COUPON LOGIC
+       COUPON
     ================================================= */
 
     let discountAmount = 0;
@@ -645,10 +636,10 @@ exports.checkAvailability = async (req, res) => {
       } else {
 
         discountAmount = coupon.discountValue;
-
       }
 
-      finalAmount = finalAmount - discountAmount;
+      finalAmount =
+        finalAmount - discountAmount;
     }
 
     /* =================================================
@@ -664,10 +655,15 @@ exports.checkAvailability = async (req, res) => {
       availableServices,
 
       priceDetails: {
+
         basePrice,
+
         servicesTotal,
+
         nights,
+
         discountAmount,
+
         finalAmount
       },
 
@@ -683,668 +679,6 @@ exports.checkAvailability = async (req, res) => {
 
   }
 };
-
-
-
-// exports.createBooking = async (req, res) => {
-//   try {
-//     const {
-//       bookingType,
-//       propertyId,
-//       packageId,
-//       services = [],
-//       checkIn,
-//       checkOut,
-//       adults = 1,
-//       children = 0,
-//       priceDetails,
-//       couponId = null
-//     } = req.body;
-
-//     const totalGuests = Number(children) + Number(adults);
-//     const dates = getDatesBetween(checkIn, checkOut);
-
-//     let property = null;
-//     let selectedPolicy = null;
-//     let policySnapshot = null;
-//     let providerBreakdown = [];
-
-//     /* =================================================
-//        ❌ BLOCK INVALID SERVICE COMBINATION
-//     ================================================= */
-
-//     if (bookingType === "SERVICE" && propertyId) {
-//       return res.status(400).send({
-//         message: "SERVICE booking should not have property"
-//       });
-//     }
-
-//     /* =================================================
-//        PROPERTY VALIDATION + POLICY
-//     ================================================= */
-
-//     if (["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"].includes(bookingType)) {
-
-//       property = await Properties.findById(propertyId)
-//         .populate("cancellationPolicy")
-//         .select("maxGuests category user cancellationPolicy");
-
-//       if (!property) {
-//         return res.status(404).send({ message: "Property not found" });
-//       }
-
-//       if (totalGuests > property.maxGuests) {
-//         return res.status(400).send({
-//           message: `Maximum ${property.maxGuests} guests allowed`
-//         });
-//       }
-
-//       const bookedDates = await HotelAvailability.find({
-//         hotel: propertyId,
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedDates.length > 0) {
-//         return res.status(400).send({
-//           message: "Selected dates are not available"
-//         });
-//       }
-//     }
-
-//     /* =================================================
-//        SERVICE VALIDATION + POLICY
-//     ================================================= */
-
-//     let servicesData = [];
-
-//     if (services.length > 0) {
-
-//       const serviceIds = services.map(s => s.service);
-
-//       servicesData = await Service.find({
-//         _id: { $in: serviceIds }
-//       }).populate("cancellationPolicy");
-
-//       if (servicesData.length !== services.length) {
-//         return res.status(400).send({
-//           message: "Some services not found"
-//         });
-//       }
-
-//       const bookedServices = await ServiceAvailability.find({
-//         service: { $in: serviceIds },
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedServices.length > 0) {
-//         return res.status(400).send({
-//           message: "Some services are not available"
-//         });
-//       }
-//     }
-
-//     /* =================================================
-//        🔥 SELECT POLICY (IMPORTANT)
-//     ================================================= */
-
-//     let policies = [];
-
-//     if (property?.cancellationPolicy) {
-//       policies.push(property.cancellationPolicy);
-//     }
-
-//     servicesData.forEach(s => {
-//       if (s.cancellationPolicy) {
-//         policies.push(s.cancellationPolicy);
-//       }
-//     });
-
-//     if (policies.length > 0) {
-//       // 👉 choose STRICTEST (lowest refund rule)
-//       selectedPolicy = policies[0]; // simple for now (can improve later)
-
-//       policySnapshot = {
-//         name: selectedPolicy.name,
-//         rules: selectedPolicy.rules,
-//         cancellationFee: selectedPolicy.cancellationFee || 0
-//       };
-//     }
-
-//     /* =================================================
-//        PRICE CALCULATION
-//     ================================================= */
-
-//     let baseAmount = Number(priceDetails.finalAmount);
-
-//     const platformFeeRule = await PlatformFee.findOne({
-//       isActive: true,
-//       isDeleted: false
-//     });
-
-//     let platformFee = 0;
-
-//     if (platformFeeRule) {
-//       platformFee = platformFeeRule.feeType === "PERCENTAGE"
-//         ? (baseAmount * platformFeeRule.value) / 100
-//         : platformFeeRule.value;
-//     }
-
-//     const subTotal = baseAmount + platformFee;
-
-//     const taxRule = await Tax.findOne({
-//       isActive: true,
-//       isDeleted: false
-//     });
-
-//     const tax = taxRule ? (subTotal * taxRule.percentage) / 100 : 0;
-
-//     const totalAmount = subTotal + tax;
-
-//     /* =================================================
-//        COMMISSION
-//     ================================================= */
-
-//     let commissionRule = await Commission.findOne({
-//       scope: "CATEGORY",
-//       categoryId: property?.category,
-//       isActive: true,
-//       isDeleted: false
-//     }) || await Commission.findOne({
-//       scope: "GLOBAL",
-//       isActive: true,
-//       isDeleted: false
-//     });
-
-//     let commissionAmount = 0;
-
-//     if (commissionRule) {
-//       commissionAmount = commissionRule.commissionType === "PERCENTAGE"
-//         ? (baseAmount * commissionRule.value) / 100
-//         : commissionRule.value;
-//     }
-
-//     const providerAmount = baseAmount - commissionAmount;
-
-//     /* =================================================
-//        🔥 PROVIDER BREAKDOWN
-//     ================================================= */
-
-//     let serviceTotal = 0;
-
-//     for (const s of servicesData) {
-//       const item = services.find(x => x.service.toString() === s._id.toString());
-//       serviceTotal += item.price;
-//     }
-
-//     const propertyAmount = baseAmount - serviceTotal;
-
-//     if (property && propertyAmount > 0) {
-//       providerBreakdown.push({
-//         user: property.user,
-//         amount: propertyAmount,
-//         type: "property",
-//         referenceId: property._id
-//       });
-//     }
-
-//     servicesData.forEach(s => {
-//       const item = services.find(x => x.service.toString() === s._id.toString());
-
-//       providerBreakdown.push({
-//         user: s.user,
-//         amount: item.price,
-//         type: "service",
-//         referenceId: s._id
-//       });
-//     });
-
-//     /* =================================================
-//        ORDER ID
-//     ================================================= */
-
-//     const orderId = "ORD_" + uuidv4().slice(0, 8).toUpperCase();
-
-//     /* =================================================
-//        CREATE BOOKING
-//     ================================================= */
-
-//     const booking = await Booking.create({
-
-//       bookingType,
-//       user: req.user._id,
-
-//       property: bookingType === "SERVICE" ? null : propertyId,
-//       package: packageId || null,
-//       services,
-//       couponId,
-
-//       checkIn,
-//       checkOut,
-//       adults,
-//       children,
-
-//       priceBreakdown: {
-//         propertyPrice: priceDetails.basePrice,
-//         packagePrice: bookingType === "PACKAGE" ? priceDetails.basePrice : 0,
-//         servicePrice: priceDetails.servicesTotal
-//       },
-
-//       totalAmount,
-//       commissionAmount,
-//       providerAmount,
-//       platformFee,
-//       tax,
-
-//       /* 🔥 POLICY */
-//       cancellationPolicy: selectedPolicy?._id || null,
-//       policySnapshot,
-
-//       /* 🔥 PROVIDERS */
-//       providerBreakdown,
-
-//       orderId,
-
-//       paymentStatus: "pending",
-//       bookingStatus: "pending",
-//       pendingReason: "payment_pending"
-//     });
-
-//     return res.status(201).send({
-//       message: "Booking created successfully",
-//       bookingId: booking._id,
-//       orderId,
-//       totalAmount,
-//       totalGuests
-//     });
-
-//   } catch (error) {
-//     return res.status(500).send({
-//       message: error.message
-//     });
-//   }
-// };
-
-// exports.createBooking = async (req, res) => {
-//   try {
-
-//     const {
-//       bookingType,
-//       propertyId,
-//       packageId,
-//       services = [],
-//       checkIn,
-//       checkOut,
-//       adults = 1,
-//       children = 0,
-//       priceDetails,
-//       couponId = null
-//     } = req.body;
-
-//     const totalGuests = Number(children) + Number(adults);
-
-//     const dates = getDatesBetween(checkIn, checkOut);
-
-//     let property = null;
-
-//     let selectedPolicy = null;
-
-//     let policySnapshot = null;
-
-//     let providerBreakdown = [];
-
-//     /* =================================================
-//        ❌ BLOCK INVALID SERVICE COMBINATION
-//     ================================================= */
-
-//     if (bookingType === "SERVICE" && propertyId) {
-//       return res.status(400).send({
-//         message: "SERVICE booking should not have property"
-//       });
-//     }
-
-//     /* =================================================
-//        PROPERTY VALIDATION + POLICY
-//     ================================================= */
-
-//     if (
-//       ["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"]
-//         .includes(bookingType)
-//     ) {
-
-//       property = await Properties.findById(propertyId)
-//         .populate("cancellationPolicy")
-//         .select(
-//           "maxGuests category user cancellationPolicy"
-//         );
-
-//       if (!property) {
-//         return res.status(404).send({
-//           message: "Property not found"
-//         });
-//       }
-
-//       // ✅ only property bookings validate guests
-//       if (totalGuests > property.maxGuests) {
-//         return res.status(400).send({
-//           message: `Maximum ${property.maxGuests} guests allowed`
-//         });
-//       }
-
-//       const bookedDates = await HotelAvailability.find({
-//         hotel: propertyId,
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedDates.length > 0) {
-//         return res.status(400).send({
-//           message: "Selected dates are not available"
-//         });
-//       }
-//     }
-
-//     /* =================================================
-//        SERVICE VALIDATION + POLICY
-//     ================================================= */
-
-//     let servicesData = [];
-
-//     if (services.length > 0) {
-
-//       const serviceIds = services.map(
-//         s => s.service
-//       );
-
-//       servicesData = await Service.find({
-//         _id: { $in: serviceIds }
-//       }).populate("cancellationPolicy");
-
-//       if (servicesData.length !== services.length) {
-//         return res.status(400).send({
-//           message: "Some services not found"
-//         });
-//       }
-
-//       const bookedServices =
-//         await ServiceAvailability.find({
-//           service: { $in: serviceIds },
-//           date: { $in: dates },
-//           isBooked: true
-//         });
-
-//       if (bookedServices.length > 0) {
-//         return res.status(400).send({
-//           message: "Some services are not available"
-//         });
-//       }
-
-//       // ✅ validate service maxPersons
-
-//       for (const service of servicesData) {
-
-//         if (
-//           service.priceType === "flat" &&
-//           totalGuests > (service.maxPersons || 1)
-//         ) {
-//           return res.status(400).send({
-//             message:
-//               `${service.name} allows maximum ` +
-//               `${service.maxPersons} persons`
-//           });
-//         }
-//       }
-//     }
-
-//     /* =================================================
-//        🔥 SELECT POLICY
-//     ================================================= */
-
-//     let policies = [];
-
-//     if (property?.cancellationPolicy) {
-//       policies.push(property.cancellationPolicy);
-//     }
-
-//     servicesData.forEach(s => {
-//       if (s.cancellationPolicy) {
-//         policies.push(s.cancellationPolicy);
-//       }
-//     });
-
-//     if (policies.length > 0) {
-
-//       // 👉 choose strictest later if needed
-//       selectedPolicy = policies[0];
-
-//       policySnapshot = {
-//         name: selectedPolicy.name,
-//         rules: selectedPolicy.rules,
-//         cancellationFee:
-//           selectedPolicy.cancellationFee || 0,
-
-//         // ✅ NEW SERVICE POLICIES
-//         servicePolicies: servicesData.map(s => ({
-//           serviceId: s._id,
-//           serviceName: s.name,
-//           policies: s.policies || []
-//         }))
-//       };
-//     }
-
-//     /* =================================================
-//        PRICE CALCULATION
-//     ================================================= */
-
-//     // ⚠️ currently frontend controlled
-//     // recommended later: calculate on backend
-//     let baseAmount = Number(
-//       priceDetails.finalAmount
-//     );
-
-//     const platformFeeRule =
-//       await PlatformFee.findOne({
-//         isActive: true,
-//         isDeleted: false
-//       });
-
-//     let platformFee = 0;
-
-//     if (platformFeeRule) {
-
-//       platformFee =
-//         platformFeeRule.feeType === "PERCENTAGE"
-//           ? (baseAmount * platformFeeRule.value) / 100
-//           : platformFeeRule.value;
-//     }
-
-//     const subTotal = baseAmount + platformFee;
-
-//     const taxRule = await Tax.findOne({
-//       isActive: true,
-//       isDeleted: false
-//     });
-
-//     const tax = taxRule
-//       ? (subTotal * taxRule.percentage) / 100
-//       : 0;
-
-//     const totalAmount = subTotal + tax;
-
-//     /* =================================================
-//        COMMISSION
-//     ================================================= */
-
-//     let commissionRule =
-//       await Commission.findOne({
-//         scope: "CATEGORY",
-//         categoryId: property?.category,
-//         isActive: true,
-//         isDeleted: false
-//       }) ||
-
-//       await Commission.findOne({
-//         scope: "GLOBAL",
-//         isActive: true,
-//         isDeleted: false
-//       });
-
-//     let commissionAmount = 0;
-
-//     if (commissionRule) {
-
-//       commissionAmount =
-//         commissionRule.commissionType === "PERCENTAGE"
-//           ? (baseAmount * commissionRule.value) / 100
-//           : commissionRule.value;
-//     }
-
-//     const providerAmount =
-//       baseAmount - commissionAmount;
-
-//     /* =================================================
-//        🔥 PROVIDER BREAKDOWN
-//     ================================================= */
-
-//     let serviceTotal = 0;
-
-//     for (const s of servicesData) {
-
-//       const item = services.find(
-//         x => x.service.toString() === s._id.toString()
-//       );
-
-//       serviceTotal += item.price;
-//     }
-
-//     const propertyAmount =
-//       baseAmount - serviceTotal;
-
-//     if (property && propertyAmount > 0) {
-
-//       providerBreakdown.push({
-//         user: property.user,
-//         amount: propertyAmount,
-//         type: "property",
-//         referenceId: property._id
-//       });
-//     }
-
-//     servicesData.forEach(s => {
-
-//       const item = services.find(
-//         x => x.service.toString() === s._id.toString()
-//       );
-
-//       providerBreakdown.push({
-//         user: s.user,
-//         amount: item.price,
-//         type: "service",
-//         referenceId: s._id
-//       });
-//     });
-
-//     /* =================================================
-//        ORDER ID
-//     ================================================= */
-
-//     const orderId =
-//       "ORD_" +
-//       uuidv4().slice(0, 8).toUpperCase();
-
-//     /* =================================================
-//        CREATE BOOKING
-//     ================================================= */
-
-//     const booking = await Booking.create({
-
-//       bookingType,
-
-//       user: req.user._id,
-
-//       property:
-//         bookingType === "SERVICE"
-//           ? null
-//           : propertyId,
-
-//       package: packageId || null,
-
-//       services,
-
-//       couponId,
-
-//       checkIn,
-
-//       checkOut,
-
-//       adults,
-
-//       children,
-
-//       priceBreakdown: {
-
-//         propertyPrice:
-//           priceDetails.basePrice,
-
-//         packagePrice:
-//           bookingType === "PACKAGE"
-//             ? priceDetails.basePrice
-//             : 0,
-
-//         servicePrice:
-//           priceDetails.servicesTotal
-//       },
-
-//       totalAmount,
-
-//       commissionAmount,
-
-//       providerAmount,
-
-//       platformFee,
-
-//       tax,
-
-//       /* 🔥 POLICY */
-
-//       cancellationPolicy:
-//         selectedPolicy?._id || null,
-
-//       policySnapshot,
-
-//       /* 🔥 PROVIDERS */
-
-//       providerBreakdown,
-
-//       orderId,
-
-//       paymentStatus: "pending",
-
-//       bookingStatus: "pending",
-
-//       pendingReason: "payment_pending"
-//     });
-
-//     return res.status(201).send({
-//       message: "Booking created successfully",
-//       bookingId: booking._id,
-//       orderId,
-//       totalAmount,
-//       totalGuests
-//     });
-
-//   } catch (error) {
-
-//     return res.status(500).send({
-//       message: error.message
-//     });
-
-//   }
-// };
-
-
-
 exports.createBooking = async (req, res) => {
   try {
 
@@ -1577,6 +911,10 @@ exports.createBooking = async (req, res) => {
 
     let commissionAmount = 0;
 
+    let propertyCommissionAmount = 0;
+
+    const serviceCommissionMap = {};
+
     /* ---------------- PROPERTY COMMISSION ---------------- */
 
     if (property && propertyAmount > 0) {
@@ -1600,13 +938,13 @@ exports.createBooking = async (req, res) => {
 
       if (propertyCommissionRule) {
 
-        const propertyCommission =
+        propertyCommissionAmount =
 
           propertyCommissionRule.commissionType === "PERCENTAGE"
             ? (propertyAmount * propertyCommissionRule.value) / 100
             : propertyCommissionRule.value;
 
-        commissionAmount += propertyCommission;
+        commissionAmount += propertyCommissionAmount;
       }
     }
 
@@ -1650,9 +988,11 @@ exports.createBooking = async (req, res) => {
           isDeleted: false
         });
 
+      let serviceCommission = 0;
+
       if (serviceCommissionRule) {
 
-        const serviceCommission =
+        serviceCommission =
 
           serviceCommissionRule.commissionType === "PERCENTAGE"
             ? (serviceAmount * serviceCommissionRule.value) / 100
@@ -1660,6 +1000,9 @@ exports.createBooking = async (req, res) => {
 
         commissionAmount += serviceCommission;
       }
+
+      serviceCommissionMap[s._id.toString()] =
+        serviceCommission;
     }
 
     /* =================================================
@@ -1677,7 +1020,9 @@ exports.createBooking = async (req, res) => {
 
       providerBreakdown.push({
         user: property.user,
-        amount: propertyAmount,
+        amount:
+          propertyAmount -
+          propertyCommissionAmount,
         type: "property",
         referenceId: property._id
       });
@@ -1689,9 +1034,17 @@ exports.createBooking = async (req, res) => {
         x => x.service.toString() === s._id.toString()
       );
 
+      if (!item) return;
+
+      const serviceCommission =
+        serviceCommissionMap[
+          s._id.toString()
+        ] || 0;
+
       providerBreakdown.push({
         user: s.user,
-        amount: item.price,
+        amount:
+          item.price - serviceCommission,
         type: "service",
         referenceId: s._id
       });

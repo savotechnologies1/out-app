@@ -3798,372 +3798,8 @@ const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
 // ======================================================
 
 
-const getTopRatedProperties = catchAsyncError(async (req, res) => {
+// const getTopRatedProperties = catchAsyncError(async (req, res) => {
 
-  const {
-    lat,
-    lng,
-    radius = 50000,
-    limit = 10,
-    lastId
-  } = req.query;
-
-  if (!lat || !lng) {
-    return res.status(400).json({
-      success: false,
-      message: "Latitude and longitude are required"
-    });
-  }
-  const parsedRadius = Math.min(
-    Number(radius) || 50000,
-    50000
-  );
-
-  const parsedLimit = Math.min(
-    Number(limit) || 10,
-    50
-  );
-  const pipeline = [
-
-    // 🔥 Geo Near
-
-    {
-      $geoNear: {
-
-        key: "address.location",
-
-        near: {
-          type: "Point",
-          coordinates: [
-            Number(lng),
-            Number(lat)
-          ]
-        },
-
-        distanceField: "distance",
-
-        maxDistance: parsedRadius,
-
-        spherical: true,
-
-        includeLocs: "address.location",
-
-        query: {
-          isDeleted: false,
-          is_completed: true,
-          approvalStatus: "approved",
-
-          "address.location.coordinates": {
-            $exists: true
-          }
-        }
-
-      }
-    }
-
-  ];
-
-  // 🔥 Cursor Pagination
-  if (
-    lastId &&
-    mongoose.Types.ObjectId.isValid(lastId)
-  ) {
-    pipeline.push({
-      $match: {
-        _id: {
-          $lt: new mongoose.Types.ObjectId(lastId)
-        }
-      }
-    });
-  }
-
-  // 🔥 Reviews Lookup
-  pipeline.push({
-
-    $lookup: {
-      from: "reviews",
-
-      let: {
-        propertyId: "$_id"
-      },
-
-      pipeline: [
-
-        {
-          $match: {
-            $expr: {
-              $and: [
-                {
-                  $eq: [
-                    "$property",
-                    "$$propertyId"
-                  ]
-                },
-                {
-                  $eq: [
-                    "$isDeleted",
-                    false
-                  ]
-                }
-              ]
-            }
-          }
-        },
-
-        {
-          $group: {
-            _id: null,
-
-            averageRating: {
-              $avg: "$rating"
-            },
-
-            totalReviews: {
-              $sum: 1
-            }
-          }
-        }
-
-      ],
-
-      as: "ratingData"
-    }
-
-  });
-
-  // 🔥 Add Rating Fields
-  pipeline.push({
-
-    $addFields: {
-
-      averageRating: {
-        $ifNull: [
-          {
-            $round: [
-              {
-                $arrayElemAt: [
-                  "$ratingData.averageRating",
-                  0
-                ]
-              },
-              1
-            ]
-          },
-          0
-        ]
-      },
-
-      totalReviews: {
-        $ifNull: [
-          {
-            $arrayElemAt: [
-              "$ratingData.totalReviews",
-              0
-            ]
-          },
-          0
-        ]
-      }
-
-    }
-
-  });
-
-  // 🔥 Sort
-  pipeline.push({
-
-    $sort: {
-      averageRating: -1,
-      totalReviews: -1,
-      distance: 1,
-      createdAt: -1
-    }
-
-  });
-
-  // 🔥 Limit
-  pipeline.push({
-    $limit: Number(limit)
-  });
-
-  // 🔥 Remove unwanted fields
-  pipeline.push({
-    $project: {
-      ratingData: 0
-    }
-  });
-
-  const data = await Properties.aggregate(pipeline);
-
-  // 🔥 Next Cursor
-  let nextCursor = null;
-
-  if (data.length > 0) {
-    nextCursor = data[data.length - 1]._id;
-  }
-
-  return res.status(200).json({
-    success: true,
-    nextCursor,
-    count: data.length,
-    data
-  });
-
-});
-
-
-// ======================================================
-// 3. RECOMMENDED PROPERTIES
-// ======================================================
-
-
-const getRecommendedProperties = catchAsyncError(async (req, res) => {
-
-  const {
-    lat,
-    lng,
-    radius = 50000,
-    limit = 10,
-    lastId
-  } = req.query;
-
-  // ✅ Validate coordinates
-  if (!lat || !lng) {
-    return res.status(400).json({
-      success: false,
-      message: "Latitude and longitude are required"
-    });
-  }
-
-  // ✅ Radius in meters
-  // 5000 = 5KM
-  // 10000 = 10KM
-  // 50000 = 50KM
-
-  const parsedRadius = Number(radius) || 50000;
-
-  // ✅ Pagination limit
-  const parsedLimit = Math.min(
-    Number(limit) || 10,
-    50
-  );
-
-  const pipeline = [
-
-    // ✅ Create circle around user coordinates
-    {
-      $geoNear: {
-
-        near: {
-          type: "Point",
-
-          // IMPORTANT:
-          // [ longitude, latitude ]
-          coordinates: [
-            Number(lng),
-            Number(lat)
-          ]
-        },
-
-        key: "address.location",
-
-        distanceField: "distance",
-
-        // ✅ Circle radius
-        maxDistance: parsedRadius,
-
-        spherical: true,
-
-        query: {
-
-          isRecommended: true,
-          isDeleted: false,
-          is_completed: true,
-          approvalStatus: "approved",
-
-          // ✅ Only valid geo docs
-          "address.location.coordinates": {
-            $exists: true,
-            $ne: []
-          }
-        }
-
-      }
-    }
-
-  ];
-
-  // ✅ Cursor pagination
-  if (
-    lastId &&
-    mongoose.Types.ObjectId.isValid(lastId)
-  ) {
-
-    pipeline.push({
-      $match: {
-        _id: {
-          $lt: new mongoose.Types.ObjectId(lastId)
-        }
-      }
-    });
-
-  }
-
-  // ✅ Distance in KM
-  pipeline.push({
-    $addFields: {
-
-      distanceInKm: {
-        $round: [
-          {
-            $divide: [
-              "$distance",
-              1000
-            ]
-          },
-          2
-        ]
-      }
-
-    }
-  });
-
-  // ✅ Sort nearest first
-  pipeline.push({
-    $sort: {
-      distance: 1,
-      createdAt: -1
-    }
-  });
-
-  // ✅ Limit data
-  pipeline.push({
-    $limit: parsedLimit
-  });
-
-  const data = await Properties.aggregate(pipeline);
-
-  // ✅ Next cursor
-  let nextCursor = null;
-
-  if (data.length > 0) {
-    nextCursor = data[data.length - 1]._id;
-  }
-
-  return res.status(200).json({
-    success: true,
-    radius: parsedRadius,
-    count: data.length,
-    nextCursor,
-    data
-  });
-});
-
-// ======================================================
-// 4. NEAR YOU PROPERTIES
-// ======================================================
-
-// const getNearYouProperties = catchAsyncError(async (req, res) => {
 //   const {
 //     lat,
 //     lng,
@@ -4178,9 +3814,8 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 //       message: "Latitude and longitude are required"
 //     });
 //   }
-
 //   const parsedRadius = Math.min(
-//     Number(radius) || 5000,
+//     Number(radius) || 50000,
 //     50000
 //   );
 
@@ -4188,10 +3823,10 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 //     Number(limit) || 10,
 //     50
 //   );
-
 //   const pipeline = [
 
-//     // 🔥 GEO NEAR
+//     // 🔥 Geo Near
+
 //     {
 //       $geoNear: {
 
@@ -4242,7 +3877,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 //     });
 //   }
 
-//   // 🔥 Ratings Lookup
+//   // 🔥 Reviews Lookup
 //   pipeline.push({
 
 //     $lookup: {
@@ -4296,7 +3931,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
 //   });
 
-//   // 🔥 Add Ratings
+//   // 🔥 Add Rating Fields
 //   pipeline.push({
 
 //     $addFields: {
@@ -4334,10 +3969,12 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
 //   });
 
-//   // 🔥 Sort nearest first
+//   // 🔥 Sort
 //   pipeline.push({
 
 //     $sort: {
+//       averageRating: -1,
+//       totalReviews: -1,
 //       distance: 1,
 //       createdAt: -1
 //     }
@@ -4346,7 +3983,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
 //   // 🔥 Limit
 //   pipeline.push({
-//     $limit: parsedLimit
+//     $limit: Number(limit)
 //   });
 
 //   // 🔥 Remove unwanted fields
@@ -4374,31 +4011,44 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
 // });
 
-const getNearYouProperties = catchAsyncError(async (req, res) => {
+const getTopRatedProperties = catchAsyncError(async (req, res) => {
 
   const {
     lat,
     lng,
     limit = 10,
-    lastId
+    page = 1
   } = req.query;
 
+  // ✅ VALIDATION
   if (!lat || !lng) {
+
     return res.status(400).json({
       success: false,
       message: "Latitude and longitude are required"
     });
+
   }
 
+  // ✅ LIMIT
   const parsedLimit = Math.min(
     Number(limit) || 10,
     50
   );
 
+  // ✅ PAGE
+  const parsedPage = Math.max(
+    Number(page) || 1,
+    1
+  );
+
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  // ✅ PIPELINE
   const pipeline = [
 
     // ✅ GEO SEARCH
-    // nearest properties come first automatically
+    // Automatically nearest → farthest
     {
       $geoNear: {
 
@@ -4419,243 +4069,858 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
         includeLocs: "address.location",
 
         query: {
+
           isDeleted: false,
+
           is_completed: true,
+
           approvalStatus: "approved",
 
           "address.location.coordinates": {
             $exists: true,
             $ne: []
           }
+
         }
 
+      }
+    },
+
+    // ✅ REVIEWS LOOKUP
+    {
+      $lookup: {
+
+        from: "reviews",
+
+        let: {
+          propertyId: "$_id"
+        },
+
+        pipeline: [
+
+          {
+            $match: {
+
+              $expr: {
+
+                $and: [
+
+                  {
+                    $eq: [
+                      "$property",
+                      "$$propertyId"
+                    ]
+                  },
+
+                  {
+                    $eq: [
+                      "$isDeleted",
+                      false
+                    ]
+                  }
+
+                ]
+
+              }
+
+            }
+          },
+
+          {
+            $group: {
+
+              _id: null,
+
+              averageRating: {
+                $avg: "$rating"
+              },
+
+              totalReviews: {
+                $sum: 1
+              }
+
+            }
+          }
+
+        ],
+
+        as: "ratingData"
+
+      }
+    },
+
+    // ✅ ADD FIELDS
+    {
+      $addFields: {
+
+        distanceInKm: {
+
+          $round: [
+
+            {
+              $divide: [
+                "$distance",
+                1000
+              ]
+            },
+
+            2
+
+          ]
+
+        },
+
+        averageRating: {
+
+          $ifNull: [
+
+            {
+              $round: [
+
+                {
+                  $arrayElemAt: [
+                    "$ratingData.averageRating",
+                    0
+                  ]
+                },
+
+                1
+
+              ]
+            },
+
+            0
+
+          ]
+
+        },
+
+        totalReviews: {
+
+          $ifNull: [
+
+            {
+              $arrayElemAt: [
+                "$ratingData.totalReviews",
+                0
+              ]
+            },
+
+            0
+
+          ]
+
+        }
+
+      }
+    },
+
+    // ✅ SORT
+    // nearest first
+    {
+      $sort: {
+        distance: 1,
+        averageRating: -1,
+        totalReviews: -1
+      }
+    },
+
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+
+    {
+      $limit: parsedLimit
+    },
+
+    // ✅ REMOVE UNWANTED FIELDS
+    {
+      $project: {
+        ratingData: 0
       }
     }
 
   ];
 
-  // ✅ CURSOR PAGINATION
-  if (
-    lastId &&
-    mongoose.Types.ObjectId.isValid(lastId)
-  ) {
+  // ✅ EXECUTE
+  const data = await Properties.aggregate(pipeline);
 
-    pipeline.push({
-      $match: {
-        _id: {
-          $lt: new mongoose.Types.ObjectId(lastId)
-        }
-      }
+  // ✅ TOTAL COUNT
+  const total = await Properties.countDocuments({
+
+    isDeleted: false,
+
+    is_completed: true,
+
+    approvalStatus: "approved",
+
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+
+  });
+
+  // ✅ RESPONSE
+  return res.status(200).json({
+
+    success: true,
+
+    page: parsedPage,
+
+    limit: parsedLimit,
+
+    total,
+
+    totalPages: Math.ceil(total / parsedLimit),
+
+    count: data.length,
+
+    data
+
+  });
+
+});
+
+// ======================================================
+// 3. RECOMMENDED PROPERTIES
+// ======================================================
+
+
+// const getRecommendedProperties = catchAsyncError(async (req, res) => {
+
+//   const {
+//     lat,
+//     lng,
+//     radius = 50000,
+//     limit = 10,
+//     lastId
+//   } = req.query;
+
+//   // ✅ Validate coordinates
+//   if (!lat || !lng) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Latitude and longitude are required"
+//     });
+//   }
+
+//   // ✅ Radius in meters
+//   // 5000 = 5KM
+//   // 10000 = 10KM
+//   // 50000 = 50KM
+
+//   const parsedRadius = Number(radius) || 50000;
+
+//   // ✅ Pagination limit
+//   const parsedLimit = Math.min(
+//     Number(limit) || 10,
+//     50
+//   );
+
+//   const pipeline = [
+
+//     // ✅ Create circle around user coordinates
+//     {
+//       $geoNear: {
+
+//         near: {
+//           type: "Point",
+
+//           // IMPORTANT:
+//           // [ longitude, latitude ]
+//           coordinates: [
+//             Number(lng),
+//             Number(lat)
+//           ]
+//         },
+
+//         key: "address.location",
+
+//         distanceField: "distance",
+
+//         // ✅ Circle radius
+//         maxDistance: parsedRadius,
+
+//         spherical: true,
+
+//         query: {
+
+//           isRecommended: true,
+//           isDeleted: false,
+//           is_completed: true,
+//           approvalStatus: "approved",
+
+//           // ✅ Only valid geo docs
+//           "address.location.coordinates": {
+//             $exists: true,
+//             $ne: []
+//           }
+//         }
+
+//       }
+//     }
+
+//   ];
+
+//   // ✅ Cursor pagination
+//   if (
+//     lastId &&
+//     mongoose.Types.ObjectId.isValid(lastId)
+//   ) {
+
+//     pipeline.push({
+//       $match: {
+//         _id: {
+//           $lt: new mongoose.Types.ObjectId(lastId)
+//         }
+//       }
+//     });
+
+//   }
+
+//   // ✅ Distance in KM
+//   pipeline.push({
+//     $addFields: {
+
+//       distanceInKm: {
+//         $round: [
+//           {
+//             $divide: [
+//               "$distance",
+//               1000
+//             ]
+//           },
+//           2
+//         ]
+//       }
+
+//     }
+//   });
+
+//   // ✅ Sort nearest first
+//   pipeline.push({
+//     $sort: {
+//       distance: 1,
+//       createdAt: -1
+//     }
+//   });
+
+//   // ✅ Limit data
+//   pipeline.push({
+//     $limit: parsedLimit
+//   });
+
+//   const data = await Properties.aggregate(pipeline);
+
+//   // ✅ Next cursor
+//   let nextCursor = null;
+
+//   if (data.length > 0) {
+//     nextCursor = data[data.length - 1]._id;
+//   }
+
+//   return res.status(200).json({
+//     success: true,
+//     radius: parsedRadius,
+//     count: data.length,
+//     nextCursor,
+//     data
+//   });
+// });
+
+const getRecommendedProperties = catchAsyncError(async (req, res) => {
+
+  const {
+    lat,
+    lng,
+    limit = 10,
+    page = 1
+  } = req.query;
+
+  // ✅ VALIDATE COORDINATES
+  if (!lat || !lng) {
+
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
     });
 
   }
 
-  // ✅ BOOKMARK LOOKUP
-  pipeline.push({
+  // ✅ PAGINATION
+  const parsedLimit = Math.min(
+    Number(limit) || 10,
+    50
+  );
 
-    $lookup: {
+  const parsedPage = Math.max(
+    Number(page) || 1,
+    1
+  );
 
-      from: "bookmarks",
+  const skip = (parsedPage - 1) * parsedLimit;
 
-      let: {
-        propertyId: "$_id"
-      },
+  // ✅ PIPELINE
+  const pipeline = [
 
-      pipeline: [
-        {
-          $match: {
-            $expr: {
-              $and: [
+    // ✅ GEO SEARCH
+    // Automatically nearest → farthest
+    {
+      $geoNear: {
 
-                {
-                  $eq: [
-                    "$property",
-                    "$$propertyId"
-                  ]
-                },
+        near: {
+          type: "Point",
 
-                {
-                  $eq: [
-                    "$user",
-                    new mongoose.Types.ObjectId(req.user._id)
-                  ]
-                },
-
-                {
-                  $eq: [
-                    "$isDeleted",
-                    false
-                  ]
-                }
-
-              ]
-            }
-          }
-        }
-      ],
-
-      as: "bookmarkData"
-    }
-
-  });
-
-  // ✅ RATINGS LOOKUP
-  pipeline.push({
-
-    $lookup: {
-
-      from: "reviews",
-
-      let: {
-        propertyId: "$_id"
-      },
-
-      pipeline: [
-
-        {
-          $match: {
-            $expr: {
-              $and: [
-
-                {
-                  $eq: [
-                    "$property",
-                    "$$propertyId"
-                  ]
-                },
-
-                {
-                  $eq: [
-                    "$isDeleted",
-                    false
-                  ]
-                }
-
-              ]
-            }
-          }
+          // IMPORTANT:
+          // [ longitude, latitude ]
+          coordinates: [
+            Number(lng),
+            Number(lat)
+          ]
         },
 
-        {
-          $group: {
+        key: "address.location",
 
-            _id: null,
+        distanceField: "distance",
 
-            averageRating: {
-              $avg: "$rating"
-            },
+        spherical: true,
 
-            totalReviews: {
-              $sum: 1
-            }
+        query: {
 
+          isRecommended: true,
+
+          isDeleted: false,
+
+          is_completed: true,
+
+          approvalStatus: "approved",
+
+          // ✅ VALID GEO DOCS
+          "address.location.coordinates": {
+            $exists: true,
+            $ne: []
           }
+
         }
 
-      ],
-
-      as: "ratingData"
-    }
-
-  });
-
-  // ✅ ADD EXTRA FIELDS
-  pipeline.push({
-
-    $addFields: {
-
-      // distance in KM
-      distance: {
-        $round: [
-          {
-            $divide: ["$distance", 1000]
-          },
-          2
-        ]
-      },
-
-      isFavorite: {
-        $gt: [
-          {
-            $size: "$bookmarkData"
-          },
-          0
-        ]
-      },
-
-      averageRating: {
-        $ifNull: [
-          {
-            $round: [
-              {
-                $arrayElemAt: [
-                  "$ratingData.averageRating",
-                  0
-                ]
-              },
-              1
-            ]
-          },
-          0
-        ]
-      },
-
-      totalReviews: {
-        $ifNull: [
-          {
-            $arrayElemAt: [
-              "$ratingData.totalReviews",
-              0
-            ]
-          },
-          0
-        ]
       }
+    },
 
+    // ✅ DISTANCE IN KM
+    {
+      $addFields: {
+
+        distanceInKm: {
+
+          $round: [
+
+            {
+              $divide: [
+                "$distance",
+                1000
+              ]
+            },
+
+            2
+
+          ]
+
+        }
+
+      }
+    },
+
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+
+    {
+      $limit: parsedLimit
+    },
+
+    // ✅ REMOVE RAW DISTANCE
+    {
+      $project: {
+        distance: 0
+      }
     }
 
-  });
+  ];
 
-  // ✅ SORT
-  // nearest first
-  pipeline.push({
-
-    $sort: {
-      distance: 1,
-      createdAt: -1
-    }
-
-  });
-
-  // ✅ LIMIT
-  pipeline.push({
-    $limit: parsedLimit
-  });
-
-  // ✅ REMOVE UNWANTED FIELDS
-  pipeline.push({
-
-    $project: {
-      ratingData: 0,
-      bookmarkData: 0
-    }
-
-  });
-
+  // ✅ GET DATA
   const data = await Properties.aggregate(pipeline);
 
-  // ✅ NEXT CURSOR
-  let nextCursor = null;
+  // ✅ TOTAL COUNT
+  const total = await Properties.countDocuments({
 
-  if (data.length > 0) {
-    nextCursor = data[data.length - 1]._id;
+    isRecommended: true,
+
+    isDeleted: false,
+
+    is_completed: true,
+
+    approvalStatus: "approved",
+
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+
+  });
+
+  // ✅ RESPONSE
+  return res.status(200).json({
+
+    success: true,
+
+    page: parsedPage,
+
+    limit: parsedLimit,
+
+    total,
+
+    totalPages: Math.ceil(total / parsedLimit),
+
+    count: data.length,
+
+    data
+
+  });
+
+});
+
+// ======================================================
+// 4. NEAR YOU PROPERTIES
+// ======================================================
+
+const getNearYouProperties = catchAsyncError(async (req, res) => {
+
+  const {
+    lat,
+    lng,
+    limit = 10,
+    page = 1
+  } = req.query;
+
+  // ✅ VALIDATION
+  if (!lat || !lng) {
+
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+
   }
 
+  const parsedLimit = Math.min(
+    Number(limit) || 10,
+    50
+  );
+
+  const parsedPage = Math.max(
+    Number(page) || 1,
+    1
+  );
+
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  // ✅ PIPELINE
+  const pipeline = [
+
+    // ✅ GEO SEARCH
+    // automatically nearest → farthest
+    {
+      $geoNear: {
+
+        key: "address.location",
+
+        near: {
+          type: "Point",
+          coordinates: [
+            Number(lng),
+            Number(lat)
+          ]
+        },
+
+        distanceField: "distance",
+
+        spherical: true,
+
+        includeLocs: "address.location",
+
+        query: {
+
+          isDeleted: false,
+
+          is_completed: true,
+
+          approvalStatus: "approved",
+
+          "address.location.coordinates": {
+            $exists: true,
+            $ne: []
+          }
+
+        }
+
+      }
+    },
+
+    // ✅ BOOKMARK LOOKUP
+    {
+      $lookup: {
+
+        from: "bookmarks",
+
+        let: {
+          propertyId: "$_id"
+        },
+
+        pipeline: [
+
+          {
+            $match: {
+
+              $expr: {
+
+                $and: [
+
+                  {
+                    $eq: [
+                      "$property",
+                      "$$propertyId"
+                    ]
+                  },
+
+                  {
+                    $eq: [
+                      "$user",
+                      new mongoose.Types.ObjectId(req.user._id)
+                    ]
+                  },
+
+                  {
+                    $eq: [
+                      "$isDeleted",
+                      false
+                    ]
+                  }
+
+                ]
+
+              }
+
+            }
+          }
+
+        ],
+
+        as: "bookmarkData"
+
+      }
+    },
+
+    // ✅ REVIEW LOOKUP
+    {
+      $lookup: {
+
+        from: "reviews",
+
+        let: {
+          propertyId: "$_id"
+        },
+
+        pipeline: [
+
+          {
+            $match: {
+
+              $expr: {
+
+                $and: [
+
+                  {
+                    $eq: [
+                      "$property",
+                      "$$propertyId"
+                    ]
+                  },
+
+                  {
+                    $eq: [
+                      "$isDeleted",
+                      false
+                    ]
+                  }
+
+                ]
+
+              }
+
+            }
+          },
+
+          {
+            $group: {
+
+              _id: null,
+
+              averageRating: {
+                $avg: "$rating"
+              },
+
+              totalReviews: {
+                $sum: 1
+              }
+
+            }
+          }
+
+        ],
+
+        as: "ratingData"
+
+      }
+    },
+
+    // ✅ EXTRA FIELDS
+    {
+      $addFields: {
+
+        distance: {
+
+          $round: [
+
+            {
+              $divide: [
+                "$distance",
+                1000
+              ]
+            },
+
+            2
+
+          ]
+
+        },
+
+        isFavorite: {
+
+          $gt: [
+
+            {
+              $size: "$bookmarkData"
+            },
+
+            0
+
+          ]
+
+        },
+
+        averageRating: {
+
+          $ifNull: [
+
+            {
+              $round: [
+
+                {
+                  $arrayElemAt: [
+                    "$ratingData.averageRating",
+                    0
+                  ]
+                },
+
+                1
+
+              ]
+            },
+
+            0
+
+          ]
+
+        },
+
+        totalReviews: {
+
+          $ifNull: [
+
+            {
+              $arrayElemAt: [
+                "$ratingData.totalReviews",
+                0
+              ]
+            },
+
+            0
+
+          ]
+
+        }
+
+      }
+    },
+
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+
+    {
+      $limit: parsedLimit
+    },
+
+    // ✅ REMOVE FIELDS
+    {
+      $project: {
+        ratingData: 0,
+        bookmarkData: 0
+      }
+    }
+
+  ];
+
+  // ✅ EXECUTE
+  const data = await Properties.aggregate(pipeline);
+
+  // ✅ TOTAL COUNT
+  const total = await Properties.countDocuments({
+
+    isDeleted: false,
+
+    is_completed: true,
+
+    approvalStatus: "approved",
+
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+
+  });
+
+  // ✅ RESPONSE
   return res.status(200).json({
+
     success: true,
-    nextCursor,
+
+    page: parsedPage,
+
+    limit: parsedLimit,
+
+    total,
+
+    totalPages: Math.ceil(total / parsedLimit),
+
     count: data.length,
+
     data
+
   });
 
 });
