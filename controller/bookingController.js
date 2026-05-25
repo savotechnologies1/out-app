@@ -643,6 +643,38 @@ exports.checkAvailability = async (req, res) => {
     }
 
     /* =================================================
+     PLATFORM FEE + TAX
+  ================================================= */
+
+    const platformFeeRule =
+      await PlatformFee.findOne({
+        isActive: true,
+        isDeleted: false
+      });
+
+    let platformFee = 0;
+
+    if (platformFeeRule) {
+
+      platformFee =
+        platformFeeRule.feeType === "PERCENTAGE"
+          ? (finalAmount * platformFeeRule.value) / 100
+          : platformFeeRule.value;
+    }
+
+    const taxRule = await Tax.findOne({
+      isActive: true,
+      isDeleted: false
+    });
+
+    const tax = taxRule
+      ? ((finalAmount) * taxRule.percentage) / 100
+      : 0;
+
+    const grandTotal =
+      finalAmount + platformFee + tax;
+
+    /* =================================================
        RESPONSE
     ================================================= */
 
@@ -664,7 +696,13 @@ exports.checkAvailability = async (req, res) => {
 
         discountAmount,
 
-        finalAmount
+        finalAmount,
+
+        platformFee,
+
+        tax,
+
+        grandTotal
       },
 
       couponId
@@ -679,6 +717,8 @@ exports.checkAvailability = async (req, res) => {
 
   }
 };
+
+
 exports.createBooking = async (req, res) => {
   try {
 
@@ -872,7 +912,7 @@ exports.createBooking = async (req, res) => {
           : platformFeeRule.value;
     }
 
-    const subTotal = baseAmount + platformFee;
+    const subTotal = baseAmount;
 
     const taxRule = await Tax.findOne({
       isActive: true,
@@ -883,7 +923,7 @@ exports.createBooking = async (req, res) => {
       ? (subTotal * taxRule.percentage) / 100
       : 0;
 
-    const totalAmount = subTotal + tax;
+    const totalAmount = subTotal + platformFee + tax ;
 
     /* =================================================
        SERVICE TOTAL
@@ -1038,7 +1078,7 @@ exports.createBooking = async (req, res) => {
 
       const serviceCommission =
         serviceCommissionMap[
-          s._id.toString()
+        s._id.toString()
         ] || 0;
 
       providerBreakdown.push({

@@ -80,6 +80,20 @@ const io = require("./socket")(server);
 
 app.set("io", io);
 
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  res.json([
+    {
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: {
+        namespace: 'android_app',
+        package_name: 'com.outapp.client',
+        sha256_cert_fingerprints: [
+          'C4:BF:CF:2E:0F:70:CB:3A:6D:A8:19:8C:C1:BE:1D:94:6B:80:EA:E2:23:5B:56:BD:96:AD:0A:05:A6:53:79:77'
+        ]
+      }
+    }
+  ]);
+});
 app.use("/health", (req, res) => res.send(`Welcome to the server`));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));

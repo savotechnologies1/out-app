@@ -3156,7 +3156,18 @@ const createUserReview = async (req, res) => {
     if (new Date() < new Date(booking.checkOut)) {
       return res.status(400).json({ message: "Review allowed only after checkout" });
     }
+    const checkOutDate = new Date(booking.checkOut);
 
+    const reviewLastDate = new Date(checkOutDate);
+
+    reviewLastDate.setDate(reviewLastDate.getDate() + 15);
+
+    if (new Date() > reviewLastDate) {
+      return res.status(400).json({
+        message:
+          "Review can only be submitted within 15 days after checkout"
+      });
+    }
     let reviewee, revieweeModel, property = null, service = null;
 
     if (reviewType === "property") {
@@ -5001,6 +5012,54 @@ const shareItem = catchAsyncError(async (req, res) => {
   });
 });
 
+const shareServiceUserProfile = catchAsyncError(async (req, res) => {
+
+  const { userId } = req.params;
+
+  const serviceUser = await ServiceUser.findOne({
+    _id: userId,
+    isDeleted: false,
+    isActive: true,
+  }).select(
+    "firstName lastName userId profileImage"
+  );
+
+  if (!serviceUser) {
+    return res.status(404).json({
+      success: false,
+      message: "Service user not found",
+    });
+  }
+
+  // ✅ FRONTEND URL
+  const baseUrl = process.env.APP_DEEP_LINK;
+
+  // ✅ SHAREABLE LINK
+  const shareLink =
+    `${baseUrl}provider/${serviceUser.userId}`;
+
+  return res.status(200).json({
+    success: true,
+    message: "Profile share data fetched successfully",
+    data: {
+      id: serviceUser._id,
+
+      name:
+        `${serviceUser.firstName} ${serviceUser.lastName}`,
+
+      userId: serviceUser.userId,
+
+      profileImage: serviceUser.profileImage,
+
+      shareLink,
+
+      shareMessage:
+        `Check this provider profile on Out App\n\n` +
+        `Provider ID: ${serviceUser.userId}\n\n` +
+        `Link: ${shareLink}`
+    }
+  });
+});
 
 module.exports = {
   userLogin,
@@ -5043,5 +5102,6 @@ module.exports = {
   getRecommendedProperties,
   getNearYouProperties,
   deleteAccount,
-  shareItem
+  shareItem,
+  shareServiceUserProfile
 };

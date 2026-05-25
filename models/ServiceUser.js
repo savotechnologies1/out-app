@@ -38,6 +38,10 @@ const userSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending"
     },
+    instantBooking: {
+      type: Boolean,
+      default: false
+    },
     rejectReason: { type: String, default: null },
     googleId: { type: String, default: null },
     authProvider: {
