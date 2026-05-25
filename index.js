@@ -94,6 +94,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
     }
   ]);
 });
+
 app.use("/health", (req, res) => res.send(`Welcome to the server`));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/user", require("./routes/userRoutes"));
@@ -102,7 +103,6 @@ app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api", require('./routes/paymentRoutes'));
 
 app.use(errorHandler);
-
 
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
