@@ -2,6 +2,7 @@ const app = require("express");
 const paymentController = require('../controller/paymentController');
 const bookingController = require('../controller/bookingController');
 const validateToken = require("../middleware/validateTokenHandler");
+const validateServiceToken = require("../middleware/validateSericeToken");
 
 const router = app.Router();
 
@@ -23,5 +24,8 @@ router.post("/booking/cancel/:bookingId", validateToken, bookingController.cance
 
 router.post("/payment/webhook", validateToken, paymentController.paymentWebhook);
 
+router.get("/booking/getPendingBookingRequests", validateServiceToken, bookingController.getPendingBookingRequests)
+
+router.patch("/booking/updateBookingApprovalStatus/:bookingId", validateServiceToken, bookingController.updateBookingApprovalStatus)
 
 module.exports = router;

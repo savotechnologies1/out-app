@@ -923,7 +923,7 @@ exports.createBooking = async (req, res) => {
       ? (subTotal * taxRule.percentage) / 100
       : 0;
 
-    const totalAmount = subTotal + platformFee + tax ;
+    const totalAmount = subTotal + platformFee + tax;
 
     /* =================================================
        SERVICE TOTAL
@@ -2788,4 +2788,372 @@ exports.deletePendingBooking = async (req, res) => {
     success: true,
     message: "Pending booking deleted permanently"
   });
+};
+
+
+exports.getPendingBookingRequests = async (req, res) => {
+  try {
+
+    const providerId = req.user._id;
+
+    const bookings = await Booking.find({
+
+      bookingStatus: "pending",
+
+      pendingReason: "approval_pending",
+
+      paymentStatus: "paid",
+
+      webhookProcessed: true,
+
+      "providerBreakdown.user": providerId
+
+    })
+
+      .select(
+        "bookingType bookingStatus pendingReason paymentStatus totalAmount checkIn checkOut createdAt providerBreakdown property services user"
+      )
+
+      .populate(
+        "user",
+        "firstName lastName profile phone"
+      )
+
+      .populate(
+        "property",
+        "name media address"
+      )
+
+      .populate(
+        "services.service",
+        "name media"
+      )
+
+      .sort({ createdAt: -1 });
+
+    return res.status(200).send({
+
+      success: true,
+
+      count: bookings.length,
+
+      bookings
+
+    });
+
+  } catch (error) {
+
+    return res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
+};
+
+
+exports.updateBookingApprovalStatus = async (req, res) => {
+  try {
+
+    const { bookingId } = req.params;
+
+    const { status } = req.body;
+
+    const providerId = req.user._id;
+
+    if (
+      !["confirmed", "cancelled"].includes(status)
+    ) {
+      return res.status(400).send({
+        message: "Invalid status"
+      });
+    }
+
+    const booking = await Booking.findById(
+      bookingId
+    );
+
+    if (!booking) {
+      return res.status(404).send({
+        message: "Booking not found"
+      });
+    }
+
+    /* =========================================
+       ONLY PENDING APPROVAL BOOKINGS
+    ========================================= */
+
+    if (
+      booking.bookingStatus !== "pending" ||
+      booking.pendingReason !== "approval_pending"
+    ) {
+      return res.status(400).send({
+        message:
+          "Booking is not waiting for approval"
+      });
+    }
+
+    /* =========================================
+       CHECK PROVIDER ACCESS
+    ========================================= */
+
+    const isProviderIncluded =
+      booking.providerBreakdown.some(
+        provider =>
+          provider.user.toString() ===
+          providerId.toString()
+      );
+
+    if (!isProviderIncluded) {
+      return res.status(403).send({
+        message:
+          "You are not allowed to update this booking"
+      });
+    }
+
+    /* =========================================
+       UPDATE BOOKING STATUS
+    ========================================= */
+
+    booking.bookingStatus = status;
+
+    booking.pendingReason = null;
+
+    await booking.save();
+
+    /* =========================================
+       IF APPROVED → BLOCK AVAILABILITY
+    ========================================= */
+
+    if (status === "confirmed") {
+
+      const dates = getDatesBetween(
+        booking.checkIn,
+        booking.checkOut
+      );
+
+      /* PROPERTY AVAILABILITY */
+
+      if (booking.property) {
+
+        const availabilityDocs =
+          dates.map((date) => ({
+            hotel: booking.property,
+            date,
+            booking: booking._id,
+            isBooked: true,
+          }));
+
+        await HotelAvailability.insertMany(
+          availabilityDocs
+        );
+      }
+
+      /* SERVICE AVAILABILITY */
+
+      if (booking.services?.length > 0) {
+
+        const serviceIds =
+          booking.services.map(
+            s => s.service
+          );
+
+        const servicesData =
+          await Service.find({
+            _id: { $in: serviceIds }
+          }).select("_id workingHours");
+
+        const serviceAvailabilityDocs = [];
+
+        servicesData.forEach((service) => {
+
+          dates.forEach((date) => {
+
+            serviceAvailabilityDocs.push({
+              service: service._id,
+              date,
+              startTime:
+                service.workingHours.start,
+              endTime:
+                service.workingHours.end,
+              booking: booking._id,
+              isBooked: true,
+            });
+          });
+        });
+
+        await ServiceAvailability.insertMany(
+          serviceAvailabilityDocs
+        );
+      }
+
+      /* =========================================
+         WALLET HOLD
+      ========================================= */
+
+      if (booking.providerBreakdown?.length > 0) {
+
+        for (const provider of booking.providerBreakdown) {
+
+          let wallet =
+            await Wallet.findOne({
+              user: provider.user
+            });
+
+          if (!wallet) {
+
+            wallet =
+              await Wallet.create({
+                user: provider.user,
+                availableBalance: 0,
+                holdBalance: 0,
+              });
+          }
+
+          wallet.holdBalance += provider.amount;
+
+          await wallet.save();
+
+          await WalletTransaction.create({
+
+            wallet: wallet._id,
+
+            user: provider.user,
+
+            type: "credit",
+
+            amount: provider.amount,
+
+            bookingId: booking._id,
+
+            referenceId: provider.referenceId,
+
+            description:
+              "Booking amount added to hold balance",
+
+            transactionType: "booking_hold",
+          });
+        }
+      }
+    }
+
+    /* =========================================
+       IF REJECTED → PROCESS REFUND
+    ========================================= */
+
+    if (
+      status === "cancelled" &&
+      booking.tapChargeId &&
+      booking.totalAmount > 0
+    ) {
+
+      try {
+
+        const response =
+          await axios.post(
+            "https://api.tap.company/v2/refunds",
+            {
+              charge_id:
+                booking.tapChargeId,
+
+              amount:
+                Number(booking.totalAmount),
+
+              currency: "SAR",
+
+              reason:
+                "Booking rejected by provider",
+
+              reference: {
+                merchant:
+                  booking.orderId,
+              },
+            },
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${process.env.TAP_SECRET_KEY}`,
+
+                "Content-Type":
+                  "application/json",
+              },
+            }
+          );
+
+        booking.refundTransactionId =
+          response.data?.id;
+
+        booking.refundAmount =
+          booking.totalAmount;
+
+        booking.refundStatus =
+          "processed";
+
+        booking.isCancelled = true;
+
+        booking.cancellationDate =
+          new Date();
+
+        await booking.save();
+
+      } catch (err) {
+
+        console.error(
+          "Refund failed:",
+          err.response?.data || err.message
+        );
+
+        booking.refundStatus =
+          "failed";
+
+        await booking.save();
+      }
+    }
+
+    /* =========================================
+       USER NOTIFICATION
+    ========================================= */
+
+    await sendNotification({
+      receiverId: booking.user,
+      receiverModel: "User",
+
+      title:
+        status === "confirmed"
+          ? "Booking Approved ✅"
+          : "Booking Rejected ❌",
+
+      body:
+        status === "confirmed"
+          ? "Your booking has been approved"
+          : "Your booking has been rejected and refund has been initiated",
+
+      type: "BOOKING",
+
+      referenceId: booking._id,
+
+      referenceType: "Booking",
+    });
+
+    return res.status(200).send({
+
+      success: true,
+
+      message:
+        status === "confirmed"
+          ? "Booking approved successfully"
+          : "Booking rejected successfully",
+
+      booking
+
+    });
+
+  } catch (error) {
+
+    return res.status(500).send({
+      success: false,
+      message: error.message
+    });
+
+  }
 };

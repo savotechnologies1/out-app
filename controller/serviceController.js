@@ -3604,6 +3604,68 @@ const deleteServiceUserAccount = catchAsyncError(async (req, res) => {
   });
 });
 
+const toggleInstantBooking = async (req, res) => {
+  try {
+    const { type, id } = req.body;
+
+    const providerId = req.user._id;
+
+    let item;
+
+    if (type === "PROPERTY") {
+
+      item = await Properties.findOne({
+        _id: id,
+        user: providerId
+      });
+
+      if (!item) {
+        return res.status(404).json({
+          success: false,
+          message: "Property not found"
+        });
+      }
+
+    } else if (type === "SERVICE") {
+
+      item = await Service.findOne({
+        _id: id,
+        user: providerId
+      });
+
+      if (!item) {
+        return res.status(404).json({
+          success: false,
+          message: "Service not found"
+        });
+      }
+
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid type"
+      });
+    }
+
+    item.instantBooking = !item.instantBooking;
+
+    await item.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Instant booking ${item.instantBooking ? "enabled" : "disabled"
+        } successfully`,
+      instantBooking: item.instantBooking,
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 
 module.exports = {
   serviceLogin,
@@ -3657,5 +3719,6 @@ module.exports = {
   getServiceProviderDashboard,
   getAllCommissionsForServiceUser,
   userLoginByServiceProviderToken,
-  deleteServiceUserAccount
+  deleteServiceUserAccount,
+  toggleInstantBooking
 };

@@ -51,6 +51,10 @@ const serviceSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    instantBooking: {
+      type: Boolean,
+      default: false
+    },
     price: {
       type: Number,
       required: true

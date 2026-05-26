@@ -156,6 +156,7 @@ const bookingSchema = new mongoose.Schema({
     enum: [
       "payment_pending",
       "payment_failed",
+      "approval_pending",
       "user_abandoned",
       "verification_pending",
       "system_error",
@@ -210,7 +211,7 @@ const bookingSchema = new mongoose.Schema({
 
   refundStatus: {
     type: String,
-    enum: ["pending", "processed"],
+    enum: ["pending", "processed", "failed"],
     default: "pending"
   },
 

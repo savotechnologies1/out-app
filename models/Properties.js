@@ -33,10 +33,14 @@ const propertiesSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId },
     name: { type: String },
-     shareCode: {
+    shareCode: {
       type: String,
       unique: true,
       index: true,
+    },
+    instantBooking: {
+      type: Boolean,
+      default: false
     },
     category: { type: mongoose.Schema.Types.ObjectId },
     address: {

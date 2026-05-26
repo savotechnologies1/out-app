@@ -51,7 +51,8 @@ const {
   getServiceProviderDashboard,
   getAllCommissionsForServiceUser,
   userLoginByServiceProviderToken,
-  deleteServiceUserAccount
+  deleteServiceUserAccount,
+  toggleInstantBooking
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -225,5 +226,7 @@ router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser)
 
 router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginByServiceProviderToken);
 
-router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUserAccount)
+router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUserAccount);
+
+router.patch("/toggleInstantBooking", validateServiceToken, toggleInstantBooking)
 module.exports = router;
