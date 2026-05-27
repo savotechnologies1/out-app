@@ -2838,9 +2838,7 @@ exports.getPendingBookingRequests = async (req, res) => {
       count: bookings.length,
 
       bookings
-
     });
-
   } catch (error) {
 
     return res.status(500).send({

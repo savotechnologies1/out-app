@@ -665,7 +665,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
         createdAt: 1,
         updatedAt: 1,
-
+   
         avgRating: 1,
         totalReviews: 1,
 
@@ -689,6 +689,8 @@ const getPropertyById = catchAsyncError(async (req, res) => {
         pool: 1,
 
         restRoom: 1,
+        
+        instantBooking:1,
 
         media: 1,
 
