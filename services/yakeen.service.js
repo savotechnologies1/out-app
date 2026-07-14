@@ -113,7 +113,8 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
     yakeenLog.info(
       `YAKEEN verification response: type=${identityType}, status=${response.status}`
     );
-
+      
+    console.log("service response", response)
     return response.data;
   } catch (error) {
     // If 401 => token expired, retry once

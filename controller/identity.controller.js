@@ -125,7 +125,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       identityNumber,
       dateOfBirth,
     });
-
+  console.log("last----------------------------------------")
     return res.status(200).send({
       message: "Identity verified successfully",
       data: {

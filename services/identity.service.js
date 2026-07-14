@@ -43,7 +43,8 @@ const verifySaudiOrResident = async ({
     identityNumber,
     dateOfBirth,
   });
-
+  console.log("yakeenResponse",yakeenResponse)
+  
   identityLog.info(
     `Verification response received: userId=${userId}, type=${identityType}`
   );
