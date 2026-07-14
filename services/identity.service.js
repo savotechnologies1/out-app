@@ -43,21 +43,32 @@ const verifySaudiOrResident = async ({
   const verificationService =
     identityType === "SAUDI" ? "SaudiByNin" : "NonSaudiByIqama";
 
+  console.log(`[Service START] verifySaudiOrResident for userId=${userId}, type=${identityType}`);
   identityLog.info(
     `Verification request: userId=${userId}, type=${identityType}`
   );
 
   // Call YAKEEN
-  const yakeenResponse = await yakeenService.verifyIdentity({
-    identityType,
-    identityNumber,
-    dateOfBirth,
-  });
-  console.log("yakeenResponse",yakeenResponse)
-  
-  identityLog.info(
-    `Verification response received: userId=${userId}, type=${identityType}`
-  );
+  let yakeenResponse;
+  try {
+    console.log(`[Service YAKEEN Call] Calling YAKEEN verifyIdentity for userId=${userId}`);
+    identityLog.info(`[Service YAKEEN Call] Calling YAKEEN verifyIdentity for userId=${userId}`);
+    
+    yakeenResponse = await yakeenService.verifyIdentity({
+      identityType,
+      identityNumber,
+      dateOfBirth,
+    });
+    
+    console.log(`[Service YAKEEN Response] Success for userId=${userId}`);
+    identityLog.info(
+      `Verification response received: userId=${userId}, type=${identityType}`
+    );
+  } catch (error) {
+    console.error(`[Service YAKEEN Error] Failed for userId=${userId}:`, error.message);
+    identityLog.error(`[Service YAKEEN Error] Failed for userId=${userId}: ${error.message}`);
+    throw error;
+  }
 
   // Extract legal name fields from YAKEEN response
   const legalFirstName =
@@ -110,13 +121,25 @@ const verifySaudiOrResident = async ({
       : null,
   };
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { $set: updateData },
-    { new: true }
-  ).select("-verificationResponse -tokens -OTP");
+  try {
+    console.log(`[Service DB Update] Updating user database record to VERIFIED for userId=${userId}`);
+    identityLog.info(`[Service DB Update] Updating user database record to VERIFIED for userId=${userId}`);
 
-  return user;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    ).select("-verificationResponse -tokens -OTP");
+
+    console.log(`[Service DB Update] Success for userId=${userId}`);
+    identityLog.info(`[Service DB Update] Success for userId=${userId}`);
+
+    return user;
+  } catch (dbError) {
+    console.error(`[Service DB Update Error] Failed for userId=${userId}:`, dbError.message);
+    identityLog.error(`[Service DB Update Error] Failed for userId=${userId}: ${dbError.message}`);
+    throw dbError;
+  }
 };
 
 /* =====================================================
@@ -130,6 +153,7 @@ const verifyVisitor = async ({
   documentType,
   file,
 }) => {
+  console.log(`[Service START] verifyVisitor for userId=${userId}, docType=${documentType}`);
   identityLog.info(
     `Visitor verification request: userId=${userId}, docType=${documentType}`
   );
@@ -153,16 +177,28 @@ const verifyVisitor = async ({
     verificationProvider: "YAKEEN",
   };
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    {
-      $set: updateData,
-      $push: { identityDocuments: documentEntry },
-    },
-    { new: true }
-  ).select("-verificationResponse -tokens -OTP");
+  try {
+    console.log(`[Service DB Update] Updating user database record to PENDING for userId=${userId}`);
+    identityLog.info(`[Service DB Update] Updating user database record to PENDING for userId=${userId}`);
 
-  return user;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: updateData,
+        $push: { identityDocuments: documentEntry },
+      },
+      { new: true }
+    ).select("-verificationResponse -tokens -OTP");
+
+    console.log(`[Service DB Update] Success for userId=${userId}`);
+    identityLog.info(`[Service DB Update] Success for userId=${userId}`);
+
+    return user;
+  } catch (dbError) {
+    console.error(`[Service DB Update Error] Failed for userId=${userId}:`, dbError.message);
+    identityLog.error(`[Service DB Update Error] Failed for userId=${userId}: ${dbError.message}`);
+    throw dbError;
+  }
 };
 
 /* =====================================================
@@ -170,13 +206,18 @@ const verifyVisitor = async ({
 ====================================================== */
 
 const getVerificationStatus = async (userId) => {
-  const user = await User.findById(userId)
-    .select(
-      "identityVerificationStatus identityType verifiedAt verificationMethod legalFullName"
-    )
-    .lean();
+  try {
+    const user = await User.findById(userId)
+      .select(
+        "identityVerificationStatus identityType verifiedAt verificationMethod legalFullName"
+      )
+      .lean();
 
-  return user;
+    return user;
+  } catch (error) {
+    console.error(`[Service getVerificationStatus Error] Failed for userId=${userId}:`, error.message);
+    throw error;
+  }
 };
 
 /* =====================================================
@@ -217,30 +258,35 @@ const getPendingVerifications = async ({
     ];
   }
 
-  const total = await User.countDocuments(matchStage);
+  try {
+    const total = await User.countDocuments(matchStage);
 
-  const users = await User.find(matchStage)
-    .select(
-      "firstName lastName email phone identityType identityNumber identityVerificationStatus identityDocuments createdAt"
-    )
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(pageSize)
-    .lean();
+    const users = await User.find(matchStage)
+      .select(
+        "firstName lastName email phone identityType identityNumber identityVerificationStatus identityDocuments createdAt"
+      )
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize)
+      .lean();
 
-  const totalPages = Math.ceil(total / pageSize);
+    const totalPages = Math.ceil(total / pageSize);
 
-  return {
-    data: users,
-    page: pageNum,
-    limit: pageSize,
-    total,
-    totalPages,
-    previousDisabled: pageNum <= 1,
-    nextPage: pageNum + 1,
-    previousPage: pageNum - 1,
-    nextDisabled: pageNum >= totalPages,
-  };
+    return {
+      data: users,
+      page: pageNum,
+      limit: pageSize,
+      total,
+      totalPages,
+      previousDisabled: pageNum <= 1,
+      nextPage: pageNum + 1,
+      previousPage: pageNum - 1,
+      nextDisabled: pageNum >= totalPages,
+    };
+  } catch (error) {
+    console.error("[Service getPendingVerifications Error]:", error.message);
+    throw error;
+  }
 };
 
 /* =====================================================
@@ -248,12 +294,17 @@ const getPendingVerifications = async ({
 ====================================================== */
 
 const getVerificationDetails = async (userId) => {
-  const user = await User.findById(userId)
-    .select("+verificationResponse")
-    .select("-tokens -OTP -password")
-    .lean();
+  try {
+    const user = await User.findById(userId)
+      .select("+verificationResponse")
+      .select("-tokens -OTP -password")
+      .lean();
 
-  return user;
+    return user;
+  } catch (error) {
+    console.error(`[Service getVerificationDetails Error] Failed for userId=${userId}:`, error.message);
+    throw error;
+  }
 };
 
 /* =====================================================
@@ -265,22 +316,27 @@ const approveVisitor = async ({ userId, adminId }) => {
     `Admin approval: userId=${userId}, adminId=${adminId}`
   );
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    {
-      $set: {
-        identityVerificationStatus: "VERIFIED",
-        verificationMethod: "MANUAL",
-        adminVerifiedBy: adminId,
-        adminVerifiedAt: new Date(),
-        verifiedAt: new Date(),
-        adminRejectReason: null,
+  try {
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          identityVerificationStatus: "VERIFIED",
+          verificationMethod: "MANUAL",
+          adminVerifiedBy: adminId,
+          adminVerifiedAt: new Date(),
+          verifiedAt: new Date(),
+          adminRejectReason: null,
+        },
       },
-    },
-    { new: true }
-  ).select("-verificationResponse -tokens -OTP");
+      { new: true }
+    ).select("-verificationResponse -tokens -OTP");
 
-  return user;
+    return user;
+  } catch (error) {
+    console.error(`[Service approveVisitor Error] Failed for userId=${userId}:`, error.message);
+    throw error;
+  }
 };
 
 /* =====================================================
@@ -292,20 +348,25 @@ const rejectVisitor = async ({ userId, adminId, reason }) => {
     `Admin rejection: userId=${userId}, adminId=${adminId}, reason=${reason}`
   );
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    {
-      $set: {
-        identityVerificationStatus: "REJECTED",
-        adminVerifiedBy: adminId,
-        adminVerifiedAt: new Date(),
-        adminRejectReason: reason,
+  try {
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          identityVerificationStatus: "REJECTED",
+          adminVerifiedBy: adminId,
+          adminVerifiedAt: new Date(),
+          adminRejectReason: reason,
+        },
       },
-    },
-    { new: true }
-  ).select("-verificationResponse -tokens -OTP");
+      { new: true }
+    ).select("-verificationResponse -tokens -OTP");
 
-  return user;
+    return user;
+  } catch (error) {
+    console.error(`[Service rejectVisitor Error] Failed for userId=${userId}:`, error.message);
+    throw error;
+  }
 };
 
 module.exports = {

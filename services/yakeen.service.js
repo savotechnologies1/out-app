@@ -88,14 +88,20 @@ const login = async () => {
 ====================================================== */
 
 const getToken = async () => {
-  // Reuse cached token if still valid (with 60s buffer)
-  if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt - 60000) {
-    console.log("[YAKEEN] Using cached token");
-    return cachedToken;
-  }
+  try {
+    // Reuse cached token if still valid (with 60s buffer)
+    if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt - 60000) {
+      console.log("[YAKEEN] Using cached token");
+      return cachedToken;
+    }
 
-  console.log("[YAKEEN] Token expired or not cached, logging in...");
-  return await login();
+    console.log("[YAKEEN] Token expired or not cached, logging in...");
+    const token = await login();
+    return token;
+  } catch (error) {
+    console.error("[YAKEEN] getToken error during login:", error.message);
+    throw error;
+  }
 };
 
 /* =====================================================

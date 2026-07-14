@@ -15,10 +15,40 @@ const identityLog = createLog("identity_controller_log");
 const verifyIdentity = catchAsyncError(async (req, res, next) => {
   const userId = req.user._id;
 
+  console.log("=== START IDENTITY VERIFICATION ===");
+  console.log("Headers:", JSON.stringify(req.headers));
+  console.log("Body:", JSON.stringify(req.body));
+  console.log("User:", JSON.stringify(req.user));
+  console.log("File:", req.file ? JSON.stringify({
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size
+  }) : "No file");
+
+  identityLog.info("=== START IDENTITY VERIFICATION ===");
+  identityLog.info(`Headers: ${JSON.stringify(req.headers)}`);
+  identityLog.info(`Body: ${JSON.stringify(req.body)}`);
+  identityLog.info(`User: ${JSON.stringify(req.user)}`);
+  identityLog.info(`File: ${req.file ? JSON.stringify({
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    mimetype: req.file.mimetype,
+    size: req.file.size
+  }) : "No file"}`);
+
   // Check if already verified
-  const existingUser = await User.findById(userId)
-    .select("identityVerificationStatus identityType")
-    .lean();
+  let existingUser;
+  try {
+    existingUser = await User.findById(userId)
+      .select("identityVerificationStatus identityType")
+      .lean();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Database query failed",
+      error: error.message,
+    });
+  }
 
   if (!existingUser) {
     return res.status(404).json({ message: "User not found" });
@@ -41,11 +71,17 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
   const identityNumber = req.body.identityNumber;
   const dateOfBirth = req.body.dateOfBirth;
 
+  console.log(`Identity Type check: ${identityType}`);
+  identityLog.info(`Identity Type check: ${identityType}`);
+
   /* =====================================================
      VISITOR Flow — Document Upload
   ====================================================== */
 
   if (identityType === "VISITOR") {
+    console.log("Entering VISITOR verification flow");
+    identityLog.info("Entering VISITOR verification flow");
+
     const documentType = req.body.documentType;
     const file = req.file;
 
@@ -80,22 +116,37 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       });
     }
 
-    const user = await identityService.verifyVisitor({
-      userId,
-      identityNumber,
-      dateOfBirth,
-      documentType,
-      file,
-    });
+    try {
+      console.log(`Calling verifyVisitor service for userId=${userId}`);
+      identityLog.info(`Calling verifyVisitor service for userId=${userId}`);
 
-    return res.status(200).json({
-      message:
-        "Document uploaded successfully. Verification is pending admin approval.",
-      data: {
-        identityVerificationStatus: user.identityVerificationStatus,
-        identityType: user.identityType,
-      },
-    });
+      const user = await identityService.verifyVisitor({
+        userId,
+        identityNumber,
+        dateOfBirth,
+        documentType,
+        file,
+      });
+
+      console.log(`Visitor verification success for userId=${userId}`);
+      identityLog.info(`Visitor verification success for userId=${userId}`);
+
+      return res.status(200).json({
+        message:
+          "Document uploaded successfully. Verification is pending admin approval.",
+        data: {
+          identityVerificationStatus: user?.identityVerificationStatus,
+          identityType: user?.identityType,
+        },
+      });
+    } catch (error) {
+      console.error(`Visitor verification error for userId=${userId}:`, error);
+      identityLog.error(`Visitor verification error for userId=${userId}: ${error.message}`);
+      return res.status(500).json({
+        success: false,
+        message: error.message || "Visitor verification failed",
+      });
+    }
   }
 
   /* =====================================================
@@ -104,7 +155,12 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
 
   // Validate fields for YAKEEN flow
   const errors = validationResult(req);
-  const checkValid = await checkValidations(errors);
+  let checkValid;
+  try {
+    checkValid = await checkValidations(errors);
+  } catch (err) {
+    return res.status(400).json({ message: "Validation check failed" });
+  }
 
   if (checkValid.type === "error") {
     return res.status(400).json({
@@ -126,7 +182,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       dateOfBirth,
     });
     console.log("last----------------------------------------")
-    return res.status(200).send({
+    return res.status(200).json({
       message: "Identity verified successfully",
       data: {
         identityVerificationStatus: user?.identityVerificationStatus,
@@ -189,7 +245,15 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
 const getVerificationStatus = catchAsyncError(async (req, res, next) => {
   const userId = req.user._id;
 
-  const user = await identityService.getVerificationStatus(userId);
+  let user;
+  try {
+    user = await identityService.getVerificationStatus(userId);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch verification status",
+      error: error.message,
+    });
+  }
 
   if (!user) {
     return res.status(404).json({ message: "User not found" });
@@ -213,13 +277,21 @@ const getVerificationStatus = catchAsyncError(async (req, res, next) => {
 const getPendingVerifications = catchAsyncError(async (req, res, next) => {
   const { page, limit, search, identityType, status } = req.query;
 
-  const result = await identityService.getPendingVerifications({
-    page,
-    limit,
-    search,
-    identityType,
-    status,
-  });
+  let result;
+  try {
+    result = await identityService.getPendingVerifications({
+      page,
+      limit,
+      search,
+      identityType,
+      status,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch pending verifications",
+      error: error.message,
+    });
+  }
 
   return res.status(200).json({
     success: true,
@@ -239,7 +311,15 @@ const getVerificationDetails = catchAsyncError(async (req, res, next) => {
     return res.status(400).json({ message: "Please enter valid user Id" });
   }
 
-  const user = await identityService.getVerificationDetails(userId);
+  let user;
+  try {
+    user = await identityService.getVerificationDetails(userId);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to fetch verification details",
+      error: error.message,
+    });
+  }
 
   if (!user) {
     return res.status(404).json({ message: "User not found" });
@@ -263,9 +343,17 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
     return res.status(400).json({ message: "Please enter valid user Id" });
   }
 
-  const targetUser = await User.findById(userId)
-    .select("identityVerificationStatus identityType")
-    .lean();
+  let targetUser;
+  try {
+    targetUser = await User.findById(userId)
+      .select("identityVerificationStatus identityType")
+      .lean();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Database query failed",
+      error: error.message,
+    });
+  }
 
   if (!targetUser) {
     return res.status(404).json({ message: "User not found" });
@@ -287,10 +375,18 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
     `Admin approval: userId=${userId}, adminId=${adminId}`
   );
 
-  const user = await identityService.approveVisitor({
-    userId,
-    adminId,
-  });
+  let user;
+  try {
+    user = await identityService.approveVisitor({
+      userId,
+      adminId,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to approve visitor verification",
+      error: error.message,
+    });
+  }
 
   return res.status(200).json({
     message: "Visitor identity approved successfully",
@@ -315,7 +411,12 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
   }
 
   const errors = validationResult(req);
-  const checkValid = await checkValidations(errors);
+  let checkValid;
+  try {
+    checkValid = await checkValidations(errors);
+  } catch (err) {
+    return res.status(400).json({ message: "Validation check failed" });
+  }
 
   if (checkValid.type === "error") {
     return res.status(400).json({
@@ -325,9 +426,17 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
 
   const { reason } = req.body;
 
-  const targetUser = await User.findById(userId)
-    .select("identityVerificationStatus identityType")
-    .lean();
+  let targetUser;
+  try {
+    targetUser = await User.findById(userId)
+      .select("identityVerificationStatus identityType")
+      .lean();
+  } catch (error) {
+    return res.status(500).json({
+      message: "Database query failed",
+      error: error.message,
+    });
+  }
 
   if (!targetUser) {
     return res.status(404).json({ message: "User not found" });
@@ -343,11 +452,19 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
     `Admin rejection: userId=${userId}, adminId=${adminId}, reason=${reason}`
   );
 
-  const user = await identityService.rejectVisitor({
-    userId,
-    adminId,
-    reason,
-  });
+  let user;
+  try {
+    user = await identityService.rejectVisitor({
+      userId,
+      adminId,
+      reason,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to reject visitor verification",
+      error: error.message,
+    });
+  }
 
   return res.status(200).json({
     message: "Visitor identity rejected",
