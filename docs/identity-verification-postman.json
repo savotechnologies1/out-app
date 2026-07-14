@@ -1,0 +1,274 @@
+{
+  "info": {
+    "name": "YAKEEN Identity Verification API",
+    "description": "Complete Postman collection for the YAKEEN Identity Verification Module",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{user_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8088/api",
+      "type": "string"
+    },
+    {
+      "key": "user_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "User — Identity Verification",
+      "item": [
+        {
+          "name": "Verify Identity — Saudi",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityType\": \"SAUDI\",\n  \"identityNumber\": \"1023456789\",\n  \"dateOfBirth\": \"1995-01\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/identity/verify",
+              "host": ["{{base_url}}"],
+              "path": ["identity", "verify"]
+            },
+            "description": "Verify Saudi National identity via YAKEEN SaudiByNin service. Automatic verification."
+          }
+        },
+        {
+          "name": "Verify Identity — Resident",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityType\": \"RESIDENT\",\n  \"identityNumber\": \"2234567890\",\n  \"dateOfBirth\": \"1992-03\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/identity/verify",
+              "host": ["{{base_url}}"],
+              "path": ["identity", "verify"]
+            },
+            "description": "Verify Resident identity via YAKEEN NonSaudiByIqama service. Automatic verification."
+          }
+        },
+        {
+          "name": "Verify Identity — Visitor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "identityType",
+                  "value": "VISITOR",
+                  "type": "text"
+                },
+                {
+                  "key": "identityNumber",
+                  "value": "AB12345678",
+                  "type": "text"
+                },
+                {
+                  "key": "dateOfBirth",
+                  "value": "1990-05",
+                  "type": "text"
+                },
+                {
+                  "key": "documentType",
+                  "value": "PASSPORT",
+                  "type": "text"
+                },
+                {
+                  "key": "document",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/identity/verify",
+              "host": ["{{base_url}}"],
+              "path": ["identity", "verify"]
+            },
+            "description": "Verify Visitor identity by uploading a document. Status becomes PENDING until admin approval."
+          }
+        },
+        {
+          "name": "Get Verification Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{user_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/identity/status",
+              "host": ["{{base_url}}"],
+              "path": ["identity", "status"]
+            },
+            "description": "Get current identity verification status for the authenticated user."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Identity Verification",
+      "item": [
+        {
+          "name": "Get Pending Verifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/identity/pending?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "identity", "pending"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "identityType",
+                  "value": "VISITOR",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "PENDING",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all users with pending identity verification. Supports pagination, search, and filters."
+          }
+        },
+        {
+          "name": "Get Verification Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/identity/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "identity", "{{user_id}}"]
+            },
+            "description": "Get full verification details for a user including uploaded documents and YAKEEN response."
+          }
+        },
+        {
+          "name": "Approve Visitor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/identity/{{user_id}}/approve",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "identity", "{{user_id}}", "approve"]
+            },
+            "description": "Approve a visitor's manual identity verification. Sets status to VERIFIED."
+          }
+        },
+        {
+          "name": "Reject Visitor",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Passport is not valid.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/identity/{{user_id}}/reject",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "identity", "{{user_id}}", "reject"]
+            },
+            "description": "Reject a visitor's manual identity verification with a reason."
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -101,6 +101,7 @@ app.use("/api/user", require("./routes/userRoutes"));
 app.use("/api/service", require("./routes/serviceRoutes"));
 app.use("/api/chat", require("./routes/chatRoutes"));
 app.use("/api", require('./routes/paymentRoutes'));
+app.use("/api/identity", require("./routes/identity.routes"));
 
 app.use(errorHandler);
 

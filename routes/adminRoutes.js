@@ -114,6 +114,15 @@ const {
 } = require("../validations/validator");
 const { adminOverrideRefund, deletePendingBooking } = require("../controller/bookingController");
 const { getReviews } = require("../controller/userController");
+const {
+  getPendingVerifications,
+  getVerificationDetails,
+  approveVisitor,
+  rejectVisitor,
+} = require("../controller/identity.controller");
+const {
+  rejectVisitorValidation,
+} = require("../validations/identity.validator");
 
 const router = app.Router();
 
@@ -321,6 +330,18 @@ router.delete("/deleteService/:serviceId", validateAdminToken, softDeleteService
 router.delete("/deletePendingBooking/:bookingId", validateAdminToken, deletePendingBooking)
 
 router.patch("/toggleRecommendedProperty/:propertyId", validateAdminToken, toggleRecommendedProperty)
+
+/* =====================================================
+   Identity Verification — Admin Routes
+====================================================== */
+
+router.get("/identity/pending", validateAdminToken, getPendingVerifications);
+
+router.get("/identity/:userId", validateAdminToken, getVerificationDetails);
+
+router.patch("/identity/:userId/approve", validateAdminToken, approveVisitor);
+
+router.patch("/identity/:userId/reject", validateAdminToken, rejectVisitorValidation, rejectVisitor);
 
 
 module.exports = router;

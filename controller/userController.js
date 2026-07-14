@@ -329,6 +329,15 @@ const getUser = catchAsyncError(async (req, res, next) => {
       phoneCode: 1,
       profile: 1,
       isVerified: 1,
+      identityNumber: 1,
+      verificationStatus: 1,
+      dateOfBirth: 1,
+      verifiedAt: 1,
+      legalFirstName: 1,
+      legalLastName: 1,
+      legalFullName: 1,
+      verificationReference: 1,
+      verificationProvider: 1,
     }
   ).lean(true);
 
@@ -1437,6 +1446,26 @@ const createBooking = async (req, res) => {
   session.startTransaction();
 
   try {
+
+    /* =================================================
+       IDENTITY VERIFICATION CHECK
+    ================================================= */
+
+    const bookingUser = await User.findById(req.user._id || req.user.id)
+      .select("identityVerificationStatus")
+      .lean();
+
+    if (
+      !bookingUser ||
+      bookingUser.identityVerificationStatus !== "VERIFIED"
+    ) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(403).send({
+        message: "Identity verification required before booking.",
+      });
+    }
+
     const { hotelId, checkIn, checkOut } = req.body;
     const userId = req.user.id;
 

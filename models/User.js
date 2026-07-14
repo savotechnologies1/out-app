@@ -26,12 +26,194 @@ const userSchema = new mongoose.Schema(
     tokens: { type: [String] },
     googleId: {
       type: String,
-      sparse: true   // 🔥 important
+      sparse: true
     },
     authProvider: {
       type: String,
       enum: ["local", "google"],
       default: "local"
+    },
+
+    /* =====================================================
+       Identity Verification (YAKEEN)
+    ====================================================== */
+
+    identityType: {
+      type: String,
+      enum: ["SAUDI", "RESIDENT", "VISITOR"],
+      default: null,
+    },
+
+    identityNumber: {
+      type: String,
+      default: null,
+    },
+
+    dateOfBirth: {
+      type: Date,
+      default: null,
+    },
+
+    identityVerificationStatus: {
+      type: String,
+      enum: [
+        "NOT_VERIFIED",
+        "PENDING",
+        "VERIFIED",
+        "FAILED",
+        "REJECTED",
+      ],
+      default: "NOT_VERIFIED",
+    },
+
+    verificationMethod: {
+      type: String,
+      enum: ["YAKEEN", "MANUAL"],
+      default: null,
+    },
+
+    verificationService: {
+      type: String,
+      enum: [
+        "SaudiByNin",
+        "NonSaudiByIqama",
+        "MANUAL",
+      ],
+      default: null,
+    },
+
+    verificationProvider: {
+      type: String,
+      default: "YAKEEN",
+    },
+
+    verificationReference: {
+      type: String,
+      default: null,
+    },
+
+    verifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    /* =====================================================
+       Legal Name Returned By YAKEEN
+    ====================================================== */
+
+    legalFirstName: {
+      type: String,
+      default: null,
+    },
+
+    legalMiddleName: {
+      type: String,
+      default: null,
+    },
+
+    legalLastName: {
+      type: String,
+      default: null,
+    },
+
+    legalFullName: {
+      type: String,
+      default: null,
+    },
+
+    verificationResponse: {
+      type: mongoose.Schema.Types.Mixed,
+      select: false,
+    },
+
+    /* =====================================================
+       Visitor Manual Verification Documents
+    ====================================================== */
+
+    identityDocuments: [
+      {
+        documentType: {
+          type: String,
+          enum: [
+            "PASSPORT",
+            "VISA",
+            "NATIONAL_ID",
+            "DRIVING_LICENSE",
+            "OTHER",
+          ],
+        },
+
+        documentNumber: {
+          type: String,
+          default: null,
+        },
+
+        documentUrl: {
+          type: String,
+          required: true,
+        },
+
+        originalFileName: {
+          type: String,
+          default: null,
+        },
+
+        mimeType: {
+          type: String,
+          default: null,
+        },
+
+        uploadedAt: {
+          type: Date,
+          default: Date.now,
+        },
+
+        status: {
+          type: String,
+          enum: [
+            "PENDING",
+            "APPROVED",
+            "REJECTED",
+          ],
+          default: "PENDING",
+        },
+
+        reviewedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Admin",
+          default: null,
+        },
+
+        reviewedAt: {
+          type: Date,
+          default: null,
+        },
+
+        rejectReason: {
+          type: String,
+          default: null,
+        },
+      },
+    ],
+
+    /* =====================================================
+       Manual Verification Audit
+    ====================================================== */
+
+    adminVerifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+
+    adminVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    adminRejectReason: {
+      type: String,
+      default: null,
     },
   },
   { timestamps: true }

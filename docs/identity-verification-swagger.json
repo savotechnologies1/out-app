@@ -1,0 +1,354 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "YAKEEN Identity Verification API",
+    "description": "Identity Verification Module using YAKEEN APIs for Saudi Nationals, Residents, and Visitors.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8088/api",
+      "description": "Local Development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "VerifySaudiRequest": {
+        "type": "object",
+        "required": ["identityType", "identityNumber", "dateOfBirth"],
+        "properties": {
+          "identityType": {
+            "type": "string",
+            "enum": ["SAUDI"],
+            "example": "SAUDI"
+          },
+          "identityNumber": {
+            "type": "string",
+            "example": "1023456789",
+            "description": "10-digit National ID (NIN)"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "example": "1995-01",
+            "description": "Date of birth in YYYY-MM format"
+          }
+        }
+      },
+      "VerifyResidentRequest": {
+        "type": "object",
+        "required": ["identityType", "identityNumber", "dateOfBirth"],
+        "properties": {
+          "identityType": {
+            "type": "string",
+            "enum": ["RESIDENT"],
+            "example": "RESIDENT"
+          },
+          "identityNumber": {
+            "type": "string",
+            "example": "2234567890",
+            "description": "10-digit Iqama number"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "example": "1992-03",
+            "description": "Date of birth in YYYY-MM format"
+          }
+        }
+      },
+      "VerifyVisitorRequest": {
+        "type": "object",
+        "required": ["identityType", "identityNumber", "documentType", "document"],
+        "properties": {
+          "identityType": {
+            "type": "string",
+            "enum": ["VISITOR"],
+            "example": "VISITOR"
+          },
+          "identityNumber": {
+            "type": "string",
+            "example": "AB12345678",
+            "description": "Passport or document number"
+          },
+          "dateOfBirth": {
+            "type": "string",
+            "example": "1990-05",
+            "description": "Date of birth in YYYY-MM format"
+          },
+          "documentType": {
+            "type": "string",
+            "enum": ["PASSPORT", "VISA", "DRIVING_LICENSE", "OTHER"],
+            "example": "PASSPORT"
+          },
+          "document": {
+            "type": "string",
+            "format": "binary",
+            "description": "Document file (JPEG, PNG, PDF — max 5MB)"
+          }
+        }
+      },
+      "VerificationStatusResponse": {
+        "type": "object",
+        "properties": {
+          "identityVerificationStatus": {
+            "type": "string",
+            "enum": ["NOT_VERIFIED", "PENDING", "VERIFIED", "FAILED", "REJECTED"]
+          },
+          "identityType": {
+            "type": "string",
+            "enum": ["SAUDI", "RESIDENT", "VISITOR"]
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verificationMethod": {
+            "type": "string",
+            "enum": ["YAKEEN", "MANUAL"]
+          },
+          "legalFullName": {
+            "type": "string"
+          }
+        }
+      },
+      "RejectRequest": {
+        "type": "object",
+        "required": ["reason"],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Passport is not valid.",
+            "minLength": 5,
+            "maxLength": 500
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/identity/verify": {
+      "post": {
+        "tags": ["Identity Verification — User"],
+        "summary": "Verify Identity",
+        "description": "Verify identity for Saudi (YAKEEN NIN), Resident (YAKEEN Iqama), or Visitor (document upload). For VISITOR, use multipart/form-data.",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/VerifySaudiRequest" },
+                  { "$ref": "#/components/schemas/VerifyResidentRequest" }
+                ]
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyVisitorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification successful or pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "data": { "$ref": "#/components/schemas/VerificationStatusResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error or verification failed" },
+          "401": { "description": "Unauthorized — invalid or missing token" },
+          "403": { "description": "Already verified or pending" }
+        }
+      }
+    },
+    "/identity/status": {
+      "get": {
+        "tags": ["Identity Verification — User"],
+        "summary": "Get Verification Status",
+        "description": "Returns the current identity verification status of the authenticated user.",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Verification status retrieved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/VerificationStatusResponse" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "User not found" }
+        }
+      }
+    },
+    "/admin/identity/pending": {
+      "get": {
+        "tags": ["Identity Verification — Admin"],
+        "summary": "Get Pending Verifications",
+        "description": "List all users with pending identity verification. Supports pagination, search, and filters.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 10 } },
+          { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Search by name, email, phone, or identity number" },
+          { "name": "identityType", "in": "query", "schema": { "type": "string", "enum": ["SAUDI", "RESIDENT", "VISITOR"] } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED", "FAILED", "NOT_VERIFIED"] } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending verifications list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "data": { "type": "array", "items": { "type": "object" } },
+                    "page": { "type": "integer" },
+                    "limit": { "type": "integer" },
+                    "total": { "type": "integer" },
+                    "totalPages": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        }
+      }
+    },
+    "/admin/identity/{userId}": {
+      "get": {
+        "tags": ["Identity Verification — Admin"],
+        "summary": "Get Verification Details",
+        "description": "Get full verification details for a specific user including uploaded documents and YAKEEN response.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "User verification details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "data": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid user ID" },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "User not found" }
+        }
+      }
+    },
+    "/admin/identity/{userId}/approve": {
+      "patch": {
+        "tags": ["Identity Verification — Admin"],
+        "summary": "Approve Visitor Verification",
+        "description": "Approve a visitor's manual identity verification. Sets status to VERIFIED.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Visitor approved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "identityVerificationStatus": { "type": "string" },
+                        "verificationMethod": { "type": "string" },
+                        "adminVerifiedAt": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Already verified or invalid type" },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "User not found" }
+        }
+      }
+    },
+    "/admin/identity/{userId}/reject": {
+      "patch": {
+        "tags": ["Identity Verification — Admin"],
+        "summary": "Reject Visitor Verification",
+        "description": "Reject a visitor's manual identity verification with a reason.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RejectRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Visitor rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string" },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "identityVerificationStatus": { "type": "string" },
+                        "adminRejectReason": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid type or validation error" },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "User not found" }
+        }
+      }
+    }
+  }
+}

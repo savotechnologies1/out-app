@@ -722,6 +722,24 @@ exports.checkAvailability = async (req, res) => {
 exports.createBooking = async (req, res) => {
   try {
 
+    /* =================================================
+       IDENTITY VERIFICATION CHECK
+    ================================================= */
+
+    const bookingUser = await require("../models/User")
+      .findById(req.user._id)
+      .select("identityVerificationStatus")
+      .lean();
+
+    if (
+      !bookingUser ||
+      bookingUser.identityVerificationStatus !== "VERIFIED"
+    ) {
+      return res.status(403).send({
+        message: "Identity verification required before booking.",
+      });
+    }
+
     const {
       bookingType,
       propertyId,
