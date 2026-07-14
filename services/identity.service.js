@@ -9,15 +9,25 @@ const identityLog = createLog("identity_service_log");
 ====================================================== */
 
 const parseDateOfBirth = (dob) => {
-  if (!dob) return null;
-  const str = String(dob).trim();
-  // YYYY-MM format → append -01
-  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(str)) {
-    return new Date(str + "-01");
+  try {
+    if (!dob) return null;
+    if (dob instanceof Date) {
+      return isNaN(dob.getTime()) ? null : dob;
+    }
+    const str = String(dob).trim();
+    if (!str || str.toLowerCase() === "null" || str.toLowerCase() === "undefined") {
+      return null;
+    }
+    // YYYY-MM format → append -01
+    if (/^\d{4}-(0[1-9]|1[0-2])$/.test(str)) {
+      return new Date(str + "-01");
+    }
+    // Already a full date or ISO string
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  } catch (e) {
+    return null;
   }
-  // Already a full date or ISO string
-  const parsed = new Date(str);
-  return isNaN(parsed.getTime()) ? null : parsed;
 };
 
 /* =====================================================

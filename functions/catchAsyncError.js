@@ -15,7 +15,7 @@ module.exports = (fn) => {
         console.log("Something went wrongSomething went wrong", err);
         return res
           .status(500)
-          .send({ message: "Something went wrong", error: err });
+          .send({ message: "Something went wrong", error: err.message });
       }
     }
   };

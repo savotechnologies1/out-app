@@ -21,17 +21,17 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     .lean();
 
   if (!existingUser) {
-    return res.status(404).send({ message: "User not found" });
+    return res.status(404).json({ message: "User not found" });
   }
 
   if (existingUser.identityVerificationStatus === "VERIFIED") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: "Identity already verified",
     });
   }
 
   if (existingUser.identityVerificationStatus === "PENDING") {
-    return res.status(400).send({
+    return res.status(400).json({
       message:
         "Identity verification is already pending. Please wait for admin approval.",
     });
@@ -50,7 +50,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     const file = req.file;
 
     if (!documentType) {
-      return res.status(400).send({
+      return res.status(400).json({
         message: "Document type is required for visitor verification",
       });
     }
@@ -63,19 +63,19 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     ];
 
     if (!validDocTypes.includes(documentType)) {
-      return res.status(400).send({
+      return res.status(400).json({
         message: `Document type must be one of: ${validDocTypes.join(", ")}`,
       });
     }
 
     if (!file) {
-      return res.status(400).send({
+      return res.status(400).json({
         message: "Document file is required for visitor verification",
       });
     }
 
     if (!identityNumber) {
-      return res.status(400).send({
+      return res.status(400).json({
         message: "Identity number is required",
       });
     }
@@ -88,7 +88,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       file,
     });
 
-    return res.status(200).send({
+    return res.status(200).json({
       message:
         "Document uploaded successfully. Verification is pending admin approval.",
       data: {
@@ -107,13 +107,13 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
   const checkValid = await checkValidations(errors);
 
   if (checkValid.type === "error") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: checkValid.errors.msg,
     });
   }
 
   if (!["SAUDI", "RESIDENT"].includes(identityType)) {
-    return res.status(400).send({
+    return res.status(400).json({
       message: "Identity type must be SAUDI, RESIDENT, or VISITOR",
     });
   }
@@ -125,15 +125,15 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       identityNumber,
       dateOfBirth,
     });
-  console.log("last----------------------------------------")
+    console.log("last----------------------------------------")
     return res.status(200).send({
       message: "Identity verified successfully",
       data: {
-        identityVerificationStatus: user.identityVerificationStatus,
-        identityType: user.identityType,
-        verifiedAt: user.verifiedAt,
-        verificationMethod: user.verificationMethod,
-        legalFullName: user.legalFullName,
+        identityVerificationStatus: user?.identityVerificationStatus,
+        identityType: user?.identityType,
+        verifiedAt: user?.verifiedAt,
+        verificationMethod: user?.verificationMethod,
+        legalFullName: user?.legalFullName,
       },
     });
   } catch (error) {
@@ -141,26 +141,42 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       `YAKEEN verification failed for userId=${userId}: ${error.message}`
     );
 
-    // Mark as FAILED in DB
-    await User.findByIdAndUpdate(userId, {
-      $set: {
-        identityType,
-        identityNumber,
-        dateOfBirth: (() => {
-          if (!dateOfBirth) return null;
-          const str = String(dateOfBirth).trim();
-          if (/^\d{4}-(0[1-9]|1[0-2])$/.test(str)) return new Date(str + "-01");
-          const d = new Date(str);
-          return isNaN(d.getTime()) ? null : d;
-        })(),
-        identityVerificationStatus: "FAILED",
-        verificationMethod: "YAKEEN",
-        verificationService:
-          identityType === "SAUDI" ? "SaudiByNin" : "NonSaudiByIqama",
-      },
-    });
+    try {
+      // Mark as FAILED in DB
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          identityType,
+          identityNumber,
+          dateOfBirth: (() => {
+            try {
+              if (!dateOfBirth) return null;
+              if (dateOfBirth instanceof Date) {
+                return isNaN(dateOfBirth.getTime()) ? null : dateOfBirth;
+              }
+              const str = String(dateOfBirth).trim();
+              if (!str || str.toLowerCase() === "null" || str.toLowerCase() === "undefined") {
+                return null;
+              }
+              if (/^\d{4}-(0[1-9]|1[0-2])$/.test(str)) return new Date(str + "-01");
+              const d = new Date(str);
+              return isNaN(d.getTime()) ? null : d;
+            } catch (e) {
+              return null;
+            }
+          })(),
+          identityVerificationStatus: "FAILED",
+          verificationMethod: "YAKEEN",
+          verificationService:
+            identityType === "SAUDI" ? "SaudiByNin" : "NonSaudiByIqama",
+        },
+      });
+    } catch (dbError) {
+      identityLog.error(
+        `Failed to mark identity verification as FAILED in DB for userId=${userId}: ${dbError.message}`
+      );
+    }
 
-    return res.status(400).send({
+    return res.status(400).json({
       message: error.message || "Identity verification failed",
     });
   }
@@ -176,16 +192,16 @@ const getVerificationStatus = catchAsyncError(async (req, res, next) => {
   const user = await identityService.getVerificationStatus(userId);
 
   if (!user) {
-    return res.status(404).send({ message: "User not found" });
+    return res.status(404).json({ message: "User not found" });
   }
 
-  return res.status(200).send({
+  return res.status(200).json({
     data: {
-      identityVerificationStatus: user.identityVerificationStatus,
-      identityType: user.identityType,
-      verifiedAt: user.verifiedAt,
-      verificationMethod: user.verificationMethod,
-      legalFullName: user.legalFullName,
+      identityVerificationStatus: user?.identityVerificationStatus,
+      identityType: user?.identityType,
+      verifiedAt: user?.verifiedAt,
+      verificationMethod: user?.verificationMethod,
+      legalFullName: user?.legalFullName,
     },
   });
 });
@@ -205,7 +221,7 @@ const getPendingVerifications = catchAsyncError(async (req, res, next) => {
     status,
   });
 
-  return res.status(200).send({
+  return res.status(200).json({
     success: true,
     message: "Pending verifications fetched successfully",
     ...result,
@@ -220,16 +236,16 @@ const getVerificationDetails = catchAsyncError(async (req, res, next) => {
   const { userId } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send({ message: "Please enter valid user Id" });
+    return res.status(400).json({ message: "Please enter valid user Id" });
   }
 
   const user = await identityService.getVerificationDetails(userId);
 
   if (!user) {
-    return res.status(404).send({ message: "User not found" });
+    return res.status(404).json({ message: "User not found" });
   }
 
-  return res.status(200).send({
+  return res.status(200).json({
     message: "Verification details fetched successfully",
     data: user,
   });
@@ -244,7 +260,7 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
   const adminId = req.user._id;
 
   if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send({ message: "Please enter valid user Id" });
+    return res.status(400).json({ message: "Please enter valid user Id" });
   }
 
   const targetUser = await User.findById(userId)
@@ -252,17 +268,17 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
     .lean();
 
   if (!targetUser) {
-    return res.status(404).send({ message: "User not found" });
+    return res.status(404).json({ message: "User not found" });
   }
 
   if (targetUser.identityVerificationStatus === "VERIFIED") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: "User is already verified",
     });
   }
 
   if (targetUser.identityType !== "VISITOR") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: "Only visitor verifications can be manually approved",
     });
   }
@@ -276,12 +292,12 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
     adminId,
   });
 
-  return res.status(200).send({
+  return res.status(200).json({
     message: "Visitor identity approved successfully",
     data: {
-      identityVerificationStatus: user.identityVerificationStatus,
-      verificationMethod: user.verificationMethod,
-      adminVerifiedAt: user.adminVerifiedAt,
+      identityVerificationStatus: user?.identityVerificationStatus,
+      verificationMethod: user?.verificationMethod,
+      adminVerifiedAt: user?.adminVerifiedAt,
     },
   });
 });
@@ -295,14 +311,14 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
   const adminId = req.user._id;
 
   if (!mongoose.Types.ObjectId.isValid(userId)) {
-    return res.status(400).send({ message: "Please enter valid user Id" });
+    return res.status(400).json({ message: "Please enter valid user Id" });
   }
 
   const errors = validationResult(req);
   const checkValid = await checkValidations(errors);
 
   if (checkValid.type === "error") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: checkValid.errors.msg,
     });
   }
@@ -314,11 +330,11 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
     .lean();
 
   if (!targetUser) {
-    return res.status(404).send({ message: "User not found" });
+    return res.status(404).json({ message: "User not found" });
   }
 
   if (targetUser.identityType !== "VISITOR") {
-    return res.status(400).send({
+    return res.status(400).json({
       message: "Only visitor verifications can be manually rejected",
     });
   }
@@ -333,11 +349,11 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
     reason,
   });
 
-  return res.status(200).send({
+  return res.status(200).json({
     message: "Visitor identity rejected",
     data: {
-      identityVerificationStatus: user.identityVerificationStatus,
-      adminRejectReason: user.adminRejectReason,
+      identityVerificationStatus: user?.identityVerificationStatus,
+      adminRejectReason: user?.adminRejectReason,
     },
   });
 });
