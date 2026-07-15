@@ -1,3 +1,18 @@
+// Polyfill deprecated/removed util methods for compatibility with Node.js 24+ (e.g. simple-node-logger)
+const util = require("util");
+if (typeof util.isDate !== "function") {
+  util.isDate = (object) => Object.prototype.toString.call(object) === "[object Date]";
+}
+if (typeof util.isArray !== "function") {
+  util.isArray = Array.isArray;
+}
+if (typeof util.isRegExp !== "function") {
+  util.isRegExp = (object) => Object.prototype.toString.call(object) === "[object RegExp]";
+}
+if (typeof util.isError !== "function") {
+  util.isError = (object) => Object.prototype.toString.call(object) === "[object Error]" || object instanceof Error;
+}
+
 const express = require("express");
 const path = require("path");
 const connectDb = require("./config/dbConnection");

@@ -11,8 +11,7 @@ const taxSchema = new mongoose.Schema(
 
   isActive: {
     type: Boolean,
-    default: true,
-    index: true
+    default: true
   },
 
   isDeleted: {
