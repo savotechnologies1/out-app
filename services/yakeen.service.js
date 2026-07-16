@@ -126,6 +126,7 @@ const buildVerificationConfig = (identityType, identityNumber, dateOfBirth, toke
     "service-identifier": serviceIdentifier,
     "usage-code": process.env.YAKEEN_USAGE_CODE,
     "operator-id": process.env.YAKEEN_OPERATOR_ID,
+    "accept-language": "ar",
     "app-id": process.env.YAKEEN_APP_ID,
     "app-key": process.env.YAKEEN_APP_KEY,
   };
