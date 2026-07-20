@@ -98,9 +98,62 @@ const userSchema = new mongoose.Schema(
     },
 
     /* =====================================================
-       Legal Name Returned By YAKEEN
+       Legal Name Returned By YAKEEN (personBasicInfo)
     ====================================================== */
 
+    // Arabic names
+    legalFirstNameAr: {
+      type: String,
+      default: null,
+    },
+
+    legalFatherNameAr: {
+      type: String,
+      default: null,
+    },
+
+    legalGrandFatherNameAr: {
+      type: String,
+      default: null,
+    },
+
+    legalFamilyNameAr: {
+      type: String,
+      default: null,
+    },
+
+    legalFullNameAr: {
+      type: String,
+      default: null,
+    },
+
+    // English transliterated names
+    legalFirstNameEn: {
+      type: String,
+      default: null,
+    },
+
+    legalFatherNameEn: {
+      type: String,
+      default: null,
+    },
+
+    legalGrandFatherNameEn: {
+      type: String,
+      default: null,
+    },
+
+    legalFamilyNameEn: {
+      type: String,
+      default: null,
+    },
+
+    legalFullNameEn: {
+      type: String,
+      default: null,
+    },
+
+    // Backward-compatible combined fields
     legalFirstName: {
       type: String,
       default: null,

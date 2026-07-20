@@ -1,5 +1,5 @@
 const User = require("../models/User");
-const yakeenService = require("./yakeen.service");
+const yakeenProxyService = require("./yakeenProxy.service");
 const { createLog } = require("../functions/common");
 
 const identityLog = createLog("identity_service_log");
@@ -48,21 +48,21 @@ const verifySaudiOrResident = async ({
     `Verification request: userId=${userId}, type=${identityType}`
   );
 
-  // Call YAKEEN
+  // Call YAKEEN via Saudi Proxy Service
   let yakeenResponse;
   try {
-    console.log(`[Service YAKEEN Call] Calling YAKEEN verifyIdentity for userId=${userId}`);
-    identityLog.info(`[Service YAKEEN Call] Calling YAKEEN verifyIdentity for userId=${userId}`);
+    console.log(`[Service YAKEEN Call] Calling YAKEEN Proxy Service for userId=${userId}`);
+    identityLog.info(`[Service YAKEEN Call] Calling YAKEEN Proxy Service for userId=${userId}`);
     
-    yakeenResponse = await yakeenService.verifyIdentity({
+    yakeenResponse = await yakeenProxyService.verifyIdentity({
       identityType,
       identityNumber,
       dateOfBirth,
     });
     
-    console.log(`[Service YAKEEN Response] Success for userId=${userId}`);
+    console.log(`[Service YAKEEN Response] Proxy Response Received for userId=${userId}`);
     identityLog.info(
-      `Verification response received: userId=${userId}, type=${identityType}`
+      `Proxy response received: userId=${userId}, type=${identityType}`
     );
   } catch (error) {
     console.error(`[Service YAKEEN Error] Failed for userId=${userId}:`, error.message);
@@ -70,30 +70,28 @@ const verifySaudiOrResident = async ({
     throw error;
   }
 
-  // Extract legal name fields from YAKEEN response
-  const legalFirstName =
-    yakeenResponse?.firstName ||
-    yakeenResponse?.englishFirstName ||
-    yakeenResponse?.firstNameEn ||
-    null;
+  // Extract legal name fields from YAKEEN personBasicInfo response
+  const basicInfo = yakeenResponse?.personBasicInfo || yakeenResponse || {};
 
-  const legalMiddleName =
-    yakeenResponse?.secondName ||
-    yakeenResponse?.englishSecondName ||
-    yakeenResponse?.middleNameEn ||
-    null;
+  // Arabic names
+  const legalFirstNameAr = basicInfo.firstName || null;
+  const legalFatherNameAr = basicInfo.fatherName || null;
+  const legalGrandFatherNameAr = basicInfo.grandFatherName || null;
+  const legalFamilyNameAr = basicInfo.familyName || null;
+  const legalFullNameAr = basicInfo.fullName || null;
 
-  const legalLastName =
-    yakeenResponse?.lastName ||
-    yakeenResponse?.englishLastName ||
-    yakeenResponse?.lastNameEn ||
-    yakeenResponse?.familyName ||
-    null;
+  // English transliterated names
+  const legalFirstNameEn = basicInfo.firstNameT || null;
+  const legalFatherNameEn = basicInfo.fatherNameT || null;
+  const legalGrandFatherNameEn = basicInfo.grandFatherNameT || null;
+  const legalFamilyNameEn = basicInfo.familyNameT || null;
+  const legalFullNameEn = basicInfo.fullNameT || null;
 
-  const nameParts = [legalFirstName, legalMiddleName, legalLastName].filter(
-    Boolean
-  );
-  const legalFullName = nameParts.length > 0 ? nameParts.join(" ") : null;
+  // Backward-compatible fields (use English transliteration for legacy)
+  const legalFirstName = legalFirstNameEn || legalFirstNameAr || null;
+  const legalMiddleName = legalFatherNameEn || legalFatherNameAr || null;
+  const legalLastName = legalFamilyNameEn || legalFamilyNameAr || null;
+  const legalFullName = legalFullNameEn || legalFullNameAr || null;
 
   const verificationReference =
     yakeenResponse?.referenceNumber ||
@@ -111,6 +109,19 @@ const verifySaudiOrResident = async ({
     verificationService,
     verificationProvider: "YAKEEN",
     verifiedAt: new Date(),
+    // Arabic
+    legalFirstNameAr,
+    legalFatherNameAr,
+    legalGrandFatherNameAr,
+    legalFamilyNameAr,
+    legalFullNameAr,
+    // English
+    legalFirstNameEn,
+    legalFatherNameEn,
+    legalGrandFatherNameEn,
+    legalFamilyNameEn,
+    legalFullNameEn,
+    // Backward-compatible
     legalFirstName,
     legalMiddleName,
     legalLastName,
@@ -209,7 +220,7 @@ const getVerificationStatus = async (userId) => {
   try {
     const user = await User.findById(userId)
       .select(
-        "identityVerificationStatus identityType verifiedAt verificationMethod legalFullName"
+        "identityVerificationStatus identityType verifiedAt verificationMethod legalFullName legalFullNameAr legalFullNameEn legalFirstNameAr legalFamilyNameAr legalFirstNameEn legalFamilyNameEn"
       )
       .lean();
 
