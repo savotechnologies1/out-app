@@ -330,7 +330,7 @@ const getUser = catchAsyncError(async (req, res, next) => {
       profile: 1,
       isVerified: 1,
       identityNumber: 1,
-      verificationStatus: 1,
+      identityVerificationStatus: 1,
       dateOfBirth: 1,
       verifiedAt: 1,
       legalFullNameAr: 1,
