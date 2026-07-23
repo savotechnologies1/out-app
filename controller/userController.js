@@ -330,6 +330,9 @@ const getUser = catchAsyncError(async (req, res, next) => {
       profile: 1,
       isVerified: 1,
       identityNumber: 1,
+      identityType: 1,
+      verificationMethod: 1,
+      verificationService: 1,
       identityVerificationStatus: 1,
       dateOfBirth: 1,
       verifiedAt: 1,
@@ -339,6 +342,8 @@ const getUser = catchAsyncError(async (req, res, next) => {
       legalFamilyNameAr: 1,
       legalFirstNameEn: 1,
       legalFamilyNameEn: 1,
+      legalGrandFatherNameAr: 1,
+      identityDocuments: 1,
       verificationReference: 1,
       verificationProvider: 1,
     }
@@ -364,7 +369,27 @@ const getUser = catchAsyncError(async (req, res, next) => {
   // ✅ Mask phone
   user.phone = await codeRem(user.phone);
 
-  return res.status(200).send({ data: user });
+  return res.status(200).send({ data: user,
+    yakeen: {
+      identityNumber: user.identityNumber,
+      identityType: user.identityType,
+      verificationMethod: user.verificationMethod,
+      verificationService: user.verificationService,
+      identityVerificationStatus: user.identityVerificationStatus,
+      dateOfBirth: user.dateOfBirth,
+      verifiedAt: user.verifiedAt,
+      legalFullNameAr: user.legalFullNameAr,
+      legalFullNameEn: user.legalFullNameEn,
+      legalFirstNameAr: user.legalFirstNameAr,
+      legalFamilyNameAr: user.legalFamilyNameAr,
+      legalFirstNameEn: user.legalFirstNameEn,
+      legalFamilyNameEn: user.legalFamilyNameEn,
+      legalGrandFatherNameAr: user.legalGrandFatherNameAr,
+      identityDocuments: user.identityDocuments,
+      verificationReference: user.verificationReference,
+      verificationProvider: user.verificationProvider
+    }
+   });
 });
 
 
