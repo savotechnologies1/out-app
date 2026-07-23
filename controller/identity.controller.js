@@ -183,6 +183,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     });
     console.log("last----------------------------------------")
     return res.status(200).json({
+      success: true,
       message: "Identity verified successfully",
       data: {
         identityVerificationStatus: user?.identityVerificationStatus,
@@ -190,6 +191,16 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
         verifiedAt: user?.verifiedAt,
         verificationMethod: user?.verificationMethod,
         legalFullName: user?.legalFullName,
+        legalFirstNameAr: user?.legalFirstNameAr,
+        legalFirstNameEn: user?.legalFirstNameEn,
+        legalMiddleNameAr: user?.legalMiddleNameAr,
+        legalMiddleNameEn: user?.legalMiddleNameEn,
+        legalLastNameAr: user?.legalLastNameAr,
+        legalLastNameEn: user?.legalLastNameEn,
+        legalGrandFatherNameEn: user?.legalGrandFatherNameEn,
+        legalFamilyNameAr: user?.legalFamilyNameAr,
+        legalGrandFatherNameAr: user?.legalGrandFatherNameAr,
+        verificationProvider: user?.verificationProvider,
       },
     });
   } catch (error) {

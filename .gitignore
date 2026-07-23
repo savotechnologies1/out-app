@@ -10,8 +10,6 @@ pnpm-debug.log*
 # =========================
 # Environment variables
 # =========================
-.env
-.env.*
 !.env.example
 userchat.html
 logs
@@ -48,7 +46,6 @@ Thumbs.db
 # =========================
 # IDE / Editor
 # =========================
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -87,3 +84,4 @@ service.html
 # =========================
 .cache/
 .eslintcache
+config.bat
