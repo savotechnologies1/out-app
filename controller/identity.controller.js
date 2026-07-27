@@ -54,28 +54,6 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     return res.status(404).json({ message: "User not found" });
   }
 
-  if (identityNumber) {
-    const existingIdentity = await User.findOne({
-      _id: { $ne: userId },
-      identityNumber: identityNumber.trim(),
-      identityVerificationStatus: {
-        $in: ["VERIFIED", "PENDING"],
-      },
-    })
-      .select("_id identityVerificationStatus")
-      .lean();
-
-    if (existingIdentity) {
-      return res.status(400).json({
-        success: false,
-        message:
-          existingIdentity.identityVerificationStatus === "VERIFIED"
-            ? "This identity number has already been verified with another account."
-            : "This identity number is already under verification by another account.",
-      });
-    }
-  }
-
   if (existingUser.identityVerificationStatus === "VERIFIED") {
     return res.status(400).json({
       message: "Identity already verified",
@@ -96,6 +74,27 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
   console.log(`Identity Type check: ${identityType}`);
   identityLog.info(`Identity Type check: ${identityType}`);
 
+   if (identityNumber) {
+    const existingIdentity = await User.findOne({
+      _id: { $ne: userId },
+      identityNumber: identityNumber.trim(),
+      identityVerificationStatus: {
+        $in: ["VERIFIED", "PENDING"],
+      },
+    })
+      .select("_id identityVerificationStatus")
+      .lean();
+
+    if (existingIdentity) {
+      return res.status(400).json({
+        success: false,
+        message:
+          existingIdentity.identityVerificationStatus === "VERIFIED"
+            ? "This identity number has already been verified with another account."
+            : "This identity number is already under verification by another account.",
+      });
+    }
+  }
   /* =====================================================
      VISITOR Flow — Document Upload
   ====================================================== */
