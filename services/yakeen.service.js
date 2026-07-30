@@ -217,7 +217,7 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
           const msg =
             retryError.response.data.message ||
             retryError.response.data.error ||
-            "YAKEEN verification failed after retry";
+            "Identity verification failed after retry";
           throw new Error(msg);
         }
 
@@ -232,7 +232,7 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
       const msg =
         error.response.data.message ||
         error.response.data.error ||
-        "YAKEEN verification failed";
+        "Identity verification failed";
       throw new Error(msg);
     }
 
