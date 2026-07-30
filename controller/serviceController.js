@@ -1988,7 +1988,7 @@ const getServiceUserBookingDetail = async (req, res) => {
       })
       .populate({
         path: "user",
-        select: "firstName lastName email phone profile"
+        select: "firstName lastName email phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr"
       })
       .populate("couponId");
 
