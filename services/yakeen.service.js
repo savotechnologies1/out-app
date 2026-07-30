@@ -38,7 +38,7 @@ const login = async () => {
     process.env.YAKEEN_LOGIN_URL ||
     `${process.env.YAKEEN_BASE_URL}/api/v3/yakeen/login`;
 
-  console.log("[YAKEEN] Login attempt:", loginUrl);
+  // console.log("[YAKEEN] Login attempt:", loginUrl);
 
   try {
     const response = await axios.post(
@@ -57,8 +57,8 @@ const login = async () => {
       }
     );
 
-    console.log("[YAKEEN] Login response status:", response.status);
-    console.log("[YAKEEN] Login response data keys:", Object.keys(response.data || {}));
+    // console.log("[YAKEEN] Login response status:", response.status);
+    // console.log("[YAKEEN] Login response data keys:", Object.keys(response.data || {}));
 
     const data = response.data;
 
@@ -73,7 +73,7 @@ const login = async () => {
     const expiresInMs = (data.expiresIn || 3300) * 1000;
     tokenExpiresAt = Date.now() + expiresInMs;
 
-    console.log("[YAKEEN] Login success, token cached");
+    // console.log("[YAKEEN] Login success, token cached");
     yakeenLog.info("YAKEEN login success");
 
     return cachedToken;
@@ -91,15 +91,15 @@ const getToken = async () => {
   try {
     // Reuse cached token if still valid (with 60s buffer)
     if (cachedToken && tokenExpiresAt && Date.now() < tokenExpiresAt - 60000) {
-      console.log("[YAKEEN] Using cached token");
+      // console.log("[YAKEEN] Using cached token");
       return cachedToken;
     }
 
-    console.log("[YAKEEN] Token expired or not cached, logging in...");
+    // console.log("[YAKEEN] Token expired or not cached, logging in...");
     const token = await login();
     return token;
   } catch (error) {
-    console.error("[YAKEEN] getToken error during login:", error.message);
+    //console.error("[YAKEEN] getToken error during login:", error.message);
     throw error;
   }
 };
@@ -140,25 +140,25 @@ const buildVerificationConfig = (identityType, identityNumber, dateOfBirth, toke
 
 const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => {
 
-  console.log("========== YAKEEN VERIFY IDENTITY ==========");
-  console.log("[YAKEEN] Type:", identityType);
-  console.log("[YAKEEN] ID:", identityNumber);
-  console.log("[YAKEEN] DOB:", dateOfBirth);
-  console.log("=============================================");
+  // console.log("========== YAKEEN VERIFY IDENTITY ==========");
+  // console.log("[YAKEEN] Type:", identityType);
+  // console.log("[YAKEEN] ID:", identityNumber);
+  // console.log("[YAKEEN] DOB:", dateOfBirth);
+  // console.log("=============================================");
 
   let token;
 
   try {
     token = await getToken();
   } catch (loginError) {
-    console.error("[YAKEEN] Token acquisition failed:", loginError.message);
+    // console.error("[YAKEEN] Token acquisition failed:", loginError.message);
     throw new Error("YAKEEN authentication failed. Please try again later.");
   }
 
   const config = buildVerificationConfig(identityType, identityNumber, dateOfBirth, token);
 
-  console.log("[YAKEEN] Verification URL:", config.url);
-  console.log("[YAKEEN] Verification params:", JSON.stringify(config.params));
+  //console.log("[YAKEEN] Verification URL:", config.url);
+  //console.log("[YAKEEN] Verification params:", JSON.stringify(config.params));
 
   yakeenLog.info(
     `YAKEEN verification request: type=${identityType}, id=${identityNumber}`
@@ -172,8 +172,8 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
       timeout: config.timeout,
     });
 
-    console.log("[YAKEEN] Verification response status:", response.status);
-    console.log("[YAKEEN] Verification response data:", JSON.stringify(response.data));
+    // // console.log("[YAKEEN] Verification response status:", response.status);
+    // // console.log("[YAKEEN] Verification response data:", JSON.stringify(response.data));
 
     yakeenLog.info(
       `YAKEEN verification response: type=${identityType}, status=${response.status}`
@@ -185,7 +185,7 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
 
     // If 401 => token expired, retry once with fresh token
     if (error.response && error.response.status === 401) {
-      console.log("[YAKEEN] Got 401, re-authenticating for retry...");
+      // console.log("[YAKEEN] Got 401, re-authenticating for retry...");
       yakeenLog.info("YAKEEN token expired, re-authenticating...");
 
       cachedToken = null;
@@ -201,8 +201,8 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
           timeout: retryConfig.timeout,
         });
 
-        console.log("[YAKEEN] Retry response status:", retryResponse.status);
-        console.log("[YAKEEN] Retry response data:", JSON.stringify(retryResponse.data));
+        //  console.log("[YAKEEN] Retry response status:", retryResponse.status);
+        //  console.log("[YAKEEN] Retry response data:", JSON.stringify(retryResponse.data));
 
         yakeenLog.info(
           `YAKEEN verification retry response: type=${identityType}, status=${retryResponse.status}`

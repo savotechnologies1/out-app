@@ -15,16 +15,16 @@ const identityLog = createLog("identity_controller_log");
 const verifyIdentity = catchAsyncError(async (req, res, next) => {
   const userId = req.user._id;
 
-  console.log("=== START IDENTITY VERIFICATION ===");
-  console.log("Headers:", JSON.stringify(req.headers));
-  console.log("Body:", JSON.stringify(req.body));
-  console.log("User:", JSON.stringify(req.user));
-  console.log("File:", req.file ? JSON.stringify({
-    fieldname: req.file.fieldname,
-    originalname: req.file.originalname,
-    mimetype: req.file.mimetype,
-    size: req.file.size
-  }) : "No file");
+  // console.log("=== START IDENTITY VERIFICATION ===");
+  // console.log("Headers:", JSON.stringify(req.headers));
+  // console.log("Body:", JSON.stringify(req.body));
+  // console.log("User:", JSON.stringify(req.user));
+  // console.log("File:", req.file ? JSON.stringify({
+  //   fieldname: req.file.fieldname,
+  //   originalname: req.file.originalname,
+  //   mimetype: req.file.mimetype,
+  //   size: req.file.size
+  // }) : "No file");
 
   identityLog.info("=== START IDENTITY VERIFICATION ===");
   identityLog.info(`Headers: ${JSON.stringify(req.headers)}`);
@@ -71,7 +71,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
   const identityNumber = req.body.identityNumber;
   const dateOfBirth = req.body.dateOfBirth;
 
-  console.log(`Identity Type check: ${identityType}`);
+  // console.log(`Identity Type check: ${identityType}`);
   identityLog.info(`Identity Type check: ${identityType}`);
 
    if (identityNumber) {
@@ -149,7 +149,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
         file,
       });
 
-      console.log(`Visitor verification success for userId=${userId}`);
+      // // console.log(`Visitor verification success for userId=${userId}`);
       identityLog.info(`Visitor verification success for userId=${userId}`);
 
       return res.status(200).json({
@@ -202,7 +202,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       identityNumber,
       dateOfBirth,
     });
-    console.log("last----------------------------------------")
+    // console.log("last----------------------------------------")
     return res.status(200).json({
       success: true,
       message: "Identity verified successfully",
@@ -226,7 +226,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
     });
   } catch (error) {
     identityLog.error(
-      `YAKEEN verification failed for userId=${userId}: ${error.message}`
+      `Identity verification failed for userId=${userId}: ${error.message}`
     );
 
     try {
