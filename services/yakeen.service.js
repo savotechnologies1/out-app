@@ -211,40 +211,40 @@ const verifyIdentity = async ({ identityType, identityNumber, dateOfBirth }) => 
         return retryResponse.data;
 
       } catch (retryError) {
-        safeLogAxiosError("Retry verification failure", retryError);
+        safeLogAxiosError(success = false, "Retry verification failure", retryError);
 
         if (retryError.response && retryError.response.data) {
           const msg =
             retryError.response.data.message ||
             retryError.response.data.error ||
             "Identity verification failed after retry";
-          throw new Error(msg);
+          throw new Error(success = false, msg);
         }
 
-        throw new Error("YAKEEN service unavailable after retry. Please try again later.");
+        throw new Error("Identity service unavailable after retry. Please try again later.");
       }
     }
 
     // Non-401 errors
-    safeLogAxiosError("Verification failure", error);
+    safeLogAxiosError(success = false, "Verification failure", error);
 
     if (error.response && error.response.data) {
       const msg =
         error.response.data.message ||
         error.response.data.error ||
         "Identity verification failed";
-      throw new Error(msg);
+      throw new Error(success = false, msg);
     }
 
     if (error.code === "ECONNABORTED") {
-      throw new Error("YAKEEN service timed out. Please try again later.");
+      throw new Error("Identity service timed out. Please try again later.");
     }
 
     if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
-      throw new Error("YAKEEN service is unreachable. Please try again later.");
+      throw new Error("Identity service is unreachable. Please try again later.");
     }
 
-    throw new Error("YAKEEN service unavailable. Please try again later.");
+    throw new Error("Identity service unavailable. Please try again later.");
   }
 };
 
