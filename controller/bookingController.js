@@ -1287,7 +1287,7 @@ exports.getBookingDetail = async (req, res) => {
           {
             path: "user",
             model: "ServiceUser",
-            select: "firstName lastName email phone profile"
+            select: "firstName lastName email phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr"
           },
           {
             path: "propertyAmenities",
@@ -2834,7 +2834,7 @@ exports.getPendingBookingRequests = async (req, res) => {
 
       .populate(
         "user",
-        "firstName lastName profile phone"
+        "firstName lastName profile phone identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr"
       )
 
       .populate(

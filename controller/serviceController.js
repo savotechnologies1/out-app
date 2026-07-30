@@ -1516,7 +1516,7 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
     bookingStatus: { $in: ["confirmed", "cancelled"] }
 
   })
-    .populate("user", "firstName lastName phone profile")
+    .populate("user", "firstName lastName phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr")
     .populate("property", "name address price")
     .populate("services.service", "name price duration")
     .sort({ createdAt: -1 })
