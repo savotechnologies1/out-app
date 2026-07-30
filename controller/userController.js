@@ -343,6 +343,7 @@ const getUser = catchAsyncError(async (req, res, next) => {
       legalFirstNameEn: 1,
       legalFamilyNameEn: 1,
       legalGrandFatherNameAr: 1,
+      legalGrandFatherNameEn: 1,
       identityDocuments: 1,
       verificationReference: 1,
       verificationProvider: 1,
@@ -385,6 +386,7 @@ const getUser = catchAsyncError(async (req, res, next) => {
       legalFirstNameEn: user.legalFirstNameEn,
       legalFamilyNameEn: user.legalFamilyNameEn,
       legalGrandFatherNameAr: user.legalGrandFatherNameAr,
+      legalGrandFatherNameEn: user.legalGrandFatherNameEn,
       identityDocuments: user.identityDocuments,
       verificationReference: user.verificationReference,
       verificationProvider: user.verificationProvider
