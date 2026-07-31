@@ -448,8 +448,8 @@ const getAllUsers = catchAsyncError(async (req, res, next) => {
         verifiedAt: 1,
         verificationReference: 1,
         verificationProvider: 1,
-        verificationService:1,
-        verificationMethod:1,
+        verificationService: 1,
+        verificationMethod: 1,
         identityDocuments: 1,
         adminVerifiedBy: 1,
         adminVerifiedAt: 1,
@@ -550,11 +550,53 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
     },
   ]);
 
+  // ✅ Find connected User for each ServiceUser by phone or email
+  const phones = users.map((u) => u.phone).filter((p) => p && p.trim() !== "");
+  const emails = users.map((u) => u.email).filter((e) => e && e.trim() !== "");
+
+  let connectedUsers = [];
+  if (phones.length > 0 || emails.length > 0) {
+    const conditions = [];
+    if (phones.length > 0) conditions.push({ phone: { $in: phones } });
+    if (emails.length > 0) conditions.push({ email: { $in: emails } });
+
+    connectedUsers = await User.find(
+      { isDeleted: false, $or: conditions },
+      {
+        _id: 1,
+        userId: 1,
+        salutation: 1,
+        firstName: 1,
+        lastName: 1,
+        email: 1,
+        phone: 1,
+        phoneCode: 1,
+        profile: 1,
+        role: 1,
+        isActive: 1,
+        createdAt: 1,
+      }
+    ).lean();
+  }
+
+  const usersWithConnected = users.map((u) => {
+    const connected = connectedUsers.find(
+      (cu) =>
+        (u.phone && cu.phone === u.phone) ||
+        (u.email && cu.email === u.email)
+    );
+    return {
+      ...u,
+      connectedUserId: connected ? connected._id : null,
+      connectedUser: connected || null,
+    };
+  });
+
   const totalPages = Math.ceil(total / pageSize);
 
   return res.status(200).json({
     success: true,
-    data: users,
+    data: usersWithConnected,
     page,
     limit: pageSize,
     total,
@@ -598,6 +640,39 @@ const getServiceUserById = catchAsyncError(async (req, res, next) => {
   if (!user) {
     return res.status(400).json({ message: "Service User not found" });
   }
+
+  let connectedUser = null;
+  const conditions = [];
+  if (user.phone && user.phone.trim() !== "") {
+    conditions.push({ phone: user.phone });
+  }
+  if (user.email && user.email.trim() !== "") {
+    conditions.push({ email: user.email });
+  }
+
+  if (conditions.length > 0) {
+    connectedUser = await User.findOne(
+      { isDeleted: false, $or: conditions },
+      {
+        _id: 1,
+        userId: 1,
+        salutation: 1,
+        firstName: 1,
+        lastName: 1,
+        email: 1,
+        phone: 1,
+        phoneCode: 1,
+        profile: 1,
+        role: 1,
+        isActive: 1,
+        isVerified: 1,
+        createdAt: 1,
+      }
+    ).lean();
+  }
+
+  user.connectedUserId = connectedUser ? connectedUser._id : null;
+  user.connectedUser = connectedUser || null;
 
   return res.status(200).json({
     message: "Service User fetched successfully",
@@ -845,8 +920,8 @@ const getUserById = catchAsyncError(async (req, res, next) => {
       verifiedAt: 1,
       verificationReference: 1,
       verificationProvider: 1,
-      verificationService:1,
-      verificationMethod:1,
+      verificationService: 1,
+      verificationMethod: 1,
       identityDocuments: 1,
       adminVerifiedBy: 1,
       adminVerifiedAt: 1,
