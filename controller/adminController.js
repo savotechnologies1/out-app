@@ -532,6 +532,37 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
     { $skip: skip },
     { $limit: pageSize },
     {
+      $lookup: {
+        from: "users",
+        let: { suPhone: "$phone", suPhoneCode: "$phoneCode" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$isDeleted", false] },
+                  { $ne: ["$$suPhone", null] },
+                  { $ne: ["$$suPhone", ""] },
+                  { $eq: ["$phone", "$$suPhone"] },
+                  {
+                    $or: [
+                      { $eq: ["$$suPhoneCode", null] },
+                      { $eq: ["$$suPhoneCode", ""] },
+                      { $eq: ["$phoneCode", null] },
+                      { $eq: ["$phoneCode", ""] },
+                      { $eq: ["$phoneCode", "$$suPhoneCode"] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 1 } },
+        ],
+        as: "matchedUser",
+      },
+    },
+    {
       $project: {
         _id: 1,
         salutation: 1,
@@ -546,57 +577,18 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
         role: 1,
         isApproved: 1,
         createdAt: 1,
+        userModelId: {
+          $ifNull: [{ $arrayElemAt: ["$matchedUser._id", 0] }, null],
+        },
       },
     },
   ]);
-
-  // ✅ Find connected User for each ServiceUser by phone or email
-  const phones = users.map((u) => u.phone).filter((p) => p && p.trim() !== "");
-  const emails = users.map((u) => u.email).filter((e) => e && e.trim() !== "");
-
-  let connectedUsers = [];
-  if (phones.length > 0 || emails.length > 0) {
-    const conditions = [];
-    if (phones.length > 0) conditions.push({ phone: { $in: phones } });
-    if (emails.length > 0) conditions.push({ email: { $in: emails } });
-
-    connectedUsers = await User.find(
-      { isDeleted: false, $or: conditions },
-      {
-        _id: 1,
-        userId: 1,
-        salutation: 1,
-        firstName: 1,
-        lastName: 1,
-        email: 1,
-        phone: 1,
-        phoneCode: 1,
-        profile: 1,
-        role: 1,
-        isActive: 1,
-        createdAt: 1,
-      }
-    ).lean();
-  }
-
-  const usersWithConnected = users.map((u) => {
-    const connected = connectedUsers.find(
-      (cu) =>
-        (u.phone && cu.phone === u.phone) ||
-        (u.email && cu.email === u.email)
-    );
-    return {
-      ...u,
-      connectedUserId: connected ? connected._id : null,
-      connectedUser: connected || null,
-    };
-  });
 
   const totalPages = Math.ceil(total / pageSize);
 
   return res.status(200).json({
     success: true,
-    data: usersWithConnected,
+    data: users,
     page,
     limit: pageSize,
     total,
@@ -613,70 +605,78 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
 const getServiceUserById = catchAsyncError(async (req, res, next) => {
   const { id } = req.params;
 
-  const user = await ServiceUser.findOne(
-    { _id: id },
-    {
-      salutation: 1,
-      email: 1,
-      role: 1,
-      userId: 1,
-      address: 1,
-      city: 1,
-      state: 1,
-      zipCode: 1,
-      country: 1,
-      firstName: 1,
-      lastName: 1,
-      phone: 1,
-      phoneCode: 1,
-      docs: 1,
-      profile: 1,
-      isVerified: 1,
-      isActive: 1,
-      isDeleted: 1,
-      isApproved: 1
-    }
-  ).lean();
-  if (!user) {
+  if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ message: "Service User not found" });
   }
 
-  let connectedUser = null;
-  const conditions = [];
-  if (user.phone && user.phone.trim() !== "") {
-    conditions.push({ phone: user.phone });
-  }
-  if (user.email && user.email.trim() !== "") {
-    conditions.push({ email: user.email });
-  }
-
-  if (conditions.length > 0) {
-    connectedUser = await User.findOne(
-      { isDeleted: false, $or: conditions },
-      {
-        _id: 1,
-        userId: 1,
+  const users = await ServiceUser.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(id) } },
+    {
+      $lookup: {
+        from: "users",
+        let: { suPhone: "$phone", suPhoneCode: "$phoneCode" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$isDeleted", false] },
+                  { $ne: ["$$suPhone", null] },
+                  { $ne: ["$$suPhone", ""] },
+                  { $eq: ["$phone", "$$suPhone"] },
+                  {
+                    $or: [
+                      { $eq: ["$$suPhoneCode", null] },
+                      { $eq: ["$$suPhoneCode", ""] },
+                      { $eq: ["$phoneCode", null] },
+                      { $eq: ["$phoneCode", ""] },
+                      { $eq: ["$phoneCode", "$$suPhoneCode"] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 1 } },
+        ],
+        as: "matchedUser",
+      },
+    },
+    {
+      $project: {
         salutation: 1,
+        email: 1,
+        role: 1,
+        userId: 1,
+        address: 1,
+        city: 1,
+        state: 1,
+        zipCode: 1,
+        country: 1,
         firstName: 1,
         lastName: 1,
-        email: 1,
         phone: 1,
         phoneCode: 1,
+        docs: 1,
         profile: 1,
-        role: 1,
-        isActive: 1,
         isVerified: 1,
-        createdAt: 1,
-      }
-    ).lean();
-  }
+        isActive: 1,
+        isDeleted: 1,
+        isApproved: 1,
+        userModelId: {
+          $ifNull: [{ $arrayElemAt: ["$matchedUser._id", 0] }, null],
+        },
+      },
+    },
+  ]);
 
-  user.connectedUserId = connectedUser ? connectedUser._id : null;
-  user.connectedUser = connectedUser || null;
+  if (!users || users.length === 0) {
+    return res.status(400).json({ message: "Service User not found" });
+  }
 
   return res.status(200).json({
     message: "Service User fetched successfully",
-    data: user
+    data: users[0],
   });
 });
 
