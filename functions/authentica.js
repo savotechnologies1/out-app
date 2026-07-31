@@ -66,13 +66,17 @@ module.exports.authenticaOTP = async (OTP, email, phone) => {
 
     } catch (error) {
         console.log("Error:", error.response?.data || error.message);
-        const apiMessage =
+        let apiMessage =
             error.response?.data?.message ||
             (error.response?.data?.errors
                 ? Object.values(error.response.data.errors).flat()[0]
                 : null) ||
             error.message ||
             "Failed to send OTP";
+
+        if (apiMessage.includes("Phone number is not valid")) {
+            apiMessage = "Phone number is not valid";
+        }
 
         const err = new Error(apiMessage);
         err.statusCode = error.response?.status || 400;
