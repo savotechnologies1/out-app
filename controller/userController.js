@@ -134,11 +134,13 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
       });
     }
   }
-
+   console.log("mobileCode", mobileCode)
+   console.log("mobile", mobile)
   // Generate ID
   const randomId = generateRandomId();
   const otp = generateRandomOTP();
   // Create user
+   await authenticaOTP(otp, email, phone);
   const user = await User.create({
     salutation,
     firstName,
@@ -149,7 +151,7 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
     phoneCode: mobileCode,
     OTP: otp,
   });
-  await authenticaOTP(otp, user.email, user.phone);
+  
   return res.status(201).send({
     data: {
       id: user._id,
