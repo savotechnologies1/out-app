@@ -14,27 +14,30 @@ exports.createConversation = async (req, res) => {
     let conversation;
 
     /* =====================================================
-       SERVICE CHAT (User ↔ ServiceUser) ✅ NO CHANGE
+       SERVICE CHAT (User ↔ ServiceUser)
     ===================================================== */
     if (chatType === "SERVICE_CHAT") {
 
-      if (!serviceUserId) {
+      if (!userId || !serviceUserId) {
         return res.status(400).json({
           success: false,
-          message: "serviceUserId is required",
+          message: "userId and serviceUserId are required",
         });
       }
 
-      const ids = [userId.toString(), serviceUserId.toString()].sort();
-
-      const firstId = ids[0];
-      const secondId = ids[1];
-
       conversation = await Conversation.findOne({
         chatType: "SERVICE_CHAT",
-        userId: firstId,
-        serviceUserId: secondId,
         isDeleted: false,
+        $or: [
+          {
+            userId: userId,
+            serviceUserId: serviceUserId,
+          },
+          {
+            userId: serviceUserId,
+            serviceUserId: userId,
+          },
+        ],
       });
 
       if (conversation)
@@ -42,8 +45,8 @@ exports.createConversation = async (req, res) => {
 
       conversation = await Conversation.create({
         chatType: "SERVICE_CHAT",
-        userId: firstId,
-        serviceUserId: secondId,
+        userId: userId,
+        serviceUserId: serviceUserId,
       });
 
       return res.status(201).json({
@@ -1566,6 +1569,7 @@ exports.getUserServiceChats = async (req, res) => {
   try {
 
     const userId = req.user._id;
+    console.log("userId", userId)
 
     const conversations = await Conversation.find({
       chatType: "SERVICE_CHAT",
@@ -1594,11 +1598,12 @@ exports.getUserServiceChats = async (req, res) => {
   }
 };
 
+
 exports.getServiceUserChats = async (req, res) => {
   try {
 
     const serviceUserId = req.user._id;
-
+    console.log("serviceUserId", serviceUserId)
     const conversations = await Conversation.find({
       chatType: "SERVICE_CHAT",
       serviceUserId: serviceUserId,

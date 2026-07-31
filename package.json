@@ -9,7 +9,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "repair-service-chats": "node scripts/repairServiceChatConversations.js"
   },
   "dependencies": {
     "@api/tappayments": "file:.api/apis/tappayments",
