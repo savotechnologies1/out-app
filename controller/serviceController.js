@@ -2044,12 +2044,25 @@ const getActiveServiceCategories = async (req, res) => {
 
 
 function convertToMinutes(time) {
+  if (!time || typeof time !== "string") return null;
 
-  const [timePart, modifier] = time.split(" ");
-  let [hours, minutes] = timePart.split(":").map(Number);
+  const str = time.trim().toUpperCase();
+  const match = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
+  if (!match) return null;
 
-  if (modifier === "PM" && hours !== 12) hours += 12;
-  if (modifier === "AM" && hours === 12) hours = 0;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const modifier = match[3];
+
+  if (hours < 0 || minutes < 0 || minutes > 59) return null;
+
+  if (modifier) {
+    if (hours < 1 || hours > 12) return null;
+    if (modifier === "PM" && hours !== 12) hours += 12;
+    if (modifier === "AM" && hours === 12) hours = 0;
+  } else if (hours > 23) {
+    return null;
+  }
 
   return hours * 60 + minutes;
 }
@@ -2167,14 +2180,17 @@ const createService = async (req, res) => {
       const startMinutes = convertToMinutes(start);
       const endMinutes = convertToMinutes(end);
 
-      if (endMinutes <= startMinutes) {
+      if (startMinutes === null || endMinutes === null) {
         return res.status(400).json({
           success: false,
-          message: "End time must be greater than start time"
+          message: "Invalid start or end time format"
         });
       }
 
       duration = endMinutes - startMinutes;
+      if (duration <= 0) {
+        duration += 24 * 60; // Handle overnight times (e.g., 12:05PM to 12:05AM)
+      }
     }
 
     const policy = await CancellationPolicy.findOne({
@@ -2551,16 +2567,21 @@ const updateService = async (req, res) => {
       const startMinutes = convertToMinutes(newStart);
       const endMinutes = convertToMinutes(newEnd);
 
-      if (endMinutes <= startMinutes) {
+      if (startMinutes === null || endMinutes === null) {
         return res.status(400).json({
           success: false,
-          message: "End time must be greater than start time"
+          message: "Invalid start or end time format"
         });
+      }
+
+      let duration = endMinutes - startMinutes;
+      if (duration <= 0) {
+        duration += 24 * 60; // Handle overnight times (e.g., 12:05PM to 12:05AM)
       }
 
       service.workingHours.start = newStart;
       service.workingHours.end = newEnd;
-      service.duration = endMinutes - startMinutes;
+      service.duration = duration;
     }
 
     // ---------------- LOCATION TEXT ----------------
