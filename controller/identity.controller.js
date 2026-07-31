@@ -153,6 +153,7 @@ const verifyIdentity = catchAsyncError(async (req, res, next) => {
       identityLog.info(`Visitor verification success for userId=${userId}`);
 
       return res.status(200).json({
+        success: true,
         message:
           "Document uploaded successfully. Verification is pending admin approval.",
         data: {
