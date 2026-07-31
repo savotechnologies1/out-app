@@ -38,8 +38,6 @@ require("dotenv").config();
 
 module.exports.authenticaOTP = async (OTP, email, phone) => {
     try {
-        console.log("phone", phone)
-        console.log("email", email)
         // Check if number starts with +966
         const method = phone.startsWith("+966") ? "sms" : "whatsapp";
         const response = await axios.post(
@@ -68,6 +66,16 @@ module.exports.authenticaOTP = async (OTP, email, phone) => {
 
     } catch (error) {
         console.log("Error:", error.response?.data || error.message);
-        throw error;
+        const apiMessage =
+            error.response?.data?.message ||
+            (error.response?.data?.errors
+                ? Object.values(error.response.data.errors).flat()[0]
+                : null) ||
+            error.message ||
+            "Failed to send OTP";
+
+        const err = new Error(apiMessage);
+        err.statusCode = error.response?.status || 400;
+        throw err;
     }
 };

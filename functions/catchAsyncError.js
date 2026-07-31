@@ -12,10 +12,11 @@ module.exports = (fn) => {
         const errorMessage = err.errors[firstErrorField].message;
         return res.status(400).send({ message: errorMessage });
       } else {
-        console.log("Something went wrongSomething went wrong", err);
+        console.log("Error caught in catchAsyncError:", err.message);
+        const statusCode = err.statusCode || err.status || 400;
         return res
-          .status(500)
-          .send({ message: "Something went wrong", error: err.message });
+          .status(statusCode)
+          .send({ message: err.message || "Something went wrong" });
       }
     }
   };

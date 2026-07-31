@@ -134,8 +134,6 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
       });
     }
   }
-   console.log("mobileCode", mobileCode)
-   console.log("mobile", mobile)
   // Generate ID
   const randomId = generateRandomId();
   const otp = generateRandomOTP();
