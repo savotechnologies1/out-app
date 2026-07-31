@@ -2069,6 +2069,7 @@ function convertToMinutes(time) {
 
 
 const createService = async (req, res) => {
+  console.log("req.body", req.body);
   try {
     const {
       name,
