@@ -67,6 +67,8 @@ exports.createConversation = async (req, res) => {
         });
       }
 
+      const admin = await Admin.findOne();
+
       // 🔍 Check existing OPEN ticket
       const existingTicket = await Ticket.findOne({
         userId,
@@ -76,6 +78,7 @@ exports.createConversation = async (req, res) => {
       const ticketImage = req.file?.filename
         ? `uploads/ticketImage/${req.file.filename}`
         : null;
+
       if (existingTicket) {
         // ✅ Update only if new image comes
         if (ticketImage) {
@@ -86,11 +89,29 @@ exports.createConversation = async (req, res) => {
         if (subject) existingTicket.subject = subject;
         if (description) existingTicket.description = description;
 
-        await existingTicket.save();
+        let existingConversation = existingTicket.conversationId
+          ? await Conversation.findById(existingTicket.conversationId)
+          : null;
 
-        const existingConversation = await Conversation.findById(
-          existingTicket.conversationId
-        );
+        if (!existingConversation) {
+          existingConversation = await Conversation.findOne({
+            chatType: "USER_SUPPORT",
+            userId,
+            isDeleted: false,
+          });
+
+          if (!existingConversation) {
+            existingConversation = await Conversation.create({
+              chatType: "USER_SUPPORT",
+              userId,
+              adminId: admin?._id,
+            });
+          }
+
+          existingTicket.conversationId = existingConversation._id;
+        }
+
+        await existingTicket.save();
 
         return res.json({
           success: true,
@@ -102,8 +123,6 @@ exports.createConversation = async (req, res) => {
       }
 
       // ✅ Create new ticket if none exists
-      const admin = await Admin.findOne();
-
       const ticket = await Ticket.create({
         userId,
         adminId: admin?._id,
@@ -112,12 +131,21 @@ exports.createConversation = async (req, res) => {
         description,
       });
 
-      // 💬 Create Conversation
-      conversation = await Conversation.create({
+      // 💬 Find or Create Conversation
+      conversation = await Conversation.findOne({
         chatType: "USER_SUPPORT",
         userId,
-        adminId: admin?._id,
+        isDeleted: false,
       });
+
+      if (!conversation) {
+        conversation = await Conversation.create({
+          chatType: "USER_SUPPORT",
+          userId,
+          adminId: admin?._id,
+        });
+      }
+
       // 🔗 Link both
       ticket.conversationId = conversation._id;
       await ticket.save();
@@ -155,7 +183,7 @@ exports.createConversation = async (req, res) => {
           : [],
       });
       conversation.lastMessage =
-        description;
+        description || subject;
 
       conversation.lastMessageAt =
         new Date();
@@ -165,10 +193,12 @@ exports.createConversation = async (req, res) => {
 
       await conversation.save();
       const io = req.app.get("io");
-      io.to(conversation._id).emit(
-        "receiveMessage",
-        newMessage
-      );
+      if (io) {
+        io.to(conversation._id.toString()).emit(
+          "receiveMessage",
+          newMessage
+        );
+      }
       return res.status(201).json({
         success: true,
         data: {
@@ -190,6 +220,8 @@ exports.createConversation = async (req, res) => {
         });
       }
 
+      const admin = await Admin.findOne();
+
       // 🔍 Check existing OPEN ticket
       const existingTicket = await Ticket.findOne({
         serviceUserId,
@@ -210,11 +242,29 @@ exports.createConversation = async (req, res) => {
         if (subject) existingTicket.subject = subject;
         if (description) existingTicket.description = description;
 
-        await existingTicket.save();
+        let existingConversation = existingTicket.conversationId
+          ? await Conversation.findById(existingTicket.conversationId)
+          : null;
 
-        const existingConversation = await Conversation.findById(
-          existingTicket.conversationId
-        );
+        if (!existingConversation) {
+          existingConversation = await Conversation.findOne({
+            chatType: "SERVICE_SUPPORT",
+            serviceUserId,
+            isDeleted: false,
+          });
+
+          if (!existingConversation) {
+            existingConversation = await Conversation.create({
+              chatType: "SERVICE_SUPPORT",
+              serviceUserId,
+              adminId: admin?._id,
+            });
+          }
+
+          existingTicket.conversationId = existingConversation._id;
+        }
+
+        await existingTicket.save();
 
         return res.json({
           success: true,
@@ -226,8 +276,6 @@ exports.createConversation = async (req, res) => {
       }
 
       // ✅ Create new ticket if none exists
-      const admin = await Admin.findOne();
-
       const ticket = await Ticket.create({
         serviceUserId,
         adminId: admin?._id,
@@ -236,12 +284,20 @@ exports.createConversation = async (req, res) => {
         description,
       });
 
-      // 💬 Create Conversation
-      conversation = await Conversation.create({
+      // 💬 Find or Create Conversation
+      conversation = await Conversation.findOne({
         chatType: "SERVICE_SUPPORT",
         serviceUserId,
-        adminId: admin?._id,
+        isDeleted: false,
       });
+
+      if (!conversation) {
+        conversation = await Conversation.create({
+          chatType: "SERVICE_SUPPORT",
+          serviceUserId,
+          adminId: admin?._id,
+        });
+      }
 
       // 🔗 Link
       ticket.conversationId = conversation._id;
@@ -280,7 +336,7 @@ exports.createConversation = async (req, res) => {
           : [],
       });
       conversation.lastMessage =
-        description;
+        description || subject;
 
       conversation.lastMessageAt =
         new Date();
@@ -291,11 +347,13 @@ exports.createConversation = async (req, res) => {
       await conversation.save();
 
       const io = req.app.get("io");
+      if (io) {
+        io.to(conversation._id.toString()).emit(
+          "receiveMessage",
+          newMessage
+        );
+      }
 
-      io.to(conversation._id).emit(
-        "receiveMessage",
-        newMessage
-      );
       return res.status(201).json({
         success: true,
         data: {
