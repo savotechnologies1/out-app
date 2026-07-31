@@ -44,6 +44,7 @@ const PDFDocument = require("pdfkit");
 const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 const Notification = require("../models/Notification");
 const { sendNotification } = require("../utils/notificationService");
+const Ticket = require("../models/Ticket");
 
 
 // const adminLogin = catchAsyncError(async (req, res, next) => {
@@ -6621,7 +6622,128 @@ const getAllServicesForCommission = catchAsyncError(async (req, res, next) => {
 
 });
 
+const seenPendingTimestamps = {
+  identity: null,
+  property: null,
+  service: null,
+  report: null,
+  booking: null,
+};
+
+const getAdminPendingCounts = catchAsyncError(async (req, res, next) => {
+  const { markSeen, type } = req.query;
+
+  const targetType = (markSeen || type || "").toLowerCase();
+  if (targetType) {
+    const now = new Date();
+    if (targetType === "all" || targetType === "true") {
+      seenPendingTimestamps.identity = now;
+      seenPendingTimestamps.property = now;
+      seenPendingTimestamps.service = now;
+      seenPendingTimestamps.report = now;
+      seenPendingTimestamps.booking = now;
+    } else if (Object.prototype.hasOwnProperty.call(seenPendingTimestamps, targetType)) {
+      seenPendingTimestamps[targetType] = now;
+    }
+  }
+
+  // 1. Identity Verification Pending Count
+  const identityFilter = {
+    isDeleted: false,
+    identityVerificationStatus: "PENDING",
+  };
+  if (seenPendingTimestamps.identity) {
+    identityFilter.createdAt = { $gt: seenPendingTimestamps.identity };
+  }
+  const identityVerificationPending = await User.countDocuments(identityFilter);
+
+  // 2. Property Pending Count
+  const propertyFilter = {
+    isDeleted: false,
+    approvalStatus: "pending",
+  };
+  if (seenPendingTimestamps.property) {
+    propertyFilter.createdAt = { $gt: seenPendingTimestamps.property };
+  }
+  const propertyPending = await Properties.countDocuments(propertyFilter);
+
+  // 3. Service Pending Count
+  const serviceFilter = {
+    isDeleted: false,
+    approvalStatus: "pending",
+  };
+  if (seenPendingTimestamps.service) {
+    serviceFilter.createdAt = { $gt: seenPendingTimestamps.service };
+  }
+  const servicePending = await Service.countDocuments(serviceFilter);
+
+  // 4. Report / Ticket Pending Count
+  const reportFilter = {
+    status: { $in: ["OPEN", "IN_PROGRESS", "PENDING", "pending"] },
+  };
+  if (seenPendingTimestamps.report) {
+    reportFilter.createdAt = { $gt: seenPendingTimestamps.report };
+  }
+  const reportPending = await Ticket.countDocuments(reportFilter);
+
+  // 5. New Booking Count
+  const bookingFilter = {
+    isCancelled: false,
+    bookingStatus: "pending",
+  };
+  if (seenPendingTimestamps.booking) {
+    bookingFilter.createdAt = { $gt: seenPendingTimestamps.booking };
+  }
+  const newBookingCount = await Booking.countDocuments(bookingFilter);
+
+  const totalCount =
+    identityVerificationPending +
+    propertyPending +
+    servicePending +
+    reportPending +
+    newBookingCount;
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      identityVerificationPending,
+      propertyPending,
+      servicePending,
+      reportPending,
+      newBookingCount,
+      totalCount,
+    },
+  });
+});
+
+const markPendingCountsSeen = catchAsyncError(async (req, res, next) => {
+  const { type = "all" } = req.body;
+  const targetType = (type || "all").toLowerCase();
+  const now = new Date();
+
+  if (targetType === "all") {
+    seenPendingTimestamps.identity = now;
+    seenPendingTimestamps.property = now;
+    seenPendingTimestamps.service = now;
+    seenPendingTimestamps.report = now;
+    seenPendingTimestamps.booking = now;
+  } else if (Object.prototype.hasOwnProperty.call(seenPendingTimestamps, targetType)) {
+    seenPendingTimestamps[targetType] = now;
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: `Pending count for '${targetType}' marked as seen.`,
+    data: {
+      type: targetType,
+      seenAt: now,
+    },
+  });
+});
+
 module.exports = {
+  getAdminPendingCounts,
+  markPendingCountsSeen,
   adminLogin,
   sendForgotPasswordOTP,
   validOtp,

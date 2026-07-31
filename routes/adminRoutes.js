@@ -86,6 +86,8 @@ const {
   getCancelledBookings,
   softDeleteReview,
   getAdminDashboard,
+  getAdminPendingCounts,
+  markPendingCountsSeen,
   getAdminReports,
   exportReportPDF,
   getAdminEarningsDashboard,
@@ -302,7 +304,10 @@ router.get("/getReviews", validateAdminToken, getReviews);
 
 router.patch("/softDeleteReview/:reviewId", validateAdminToken, softDeleteReview);
 
-router.get("/getAdminDashboard", validateAdminToken, getAdminDashboard)
+router.get("/getAdminDashboard", validateAdminToken, getAdminDashboard);
+
+router.get("/getAdminPendingCounts", validateAdminToken, getAdminPendingCounts);
+router.post("/markPendingCountsSeen", validateAdminToken, markPendingCountsSeen);
 
 router.get("/getAdminReports", validateAdminToken, getAdminReports);
 
