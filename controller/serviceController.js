@@ -665,7 +665,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
         createdAt: 1,
         updatedAt: 1,
-   
+
         avgRating: 1,
         totalReviews: 1,
 
@@ -689,8 +689,8 @@ const getPropertyById = catchAsyncError(async (req, res) => {
         pool: 1,
 
         restRoom: 1,
-        
-        instantBooking:1,
+
+        instantBooking: 1,
 
         media: 1,
 
@@ -2211,11 +2211,18 @@ const createService = async (req, res) => {
     if (policies) {
       if (Array.isArray(policies)) {
         parsedPolicies = policies;
-      } else {
-        parsedPolicies = [policies];
+      } else if (typeof policies === "string") {
+        try {
+          const parsed = JSON.parse(policies);
+
+          parsedPolicies = Array.isArray(parsed)
+            ? parsed
+            : [policies];
+        } catch (err) {
+          parsedPolicies = [policies];
+        }
       }
     }
-
     // ----------- CREATE SERVICE -----------
 
     const service = await Service.create({
