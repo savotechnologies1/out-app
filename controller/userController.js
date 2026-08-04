@@ -3328,6 +3328,12 @@ const getReviews = async (req, res) => {
       match.service = new mongoose.Types.ObjectId(id);
     }
 
+    if (type === "user") {
+      match.reviewee = new mongoose.Types.ObjectId(id);
+      match.revieweeModel = "User";
+      match.reviewType = "user";
+    }
+
     /* ========================
        🔥 FETCH REVIEWS
     ======================== */
@@ -3412,6 +3418,100 @@ const getReviews = async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+/* =====================================================
+   GET /user/getUserReviews or GET /user/getUserReviews/:userId
+   Fetch reviews given to a customer (User) by ServiceUsers
+====================================================== */
+const getUserReviews = async (req, res) => {
+  try {
+    const targetUserId = req.params.userId || req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
+      });
+    }
+
+    const { page = 1, limit = 10 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, parseInt(limit) || 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const match = {
+      reviewee: new mongoose.Types.ObjectId(targetUserId),
+      revieweeModel: "User",
+      reviewType: "user",
+      isDeleted: { $ne: true }
+    };
+
+    const reviews = await Review.find(match)
+      .populate("reviewer", "firstName lastName profile email phone")
+      .populate({
+        path: "booking",
+        select: "orderId checkIn checkOut bookingType property services",
+        populate: [
+          { path: "property", select: "name title images" },
+          { path: "services.service", select: "name images" }
+        ]
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Review.countDocuments(match);
+
+    const summaryAgg = await Review.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$reviewee",
+          averageRating: { $avg: "$rating" },
+          totalRatings: { $sum: 1 },
+          cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          service: { $avg: "$ratingsBreakdown.service" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          value: { $avg: "$ratingsBreakdown.value" }
+        }
+      }
+    ]);
+
+    const stats = summaryAgg[0] || {};
+    const averageRating = stats.averageRating ? Number(stats.averageRating.toFixed(1)) : 0;
+    const totalRatings = stats.totalRatings || 0;
+
+    const summary = {
+      averageRating,
+      totalRatings,
+      breakdown: {
+        cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
+        service: stats.service ? Number(stats.service.toFixed(1)) : 0,
+        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
+        value: stats.value ? Number(stats.value.toFixed(1)) : 0
+      }
+    };
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    return res.status(200).json({
+      success: true,
+      summary,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages
+      },
+      reviews
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };
 
@@ -5153,6 +5253,7 @@ module.exports = {
   googleLogin,
   createUserReview,
   getReviews,
+  getUserReviews,
   getServiceUser,
   serviceUserLoginByUserToken,
   getServicesByCategory,

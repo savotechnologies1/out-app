@@ -376,92 +376,6 @@ exports.createConversation = async (req, res) => {
   }
 };
 
-
-// exports.sendMessage = async (req, res) => {
-//   try {
-//     const { conversationId, senderId, message, messageType } = req.body;
-
-//     const conversation = await Conversation.findById(conversationId);
-//     if (!conversation)
-//       return res.status(404).json({ success: false });
-
-//     // 🚫 Block if conversation closed
-//     if (conversation.isClosed)
-//       return res.status(400).json({ success: false, message: "Chat closed" });
-
-//     /* =====================================================
-//        ✅ TICKET VALIDATION (NEW)
-//     ===================================================== */
-//     if (
-//       conversation.chatType === "USER_SUPPORT" ||
-//       conversation.chatType === "SERVICE_SUPPORT"
-//     ) {
-//       const ticket = await Ticket.findOne({ conversationId });
-
-//       if (!ticket) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Ticket not found",
-//         });
-//       }
-
-//       // 🚫 Block if ticket closed
-//       if (ticket.status === "CLOSED") {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Ticket is closed",
-//         });
-//       }
-
-//       // 🔄 Auto move to IN_PROGRESS when admin replies
-//       if (
-//         conversation.adminId?.toString() === senderId &&
-//         ticket.status === "OPEN"
-//       ) {
-//         ticket.status = "IN_PROGRESS";
-//         await ticket.save();
-//       }
-//     }
-
-//     /* =====================================================
-//        💬 CREATE MESSAGE
-//     ===================================================== */
-//     const newMessage = await Message.create({
-//       conversationId,
-//       senderId,
-//       message,
-//       messageType,
-//     });
-
-//     /* =====================================================
-//        🧠 UPDATE CONVERSATION META
-//     ===================================================== */
-//     conversation.lastMessage = message;
-//     conversation.lastMessageAt = new Date();
-//     conversation.lastMessageSenderId = senderId;
-
-//     // 🔔 Unread Logic
-//     if (conversation.userId?.toString() === senderId)
-//       conversation.serviceUserUnreadCount++;
-
-//     else if (conversation.serviceUserId?.toString() === senderId)
-//       conversation.userUnreadCount++;
-
-//     else if (conversation.adminId?.toString() === senderId) {
-//       if (conversation.userId) conversation.userUnreadCount++;
-//       if (conversation.serviceUserId)
-//         conversation.serviceUserUnreadCount++;
-//     }
-
-//     await conversation.save();
-
-//     res.status(201).json({ success: true, data: newMessage });
-
-//   } catch (error) {
-//     res.status(500).json({ success: false, message: error.message });
-//   }
-// };
-
 exports.sendMessage = async (req, res) => {
   try {
 
@@ -862,31 +776,6 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-
-/* =====================================================
-   GET CONVERSATION LIST
-===================================================== */
-// exports.getConversations = async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-
-//     const conversations = await Conversation.find({
-//       $or: [
-//         { userId },
-//         { serviceUserId: userId },
-//         { adminId: userId },
-//       ],
-//       isDeleted: false,
-//     }).sort({ lastMessageAt: -1 });
-
-//     res.json({ success: true, data: conversations });
-
-//   } catch (error) {
-//     res.status(500).json({ success: false });
-//   }
-// };
-
-
 exports.getConversations = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1004,72 +893,6 @@ exports.markAsRead = async (req, res) => {
   }
 };
 
-// exports.getAdminConversations = async (req, res) => {
-//   try {
-
-//     const adminId = req.user._id;
-
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const skip = (page - 1) * limit;
-
-//     const { chatType } = req.query;
-
-//     const query = {
-//       adminId,
-//       isDeleted: false
-//     };
-
-//     // ✅ chatType filter
-//     if (chatType && ["USER_SUPPORT", "SERVICE_SUPPORT"].includes(chatType)) {
-//       query.chatType = chatType;
-//     }
-
-//     const [conversations, total] = await Promise.all([
-
-//       Conversation.find(query)
-//         .populate({
-//           path: "userId",
-//           select: "firstName lastName email profile",
-//         })
-//         .populate({
-//           path: "serviceUserId",
-//           select: "firstName lastName email profile",
-//         })
-//         .sort({ updatedAt: -1 })
-//         .skip(skip)
-//         .limit(limit)
-//         .lean(),
-
-//       Conversation.countDocuments(query)
-
-//     ]);
-
-//     const totalPages = Math.ceil(total / limit);
-
-//     res.json({
-//       success: true,
-//       data: conversations,
-//       page,
-//       limit,
-//       total,
-//       totalPages,
-//       previousDisabled: page <= 1,
-//       nextPage: page + 1,
-//       previousPage: page - 1,
-//       nextDisabled: page >= totalPages
-//     });
-
-//   } catch (error) {
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-
-//   }
-// };
-
 exports.getAdminConversations = async (req, res) => {
   try {
     const adminId = req.user._id;
@@ -1170,138 +993,6 @@ exports.getAdminConversations = async (req, res) => {
     });
   }
 };
-
-
-// exports.getMessages = async (req, res) => {
-//   try {
-//     const { conversationId } = req.params;
-
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 20;
-//     const skip = (page - 1) * limit;
-
-//     /* =====================================================
-//        1️⃣ VALIDATE CONVERSATION
-//     ===================================================== */
-//     const conversation = await Conversation.findById(conversationId).lean();
-
-//     if (!conversation) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Conversation not found",
-//       });
-//     }
-
-//     /* =====================================================
-//        2️⃣ FETCH MESSAGES (PAGINATED)
-//     ===================================================== */
-//     const messages = await Message.find({ conversationId })
-//       .sort({ createdAt: -1 }) // latest first (better for pagination)
-//       .skip(skip)
-//       .limit(limit)
-//       .lean();
-
-//     // reverse for UI (old → new)
-//     const orderedMessages = messages.reverse();
-
-//     /* =====================================================
-//        3️⃣ FETCH SENDERS
-//     ===================================================== */
-//     const senderIds = [
-//       ...new Set(orderedMessages.map((m) => m.senderId.toString())),
-//     ];
-
-//     const [users, serviceUsers, admins] = await Promise.all([
-//       User.find({ _id: { $in: senderIds } })
-//         .select("firstName lastName email profile")
-//         .lean(),
-
-//       ServiceUser.find({ _id: { $in: senderIds } })
-//         .select("firstName lastName  email profile")
-//         .lean(),
-
-//       Admin.find({ _id: { $in: senderIds } })
-//         .select("firstName lastName email profileImage")
-//         .lean(),
-//     ]);
-
-//     const senderMap = {};
-
-//     users.forEach((u) => {
-//       senderMap[u._id.toString()] = {
-//         ...u,
-//         senderType: "User",
-//       };
-//     });
-
-//     serviceUsers.forEach((s) => {
-//       senderMap[s._id.toString()] = {
-//         ...s,
-//         senderType: "ServiceUser",
-//       };
-//     });
-
-//     admins.forEach((a) => {
-//       senderMap[a._id.toString()] = {
-//         ...a,
-//         senderType: "Admin",
-//       };
-//     });
-
-//     /* =====================================================
-//        4️⃣ ATTACH SENDERS
-//     ===================================================== */
-//     const enrichedMessages = orderedMessages.map((msg) => ({
-//       ...msg,
-//       sender: senderMap[msg.senderId.toString()] || null,
-//     }));
-
-//     /* =====================================================
-//        5️⃣ MARK AS READ (IMPORTANT)
-//     ===================================================== */
-//     await Message.updateMany(
-//       {
-//         conversationId,
-//         isRead: false,
-//       },
-//       { $set: { isRead: true } }
-//     );
-
-//     /* =====================================================
-//        6️⃣ ATTACH TICKET (ONLY SUPPORT CHATS)
-//     ===================================================== */
-//     let ticket = null;
-
-//     if (
-//       conversation.chatType === "USER_SUPPORT" ||
-//       conversation.chatType === "SERVICE_SUPPORT"
-//     ) {
-//       ticket = await Ticket.findOne({ conversationId }).lean();
-//     }
-
-//     /* =====================================================
-//        7️⃣ RESPONSE
-//     ===================================================== */
-//     res.json({
-//       success: true,
-//       data: enrichedMessages,
-//       meta: {
-//         page,
-//         limit,
-//         hasMore: messages.length === limit,
-//       },
-//       ticket, // 🔥 important for frontend
-//       conversationStatus: conversation.isClosed,
-//     });
-
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// };
-
 
 
 exports.getMessages = async (req, res) => {
@@ -1532,7 +1223,6 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-
 exports.getUserSupportConversations = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -1655,7 +1345,6 @@ exports.getUserServiceChats = async (req, res) => {
 
   }
 };
-
 
 exports.getServiceUserChats = async (req, res) => {
   try {

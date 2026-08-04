@@ -1,6 +1,8 @@
 const User = require("../models/User");
 const yakeenProxyService = require("./yakeenProxy.service");
 const { createLog } = require("../functions/common");
+const fs = require("fs");
+const path = require("path");
 
 const identityLog = createLog("identity_service_log");
 
@@ -169,13 +171,42 @@ const verifyVisitor = async ({
     `Visitor verification request: userId=${userId}, docType=${documentType}`
   );
 
+  // Delete existing old document files from server disk if present
+  const existingUser = await User.findById(userId).select("identityDocuments");
+  if (
+    existingUser &&
+    Array.isArray(existingUser.identityDocuments) &&
+    existingUser.identityDocuments.length > 0
+  ) {
+    for (const doc of existingUser.identityDocuments) {
+      if (doc && doc.documentUrl) {
+        const filename = path.basename(doc.documentUrl);
+        const filePath = path.join(process.cwd(), "uploads", "identityDocuments", filename);
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+            console.log(`[Service verifyVisitor] Deleted old document file: ${filePath}`);
+            identityLog.info(`Deleted old document file: ${filePath}`);
+          } catch (unlinkErr) {
+            console.error(`[Service verifyVisitor] Failed to delete old file ${filePath}:`, unlinkErr.message);
+            identityLog.error(`Failed to delete old file ${filePath}: ${unlinkErr.message}`);
+          }
+        }
+      }
+    }
+  }
+
   const documentEntry = {
     documentType,
+    documentNumber: identityNumber || null,
     documentUrl: file.filename,
     originalFileName: file.originalname,
     mimeType: file.mimetype,
     uploadedAt: new Date(),
     status: "PENDING",
+    reviewedBy: null,
+    reviewedAt: null,
+    rejectReason: null,
   };
 
   const updateData = {
@@ -186,6 +217,8 @@ const verifyVisitor = async ({
     verificationMethod: "MANUAL",
     verificationService: "MANUAL",
     verificationProvider: "YAKEEN",
+    adminRejectReason: null,
+    identityDocuments: [documentEntry],
   };
 
   try {
@@ -196,7 +229,6 @@ const verifyVisitor = async ({
       userId,
       {
         $set: updateData,
-        $push: { identityDocuments: documentEntry },
       },
       { new: true }
     ).select("-verificationResponse -tokens -OTP");
@@ -208,6 +240,13 @@ const verifyVisitor = async ({
   } catch (dbError) {
     console.error(`[Service DB Update Error] Failed for userId=${userId}:`, dbError.message);
     identityLog.error(`[Service DB Update Error] Failed for userId=${userId}: ${dbError.message}`);
+    if (file && file.path && fs.existsSync(file.path)) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch (err) {
+        // ignore error during cleanup of newly uploaded file
+      }
+    }
     throw dbError;
   }
 };
@@ -338,6 +377,10 @@ const approveVisitor = async ({ userId, adminId }) => {
           adminVerifiedAt: new Date(),
           verifiedAt: new Date(),
           adminRejectReason: null,
+          "identityDocuments.0.status": "APPROVED",
+          "identityDocuments.0.reviewedBy": adminId,
+          "identityDocuments.0.reviewedAt": new Date(),
+          "identityDocuments.0.rejectReason": null,
         },
       },
       { new: true }
@@ -368,6 +411,10 @@ const rejectVisitor = async ({ userId, adminId, reason }) => {
           adminVerifiedBy: adminId,
           adminVerifiedAt: new Date(),
           adminRejectReason: reason,
+          "identityDocuments.0.status": "REJECTED",
+          "identityDocuments.0.reviewedBy": adminId,
+          "identityDocuments.0.reviewedAt": new Date(),
+          "identityDocuments.0.rejectReason": reason,
         },
       },
       { new: true }

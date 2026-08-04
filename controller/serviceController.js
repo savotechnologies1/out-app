@@ -1964,6 +1964,13 @@ const getServiceUserBookingDetail = async (req, res) => {
   try {
     const { bookingId } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID"
+      });
+    }
+
     const booking = await Booking.findOne({
       _id: bookingId
     })
@@ -1987,6 +1994,13 @@ const getServiceUserBookingDetail = async (req, res) => {
         ]
       })
       .populate({
+        path: "services.service"
+      })
+      .populate({
+        path: "providerBreakdown.user",
+        select: "_id"
+      })
+      .populate({
         path: "user",
         select: "firstName lastName email phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr"
       })
@@ -1999,21 +2013,120 @@ const getServiceUserBookingDetail = async (req, res) => {
       });
     }
 
-    if (
-      !booking.property ||
-      !booking.property.user ||
-      booking.property.user._id.toString() !== req.user._id.toString()
-    ) {
+    // Authorization check for PROPERTY vs SERVICE bookings
+    const loggedInUserId = req.user._id.toString();
+    let isAuthorized = false;
+
+    if (booking.bookingType === "SERVICE") {
+      isAuthorized = Array.isArray(booking.providerBreakdown) && booking.providerBreakdown.some(pb => {
+        if (pb.type !== "service" || !pb.user) return false;
+        const providerId = pb.user._id ? pb.user._id.toString() : pb.user.toString();
+        return providerId === loggedInUserId;
+      });
+    } else if (booking.bookingType === "PROPERTY") {
+      if (booking.property && booking.property.user) {
+        const propertyOwnerId = booking.property.user._id ? booking.property.user._id.toString() : booking.property.user.toString();
+        isAuthorized = propertyOwnerId === loggedInUserId;
+      }
+    } else {
+      // Fallback for combined or other types e.g. PROPERTY_SERVICE
+      const isPropertyOwner = booking.property && booking.property.user && (
+        (booking.property.user._id ? booking.property.user._id.toString() : booking.property.user.toString()) === loggedInUserId
+      );
+      const isServiceProvider = Array.isArray(booking.providerBreakdown) && booking.providerBreakdown.some(pb => {
+        if (!pb.user) return false;
+        const providerId = pb.user._id ? pb.user._id.toString() : pb.user.toString();
+        return providerId === loggedInUserId;
+      });
+      isAuthorized = isPropertyOwner || isServiceProvider;
+    }
+
+    if (!isAuthorized) {
       return res.status(403).json({
         success: false,
         message: "You are not authorized to view this booking"
       });
     }
 
+    // Build customer information
+    const user = booking.user;
+    let customer = null;
+
+    if (user) {
+      const fullName = user.legalFullName || user.legalFullNameEn || user.legalFullNameAr || `${user.firstName || ""} ${user.lastName || ""}`.trim() || "";
+
+      let averageRating = 0;
+      let totalRatings = 0;
+
+      if (user._id) {
+        const reviewStats = await Review.aggregate([
+          {
+            $match: {
+              reviewee: new mongoose.Types.ObjectId(user._id),
+              revieweeModel: "User",
+              isDeleted: { $ne: true }
+            }
+          },
+          {
+            $group: {
+              _id: "$reviewee",
+              averageRating: { $avg: "$rating" },
+              totalRatings: { $sum: 1 }
+            }
+          }
+        ]);
+
+        if (reviewStats && reviewStats.length > 0) {
+          averageRating = Number(reviewStats[0].averageRating.toFixed(1));
+          totalRatings = reviewStats[0].totalRatings;
+        }
+      }
+
+      customer = {
+        id: user._id,
+        fullName,
+        profile: user.profile || null,
+        identityNumber: user.identityNumber || null,
+        dateOfBirth: user.dateOfBirth || null,
+        verificationStatus: user.identityVerificationStatus || "UNVERIFIED",
+        email: user.email || null,
+        phone: user.phone || null,
+        averageRating,
+        totalRatings
+      };
+    }
+
+    // Check if logged-in service user has already submitted a review for this booking
+    const existingServiceUserReview = await Review.findOne({
+      booking: bookingId,
+      reviewer: req.user._id,
+      reviewType: "user",
+      isDeleted: { $ne: true }
+    }).select("_id").lean();
+
+    const isServiceUserReview = !!existingServiceUserReview;
+
+    // Check if customer (user) has submitted a review for this booking
+    const existingCustomerReview = await Review.findOne({
+      booking: bookingId,
+      reviewerModel: "User",
+      isDeleted: { $ne: true }
+    }).select("_id").lean();
+
+    const isCustomerReview = !!existingCustomerReview || !!booking.reviewGiven;
+
+    if (customer) {
+      customer.isServiceUserReview = isServiceUserReview;
+      customer.isCustomerReview = isCustomerReview;
+    }
+
     res.json({
       success: true,
       booking,
-      customer: booking.user
+      customer,
+      isServiceUserReview,
+      isCustomerReview,
+      isUserReview: isCustomerReview
     });
 
   } catch (error) {
@@ -3298,15 +3411,25 @@ const getServiceProviderDashboard = async (req, res) => {
     ======================== */
     const totalBookings = await Booking.countDocuments({
       "providerBreakdown.user": userId,
+      paymentStatus: "paid",
+      bookingStatus: "confirmed",
       isCancelled: false
     });
 
     const todayBookings = await Booking.countDocuments({
       "providerBreakdown.user": userId,
       checkIn: { $gte: todayStart, $lte: todayEnd },
+      paymentStatus: "paid",
+      bookingStatus: "confirmed",
       isCancelled: false
     });
 
+    const pendingBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      paymentStatus: "paid",
+      bookingStatus: "pending",
+      isCancelled: false
+    });
     /* ========================
        💬 CHATS
     ======================== */
@@ -3324,6 +3447,7 @@ const getServiceProviderDashboard = async (req, res) => {
         $match: {
           "providerBreakdown.user": userId,
           paymentStatus: "paid",
+          bookingStatus: "confirmed",
           isCancelled: false
         }
       },
@@ -3357,6 +3481,8 @@ const getServiceProviderDashboard = async (req, res) => {
     const totalServiceBookings = await Booking.countDocuments({
       "providerBreakdown.user": userId,
       "providerBreakdown.type": "service",
+      paymentStatus: "paid",
+      bookingStatus: "confirmed",
       isCancelled: false
     });
 
@@ -3364,6 +3490,16 @@ const getServiceProviderDashboard = async (req, res) => {
       "providerBreakdown.user": userId,
       "providerBreakdown.type": "service",
       checkIn: { $gte: todayStart, $lte: todayEnd },
+      paymentStatus: "paid",
+      bookingStatus: "confirmed",
+      isCancelled: false
+    });
+
+    const pendingServiceBookings = await Booking.countDocuments({
+      "providerBreakdown.user": userId,
+      "providerBreakdown.type": "service",
+      paymentStatus: "paid",
+      bookingStatus: "pending",
       isCancelled: false
     });
 
@@ -3431,6 +3567,7 @@ const getServiceProviderDashboard = async (req, res) => {
         stats: {
           totalBookings,
           todayBookings,
+          pendingBookings,
           activeChats,
           totalEarnings,
 
@@ -3439,7 +3576,8 @@ const getServiceProviderDashboard = async (req, res) => {
 
           totalServices,
           totalServiceBookings,
-          todayServiceBookings
+          todayServiceBookings,
+          pendingServiceBookings
         },
         transactions,
         reviews

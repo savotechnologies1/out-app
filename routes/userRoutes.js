@@ -32,6 +32,7 @@ const {
   googleLogin,
   createUserReview,
   getReviews,
+  getUserReviews,
   getServiceUser,
   serviceUserLoginByUserToken,
   getServicesByCategory,
@@ -125,6 +126,8 @@ router.post(
 );
 
 router.get("/getReviews", validateToken, getReviews);
+
+router.get("/getUserReviews", validateToken, getUserReviews);
 
 router.get("/getAllNotifications", validateToken, getNotifications);
 

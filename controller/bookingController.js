@@ -16,6 +16,7 @@ const axios = require("axios");
 const { sendNotification } = require("../utils/notificationService");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const Notification = require("../models/Notification");
+const Review = require("../models/Review");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -1318,9 +1319,27 @@ exports.getBookingDetail = async (req, res) => {
       });
     }
 
+    const existingCustomerReview = await Review.findOne({
+      booking: bookingId,
+      reviewerModel: "User",
+      isDeleted: { $ne: true }
+    }).select("_id").lean();
+
+    const existingServiceUserReview = await Review.findOne({
+      booking: bookingId,
+      reviewerModel: "ServiceUser",
+      isDeleted: { $ne: true }
+    }).select("_id").lean();
+
+    const isCustomerReview = !!existingCustomerReview || !!booking.reviewGiven;
+    const isServiceUserReview = !!existingServiceUserReview;
+
     res.json({
       success: true,
-      data: booking
+      data: booking,
+      isCustomerReview,
+      isUserReview: isCustomerReview,
+      isServiceUserReview
     });
 
   } catch (error) {

@@ -64,6 +64,7 @@ const {
 const { getCancellationPolicies } = require("../controller/adminController");
 const { cancelBooking } = require("../controller/bookingController");
 const { getNotifications, getSingleNotification, markAsRead, deleteNotification, markAllAsRead, deleteAllNotifications } = require("../controller/notificationController");
+const { getUserReviews } = require("../controller/userController");
 
 const router = app.Router();
 
@@ -158,7 +159,7 @@ router.post(
   "/createService",
   validateServiceToken,
   uploads.fields([
-    { name: "serviceMedia", maxCount:5 },
+    { name: "serviceMedia", maxCount: 5 },
     { name: "document" },
   ]),
   createService
@@ -171,8 +172,8 @@ router.get("/getSingleService/:id", validateServiceToken, getSingleService)
 router.put(
   "/updateService/:id",
   validateServiceToken,
-   uploads.fields([
-    { name: "serviceMedia", maxCount:5 },
+  uploads.fields([
+    { name: "serviceMedia", maxCount: 5 },
     { name: "document" },
   ]),
   updateService
@@ -198,7 +199,6 @@ router.get("/getCancellationPolicies", validateServiceToken, getCancellationPoli
 
 router.get("/getAllservicesForUser/:userId", validateServiceToken, getAllservicesForUser);
 
-
 router.post(
   "/createServiceUserReview",
   validateServiceToken,
@@ -206,13 +206,13 @@ router.post(
   createServiceUserReview
 );
 
-router.get("/getMyReviews",validateServiceToken, getMyReviews);
+router.get("/getMyReviews", validateServiceToken, getMyReviews);
 
-router.get("/getServiceProviderDashboard",validateServiceToken, getServiceProviderDashboard);
+router.get("/getServiceProviderDashboard", validateServiceToken, getServiceProviderDashboard);
 
 router.get("/getAllNotifications", validateServiceToken, getNotifications);
 
-router.get("/getSingleNotification/:id",validateServiceToken, getSingleNotification);
+router.get("/getSingleNotification/:id", validateServiceToken, getSingleNotification);
 
 router.patch("/markAsRead/:id", validateServiceToken, markAsRead);
 
@@ -222,11 +222,13 @@ router.patch("/markAllAsRead", validateServiceToken, markAllAsRead);
 
 router.delete("/deleteAllNotifications", validateServiceToken, deleteAllNotifications);
 
-router.get("/getAllCommissionsForServiceUser",  getAllCommissionsForServiceUser);
+router.get("/getAllCommissionsForServiceUser", getAllCommissionsForServiceUser);
 
 router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginByServiceProviderToken);
 
 router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUserAccount);
+
+router.get("/getUserReviews/:userId", validateServiceToken, getUserReviews);
 
 router.patch("/toggleInstantBooking", validateServiceToken, toggleInstantBooking)
 module.exports = router;
