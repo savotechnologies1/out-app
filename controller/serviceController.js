@@ -3364,6 +3364,16 @@ const createServiceUserReview = async (req, res) => {
       return res.status(400).json({ message: "Review allowed only after checkout" });
     }
 
+    const checkOutDate = new Date(booking.checkOut);
+    const reviewLastDate = new Date(checkOutDate);
+    reviewLastDate.setDate(reviewLastDate.getDate() + 7);
+
+    if (new Date() > reviewLastDate) {
+      return res.status(400).json({
+        message: "Review can only be submitted within 7 days after checkout"
+      });
+    }
+
     // Check for duplicate review
     const exists = await Review.findOne({
       booking: bookingId,

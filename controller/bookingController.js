@@ -17,6 +17,7 @@ const { sendNotification } = require("../utils/notificationService");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const Notification = require("../models/Notification");
 const Review = require("../models/Review");
+const { calculateAcceptanceDeadline } = require("../services/bookingExpiryService");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -502,8 +503,8 @@ exports.createBooking = async (req, res) => {
       return res.status(403).send({
         message: "Identity verification required before booking.",
       });
-    } 
-    
+    }
+
     const {
       bookingType,
       propertyId,
@@ -1021,6 +1022,8 @@ exports.createBooking = async (req, res) => {
       policySnapshot,
 
       providerBreakdown,
+
+      acceptanceDeadline: calculateAcceptanceDeadline(checkIn),
 
       orderId,
 
@@ -3048,6 +3051,19 @@ exports.updateBookingApprovalStatus = async (req, res) => {
       return res.status(400).send({
         message:
           "Booking is not waiting for approval"
+      });
+    }
+
+    /* =========================================
+       CHECK ACCEPTANCE DEADLINE
+    ========================================= */
+
+    if (
+      booking.acceptanceDeadline &&
+      booking.acceptanceDeadline <= new Date()
+    ) {
+      return res.status(400).send({
+        message: "Booking acceptance deadline has expired"
       });
     }
 

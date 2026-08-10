@@ -23,7 +23,7 @@ const helmet = require("helmet");
 const errorHandler = require("./middleware/errorHandler");
 const http = require("http");
 const cron = require("node-cron");
-const { releaseOnCheckIn } = require("./cron/working");
+const { releaseOnCheckIn, notifyOnCheckIn, autoCancelExpiredBookings } = require("./cron/working");
 
 connectDb();
 const app = express();
@@ -31,12 +31,19 @@ const server = http.createServer(app);
 app.use(cors({}));
 
 const port = process.env.PORT || 5000;
-// cron.schedule("0 * * * *", async () => {
-//   console.log("Running release cron...");
-//   await releaseOnCheckIn();
-// });
-// require("./cron/pendingBookingCleanup");
-// require("./cron/couponExpire")
+
+cron.schedule("0 * * * *", async () => {
+  console.log("Running release cron...");
+  await releaseOnCheckIn();
+  await notifyOnCheckIn();
+});
+
+// Schedule auto-cancellation worker every 5 minutes
+cron.schedule("*/5 * * * *", async () => {
+  await autoCancelExpiredBookings();
+});
+require("./cron/pendingBookingCleanup");
+require("./cron/couponExpire")
 // app.use(helmet());
 app.use(
   helmet({

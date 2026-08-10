@@ -63,6 +63,7 @@ const {
   getTransactionDetails,
   getAdminUpcomingBookings,
   getAdminBookingCalendar,
+  getAdminServiceBookingCalendar,
   getAllWalletTransactions,
   getWithdrawRequests,
   updateWithdrawStatus,
@@ -255,6 +256,8 @@ router.get("/getTransactionDetails/:id", validateAdminToken, getTransactionDetai
 router.get("/getAdminUpcomingBookings", validateAdminToken, getAdminUpcomingBookings)
 
 router.get("/getAdminBookingCalendar", validateAdminToken, getAdminBookingCalendar)
+
+router.get("/getAdminServiceBookingCalendar", validateAdminToken, getAdminServiceBookingCalendar)
 
 router.get("/getAllWalletTransactions", validateAdminToken, getAllWalletTransactions)
 

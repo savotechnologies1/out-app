@@ -7,7 +7,8 @@ const Properties = require("../models/Properties");
 const WalletTransaction = require("../models/WalletTransaction");
 const ServiceAvailability = require("../models/ServiceAvailability");
 const Service = require("../models/Service");
-const { sendNotification } = require("../utils/notificationService")
+const { sendNotification } = require("../utils/notificationService");
+const { calculateAcceptanceDeadline } = require("../services/bookingExpiryService");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -411,6 +412,10 @@ exports.paymentWebhook = async (req, res) => {
         isInstantBooking
           ? null
           : "approval_pending";
+
+      if (!isInstantBooking && (!booking.acceptanceDeadline || isNaN(new Date(booking.acceptanceDeadline).getTime()))) {
+        booking.acceptanceDeadline = calculateAcceptanceDeadline(booking.checkIn, booking.createdAt || new Date());
+      }
 
       booking.tapChargeId = chargeId;
 

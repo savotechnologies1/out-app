@@ -3223,12 +3223,12 @@ const createUserReview = async (req, res) => {
 
     const reviewLastDate = new Date(checkOutDate);
 
-    reviewLastDate.setDate(reviewLastDate.getDate() + 15);
+    reviewLastDate.setDate(reviewLastDate.getDate() + 7);
 
     if (new Date() > reviewLastDate) {
       return res.status(400).json({
         message:
-          "Review can only be submitted within 15 days after checkout"
+          "Review can only be submitted within 7 days after checkout"
       });
     }
     let reviewee, revieweeModel, property = null, service = null;

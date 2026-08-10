@@ -3572,7 +3572,7 @@ const getAdminUpcomingBookings = catchAsyncError(async (req, res) => {
 
 const getAdminBookingCalendar = catchAsyncError(async (req, res) => {
 
-  const { propertyId } = req.query;
+  const { propertyId, startDate, endDate, month, year } = req.query;
 
   if (!propertyId) {
     return res.status(400).send({
@@ -3580,14 +3580,29 @@ const getAdminBookingCalendar = catchAsyncError(async (req, res) => {
     });
   }
 
-  const dates = await HotelAvailability.find({
+  const property = await Properties.findById(propertyId)
+    .select("name address price instantBooking user")
+    .lean();
+
+  if (!property) {
+    return res.status(404).send({
+      message: "Property not found"
+    });
+  }
+
+  /* =================================================
+     1. HOTEL AVAILABILITY DATES (BOOKED IN DB)
+  ================================================= */
+
+  const bookedAvailability = await HotelAvailability.find({
     hotel: propertyId,
     isBooked: true
   })
     .select("date booking hotel")
     .populate({
       path: "booking",
-      select: "bookingStatus checkIn checkOut"
+      select: "bookingStatus paymentStatus pendingReason checkIn checkOut totalAmount user orderId",
+      populate: { path: "user", select: "firstName lastName email phone" }
     })
     .populate({
       path: "hotel",
@@ -3596,11 +3611,333 @@ const getAdminBookingCalendar = catchAsyncError(async (req, res) => {
     .sort({ date: 1 })
     .lean();
 
+  /* =================================================
+     2. CONFIRMED & PENDING BOOKINGS
+  ================================================= */
+
+  const confirmedBookings = await Booking.find({
+    property: propertyId,
+    isCancelled: false,
+    bookingStatus: "confirmed"
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ checkIn: 1 })
+    .lean();
+
+  const pendingBookings = await Booking.find({
+    property: propertyId,
+    isCancelled: false,
+    bookingStatus: "pending",
+    paymentStatus: "paid"
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ checkIn: 1 })
+    .lean();
+
+  /* =================================================
+     3. CANCELLED BOOKINGS
+  ================================================= */
+
+  const cancelledBookings = await Booking.find({
+    property: propertyId,
+    isCancelled: true
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ cancellationDate: -1, createdAt: -1 })
+    .lean();
+
+  /* =================================================
+     4. DAY-BY-DAY CALENDAR MATRIX (FREE TO BOOK / BOOKED / PENDING)
+  ================================================= */
+
+  let rangeStart;
+  let rangeEnd;
+
+  if (startDate && endDate) {
+    rangeStart = new Date(startDate);
+    rangeEnd = new Date(endDate);
+  } else if (month && year) {
+    rangeStart = new Date(Number(year), Number(month) - 1, 1);
+    rangeEnd = new Date(Number(year), Number(month), 0, 23, 59, 59);
+  } else {
+    rangeStart = new Date();
+    rangeStart.setHours(0, 0, 0, 0);
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 60);
+  }
+
+  // Booked dates lookup map
+  const bookedDateMap = new Map();
+  bookedAvailability.forEach(item => {
+    if (item.date) {
+      const dateStr = new Date(item.date).toISOString().split("T")[0];
+      bookedDateMap.set(dateStr, item);
+    }
+  });
+
+  // Cancelled dates lookup map
+  const cancelledDateMap = new Map();
+  cancelledBookings.forEach(b => {
+    if (b.checkIn && b.checkOut) {
+      let d = new Date(b.checkIn);
+      const end = new Date(b.checkOut);
+      while (d < end) {
+        const dateStr = d.toISOString().split("T")[0];
+        if (!cancelledDateMap.has(dateStr)) {
+          cancelledDateMap.set(dateStr, b);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  });
+
+  const calendarDays = [];
+  let curr = new Date(rangeStart);
+  while (curr <= rangeEnd) {
+    const dateStr = curr.toISOString().split("T")[0];
+    const isBooked = bookedDateMap.has(dateStr);
+    const isCancelled = cancelledDateMap.has(dateStr);
+
+    let status = "AVAILABLE"; // Default free to book
+    let bookingDetails = null;
+    let cancelledBookingDetails = null;
+
+    if (isBooked) {
+      const avail = bookedDateMap.get(dateStr);
+      status = avail.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
+      bookingDetails = avail.booking || null;
+    } else {
+      status = "AVAILABLE";
+    }
+
+    if (isCancelled) {
+      cancelledBookingDetails = cancelledDateMap.get(dateStr);
+    }
+
+    calendarDays.push({
+      date: dateStr,
+      status, // "AVAILABLE" (free to book), "BOOKED", or "PENDING"
+      isFreeToBook: status === "AVAILABLE",
+      booking: bookingDetails,
+      wasCancelled: isCancelled,
+      cancelledBooking: cancelledBookingDetails
+    });
+
+    curr.setDate(curr.getDate() + 1);
+  }
+
   return res.status(200).send({
-    data: dates,
-    message: dates.length
+    success: true,
+    property: {
+      _id: property._id,
+      name: property.name,
+      address: property.address,
+      price: property.price
+    },
+    summary: {
+      totalBookedDays: bookedAvailability.length,
+      confirmedBookingsCount: confirmedBookings.length,
+      pendingBookingsCount: pendingBookings.length,
+      cancelledBookingsCount: cancelledBookings.length
+    },
+    data: bookedAvailability,
+    confirmedBookings,
+    pendingBookings,
+    cancelledBookings,
+    calendar: calendarDays,
+    message: calendarDays.length || bookedAvailability.length
       ? "Calendar data fetched"
       : "No bookings found for this property"
+  });
+});
+
+const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
+
+  const { serviceId, startDate, endDate, month, year } = req.query;
+
+  if (!serviceId) {
+    return res.status(400).send({
+      message: "serviceId is required"
+    });
+  }
+
+  const service = await Service.findById(serviceId)
+    .select("name price category instantBooking user workingDays workingHours description")
+    .lean();
+
+  if (!service) {
+    return res.status(404).send({
+      message: "Service not found"
+    });
+  }
+
+  /* =================================================
+     1. SERVICE AVAILABILITY DATES (BOOKED IN DB)
+  ================================================= */
+
+  const bookedAvailability = await ServiceAvailability.find({
+    service: serviceId,
+    isBooked: true
+  })
+    .select("date startTime endTime booking service")
+    .populate({
+      path: "booking",
+      select: "bookingStatus paymentStatus pendingReason checkIn checkOut totalAmount user orderId",
+      populate: { path: "user", select: "firstName lastName email phone" }
+    })
+    .populate({
+      path: "service",
+      select: "name price"
+    })
+    .sort({ date: 1 })
+    .lean();
+
+  /* =================================================
+     2. CONFIRMED & PENDING BOOKINGS
+  ================================================= */
+
+  const confirmedBookings = await Booking.find({
+    "services.service": serviceId,
+    isCancelled: false,
+    bookingStatus: "confirmed"
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ checkIn: 1 })
+    .lean();
+
+  const pendingBookings = await Booking.find({
+    "services.service": serviceId,
+    isCancelled: false,
+    bookingStatus: "pending",
+    paymentStatus: "paid"
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ checkIn: 1 })
+    .lean();
+
+  /* =================================================
+     3. CANCELLED BOOKINGS
+  ================================================= */
+
+  const cancelledBookings = await Booking.find({
+    "services.service": serviceId,
+    isCancelled: true
+  })
+    .populate("user", "firstName lastName email phone")
+    .sort({ cancellationDate: -1, createdAt: -1 })
+    .lean();
+
+  /* =================================================
+     4. DAY-BY-DAY CALENDAR MATRIX (FREE TO BOOK / BOOKED / PENDING / OFF_DAY)
+  ================================================= */
+
+  let rangeStart;
+  let rangeEnd;
+
+  if (startDate && endDate) {
+    rangeStart = new Date(startDate);
+    rangeEnd = new Date(endDate);
+  } else if (month && year) {
+    rangeStart = new Date(Number(year), Number(month) - 1, 1);
+    rangeEnd = new Date(Number(year), Number(month), 0, 23, 59, 59);
+  } else {
+    rangeStart = new Date();
+    rangeStart.setHours(0, 0, 0, 0);
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 60);
+  }
+
+  // Booked dates lookup map
+  const bookedDateMap = new Map();
+  bookedAvailability.forEach(item => {
+    if (item.date) {
+      const dateStr = new Date(item.date).toISOString().split("T")[0];
+      bookedDateMap.set(dateStr, item);
+    }
+  });
+
+  // Cancelled dates lookup map
+  const cancelledDateMap = new Map();
+  cancelledBookings.forEach(b => {
+    if (b.checkIn && b.checkOut) {
+      let d = new Date(b.checkIn);
+      const end = new Date(b.checkOut);
+      while (d < end) {
+        const dateStr = d.toISOString().split("T")[0];
+        if (!cancelledDateMap.has(dateStr)) {
+          cancelledDateMap.set(dateStr, b);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  });
+
+  const calendarDays = [];
+  let curr = new Date(rangeStart);
+  while (curr <= rangeEnd) {
+    const dateStr = curr.toISOString().split("T")[0];
+    const dayOfWeek = curr.toLocaleDateString("en-US", { weekday: "long" }); // "Monday", "Tuesday", etc.
+    const isWorkingDay = !service.workingDays?.length || service.workingDays.includes(dayOfWeek);
+
+    const isBooked = bookedDateMap.has(dateStr);
+    const isCancelled = cancelledDateMap.has(dateStr);
+
+    let status = isWorkingDay ? "AVAILABLE" : "OFF_DAY";
+    let bookingDetails = null;
+    let cancelledBookingDetails = null;
+
+    if (isBooked) {
+      const avail = bookedDateMap.get(dateStr);
+      status = avail.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
+      bookingDetails = avail.booking || null;
+    } else {
+      status = isWorkingDay ? "AVAILABLE" : "OFF_DAY";
+    }
+
+    if (isCancelled) {
+      cancelledBookingDetails = cancelledDateMap.get(dateStr);
+    }
+
+    calendarDays.push({
+      date: dateStr,
+      dayOfWeek,
+      isWorkingDay,
+      status, // "AVAILABLE" (free to book), "BOOKED", "PENDING", or "OFF_DAY"
+      isFreeToBook: status === "AVAILABLE",
+      workingHours: isWorkingDay ? service.workingHours : null,
+      booking: bookingDetails,
+      wasCancelled: isCancelled,
+      cancelledBooking: cancelledBookingDetails
+    });
+
+    curr.setDate(curr.getDate() + 1);
+  }
+
+  return res.status(200).send({
+    success: true,
+    service: {
+      _id: service._id,
+      name: service.name,
+      price: service.price,
+      workingDays: service.workingDays || [],
+      workingHours: service.workingHours || {}
+    },
+    summary: {
+      totalBookedDays: bookedAvailability.length,
+      confirmedBookingsCount: confirmedBookings.length,
+      pendingBookingsCount: pendingBookings.length,
+      cancelledBookingsCount: cancelledBookings.length,
+      workingDays: service.workingDays || [],
+      workingHours: service.workingHours || {}
+    },
+    data: bookedAvailability,
+    confirmedBookings,
+    pendingBookings,
+    cancelledBookings,
+    calendar: calendarDays,
+    message: calendarDays.length || bookedAvailability.length
+      ? "Service calendar data fetched"
+      : "No bookings found for this service"
   });
 });
 
@@ -6825,6 +7162,7 @@ module.exports = {
   getTransactionDetails,
   getAdminUpcomingBookings,
   getAdminBookingCalendar,
+  getAdminServiceBookingCalendar,
   getAllWalletTransactions,
   getWithdrawRequests,
   updateWithdrawStatus,

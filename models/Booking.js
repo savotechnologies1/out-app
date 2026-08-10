@@ -204,8 +204,15 @@ const bookingSchema = new mongoose.Schema({
 
   cancellationReason: {
     type: String,
-    enum: ["OWNER_TAKING_TOO_LONG", "CHANGED_MY_MIND", "OTHER"]
+    enum: ["OWNER_TAKING_TOO_LONG", "CHANGED_MY_MIND", "PROVIDER_ACCEPTANCE_TIMEOUT", "OTHER"]
   },
+
+  acceptanceDeadline: {
+    type: Date,
+    index: true
+  },
+
+  autoCancelledAt: Date,
 
   customCancellationReason: {
     type: String
@@ -241,6 +248,11 @@ const bookingSchema = new mongoose.Schema({
   ======================== */
 
   isAmountReleased: {
+    type: Boolean,
+    default: false
+  },
+
+  isCheckInNotified: {
     type: Boolean,
     default: false
   }
