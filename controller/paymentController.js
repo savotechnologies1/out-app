@@ -284,7 +284,8 @@ exports.paymentWebhook = async (req, res) => {
     }
 
     if (booking.webhookProcessed) {
-      return res.status(200).send({
+      return res.status(200).json({
+        success: true,
         message: "Webhook already processed"
       });
     }
@@ -683,7 +684,8 @@ exports.paymentWebhook = async (req, res) => {
       });
     }
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       message:
         "Webhook processed successfully",
     });

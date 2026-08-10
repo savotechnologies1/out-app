@@ -132,7 +132,8 @@ const adminLogin = catchAsyncError(async (req, res, next) => {
     updateData
   );
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     token,
     message: "Logged In Successfully",
   });
@@ -281,7 +282,7 @@ const resetPassword = async (req, res) => {
       }
     );
 
-    return res.status(200).json({ message: "Password reset successfully." });
+    return res.status(200).json({ success: true, message: "Password reset successfully." });
   } catch (error) {
     return res.status(500).json({
       message: "Internal server error.",
@@ -331,6 +332,7 @@ const changePassword = async (req, res) => {
       }
     );
     return res.status(200).json({
+      success: true,
       message: "Password changed successfully.",
     });
 
@@ -356,6 +358,7 @@ const checkToken = catchAsyncError(async (req, res, next) => {
   const { password, otp, tokens, ...safeAdmin } = admin;
 
   return res.status(200).json({
+    success: true,
     admin: safeAdmin,
     message: `Welcome ${admin.firstName}`,
   });
@@ -378,7 +381,8 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
 
   const { password, tokens, otp, ...safeAdmin } = admin.toObject();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     admin: safeAdmin,
     message: "Profile updated successfully",
   });
@@ -574,6 +578,8 @@ const getAllServiceUsers = catchAsyncError(async (req, res, next) => {
         phone: 1,
         phoneCode: 1,
         profile: 1,
+        description: 1,
+        offeringDetails: 1,
         isActive: 1,
         role: 1,
         isApproved: 1,
@@ -660,6 +666,8 @@ const getServiceUserById = catchAsyncError(async (req, res, next) => {
         phoneCode: 1,
         docs: 1,
         profile: 1,
+        description: 1,
+        offeringDetails: 1,
         isVerified: 1,
         isActive: 1,
         isDeleted: 1,
@@ -945,7 +953,7 @@ const getUserById = catchAsyncError(async (req, res, next) => {
   ).lean();
   if (!user) return res.status(400).send({ message: "Service User not found" });
 
-  return res.status(200).send({ data: user });
+  return res.status(200).json({ success: true, data: user });
 });
 
 const addAmenities = catchAsyncError(async (req, res, next) => {
@@ -986,7 +994,8 @@ const addAmenities = catchAsyncError(async (req, res, next) => {
 
   await Amenities.insertMany(insertData);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     message: "Amenities added successfully",
     addedAmenities: insertData
   });
@@ -1030,7 +1039,8 @@ const updatedAmenity = catchAsyncError(async (req, res, next) => {
     return res.status(404).send({ message: "Amenity not found" });
   }
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     message: "Amenity updated successfully",
     data: updatedData,
   });
@@ -1060,7 +1070,8 @@ const addCategory = catchAsyncError(async (req, res, next) => {
 
   await Category.create(categoryData);
 
-  return res.status(201).send({
+  return res.status(201).json({
+    success: true,
     message: "Category created successfully",
   });
 });
@@ -1121,7 +1132,8 @@ const editCategory = catchAsyncError(async (req, res, next) => {
     { $set: updateObj }
   );
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     message: "Category updated successfully"
   });
 
@@ -1144,7 +1156,7 @@ const deleteCategory = catchAsyncError(async (req, res, next) => {
 
   await Category.updateOne({ _id: req.params.id }, { $set: { isDeleted: true } });
 
-  return res.status(200).send({ message: "Category deleted successfully" });
+  return res.status(200).json({ success: true, message: "Category deleted successfully" });
 
 });
 
@@ -1276,7 +1288,8 @@ const addRestRoom = catchAsyncError(async (req, res, next) => {
       return res.status(404).send({ message: "RestRoom Feature not found" });
     }
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       message: "RestRoom Feature updated successfully",
       data: updated,
     });
@@ -1295,7 +1308,8 @@ const addRestRoom = catchAsyncError(async (req, res, next) => {
 
     const newRestRoom = await RestRoom.create({ name });
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       message: "RestRoom Feature added successfully",
       data: newRestRoom,
     });
@@ -1398,7 +1412,8 @@ const getAllAmenities = catchAsyncError(async (req, res, next) => {
   ]);
 
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: amenities,
     page: pagination.page,
     limit: pagination.pageSize,
@@ -1438,6 +1453,7 @@ const getAllCategories = catchAsyncError(async (req, res, next) => {
     .limit(limit)
     .lean(true);
   return res.status(200).json({
+    success: true,
     data: categories,
     total,
     currentPage: page,
@@ -1468,7 +1484,8 @@ const getAllFeatures = catchAsyncError(async (req, res, next) => {
 
   const totalPages = Math.ceil(total / limit);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: features,
     page,
     limit,
@@ -1503,7 +1520,8 @@ const getAllRestRooms = catchAsyncError(async (req, res, next) => {
 
   const totalPages = Math.ceil(total / limit);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: rest_features,
     page,
     limit,
@@ -1522,7 +1540,7 @@ const getAmenitiById = catchAsyncError(async (req, res, next) => {
   if (!id) return res.status(400).send({ message: "Amenity Id not found" });
 
   const amenities = await Amenities.findById(id).lean();
-  return res.status(200).send({ data: amenities });
+  return res.status(200).json({ success: true, data: amenities });
 });
 
 const getCategoriesById = catchAsyncError(async (req, res, next) => {
@@ -1530,7 +1548,7 @@ const getCategoriesById = catchAsyncError(async (req, res, next) => {
   if (!id) return res.status(400).send({ message: "Category Id not found" });
 
   const categories = await Category.findById(id).lean();
-  return res.status(200).send({ data: categories });
+  return res.status(200).json({ success: true, data: categories });
 });
 
 const getFeaturesById = catchAsyncError(async (req, res, next) => {
@@ -1538,7 +1556,7 @@ const getFeaturesById = catchAsyncError(async (req, res, next) => {
   if (!id) return res.status(400).send({ message: "Feature Id not found" });
 
   const features = await Feature.findById(id).lean();
-  return res.status(200).send({ data: features });
+  return res.status(200).json({ success: true, data: features });
 });
 
 const getRestRoomsById = catchAsyncError(async (req, res, next) => {
@@ -1547,7 +1565,7 @@ const getRestRoomsById = catchAsyncError(async (req, res, next) => {
     return res.status(400).send({ message: "RestRoom Feature Id not found" });
 
   const restrooms = await RestRoom.findById(id).lean();
-  return res.status(200).send({ data: restrooms });
+  return res.status(200).json({ success: true, data: restrooms });
 });
 
 const activateServiceUser = catchAsyncError(async (req, res, next) => {
@@ -1616,10 +1634,10 @@ const addServiceUser = catchAsyncError(async (req, res, next) => {
     }
     return res
       .status(200)
-      .send({ message: "Service User updated successfully" });
+      .json({ success: true, message: "Service User updated successfully" });
   } else {
     await ServiceUser.create(obj);
-    return res.status(200).send({ message: "Service User added successfully" });
+    return res.status(200).json({ success: true, message: "Service User added successfully" });
   }
 });
 
@@ -1659,10 +1677,10 @@ const addUser = catchAsyncError(async (req, res, next) => {
     if (updateResult.modifiedCount === 0) {
       return res.status(400).send({ message: "User not found" });
     }
-    return res.status(200).send({ message: "User updated successfully" });
+    return res.status(200).json({ success: true, message: "User updated successfully" });
   } else {
     await User.create(obj);
-    return res.status(200).send({ message: "User added successfully" });
+    return res.status(200).json({ success: true, message: "User added successfully" });
   }
 });
 
@@ -1704,7 +1722,8 @@ const categoryList = catchAsyncError(async (req, res, next) => {
 
   const totalPages = Math.ceil(total / pageSize);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data,
     page: pageNumber,
     limit: pageSize,
@@ -1738,7 +1757,7 @@ const deleteAmenities = catchAsyncError(async (req, res, next) => {
 
   await Amenities.updateOne({ _id: req.params.id }, { $set: { isDeleted: true } });
 
-  return res.status(200).send({ message: "Amenity deleted successfully" });
+  return res.status(200).json({ success: true, message: "Amenity deleted successfully" });
 
 })
 

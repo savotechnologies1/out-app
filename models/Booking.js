@@ -202,6 +202,15 @@ const bookingSchema = new mongoose.Schema({
 
   cancellationDate: Date,
 
+  cancellationReason: {
+    type: String,
+    enum: ["OWNER_TAKING_TOO_LONG", "CHANGED_MY_MIND", "OTHER"]
+  },
+
+  customCancellationReason: {
+    type: String
+  },
+
   refundAmount: {
     type: Number,
     default: 0

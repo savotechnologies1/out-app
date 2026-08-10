@@ -293,6 +293,7 @@ const getVerificationStatus = catchAsyncError(async (req, res, next) => {
   }
 
   return res.status(200).json({
+    success: true,
     data: {
       identityVerificationStatus: user?.identityVerificationStatus,
       identityType: user?.identityType,
@@ -359,6 +360,7 @@ const getVerificationDetails = catchAsyncError(async (req, res, next) => {
   }
 
   return res.status(200).json({
+    success: true,
     message: "Verification details fetched successfully",
     data: user,
   });
@@ -422,6 +424,7 @@ const approveVisitor = catchAsyncError(async (req, res, next) => {
   }
 
   return res.status(200).json({
+    success: true,
     message: "Visitor identity approved successfully",
     data: {
       identityVerificationStatus: user?.identityVerificationStatus,
@@ -500,6 +503,7 @@ const rejectVisitor = catchAsyncError(async (req, res, next) => {
   }
 
   return res.status(200).json({
+    success: true,
     message: "Visitor identity rejected",
     data: {
       identityVerificationStatus: user?.identityVerificationStatus,

@@ -71,7 +71,7 @@ const router = app.Router();
 router.post("/login", loginBody, serviceLogin);
 router.post(
   "/sign-up",
-  uploads.fields([{ name: "userProfile" }, { name: "docs" }]),
+  uploads.fields([{ name: "userProfile" }]),
   userSignUpBody,
   serviceSignUp
 );
@@ -228,7 +228,7 @@ router.post("/userLoginByServiceProviderToken", validateServiceToken, userLoginB
 
 router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUserAccount);
 
-router.get("/getUserReviews/:userId", validateServiceToken, getUserReviews);
+router.get("/getUserReviews", validateServiceToken, getUserReviews);
 
 router.patch("/toggleInstantBooking", validateServiceToken, toggleInstantBooking)
 module.exports = router;

@@ -61,6 +61,9 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/webp",
   "image/gif",
   "image/avif",
+  "image/heic",
+  "image/heif",
+  "image/heif-sequence",
   "image/svg+xml",
   "text/csv",
   "application/vnd.ms-excel",
@@ -69,7 +72,7 @@ const ALLOWED_MIME_TYPES = new Set([
   "audio/mp3",
   "audio/wav",
   "audio/ogg",
-  "audio/mp4", 
+  "audio/mp4",
   "audio/aac",
 
   "video/mp4",

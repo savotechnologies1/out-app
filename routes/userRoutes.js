@@ -33,6 +33,7 @@ const {
   createUserReview,
   getReviews,
   getUserReviews,
+  getGivenReviews,
   getServiceUser,
   serviceUserLoginByUserToken,
   getServicesByCategory,
@@ -52,7 +53,7 @@ const {
   otpValidation,
 } = require("../validations/validator");
 const { uploads } = require("../functions/upload");
-const { getAllCategories } = require("../controller/serviceController");
+const { getAllCategories, getActiveServiceCategories } = require("../controller/serviceController");
 const { cancelBooking } = require("../controller/bookingController");
 const { getNotifications, getSingleNotification, markAsRead, deleteNotification, markAllAsRead, deleteAllNotifications } = require("../controller/notificationController");
 
@@ -129,6 +130,8 @@ router.get("/getReviews", validateToken, getReviews);
 
 router.get("/getUserReviews", validateToken, getUserReviews);
 
+router.get("/getGivenReviews", validateToken, getGivenReviews);
+
 router.get("/getAllNotifications", validateToken, getNotifications);
 
 router.get("/getSingleNotification/:id", validateToken, getSingleNotification);
@@ -158,5 +161,7 @@ router.delete("/deleteAccount", validateToken, deleteAccount);
 router.get("/share/:type/:id", validateToken, shareItem);
 
 router.get("/shareServiceUserProfile/:userId", validateToken, shareServiceUserProfile)
+
+router.get("/getActiveServiceCategories", validateToken, getActiveServiceCategories)
 
 module.exports = router;

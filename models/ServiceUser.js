@@ -26,6 +26,9 @@ const userSchema = new mongoose.Schema(
     description: {
       type: String
     },
+    offeringDetails: {
+      type: String
+    },
     phoneCode: { type: String },
     OTP: { type: String },
     docs: { type: String },

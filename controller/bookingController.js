@@ -35,305 +35,6 @@ function getDatesBetween(startDate, endDate) {
   return dates;
 }
 
-// exports.checkAvailability = async (req, res) => {
-//   try {
-//     const {
-//       bookingType,
-//       hotelId,
-//       serviceIds = [],
-//       packageId,
-//       checkIn,
-//       checkOut,
-//       couponCode
-//     } = req.body;
-
-//     const userId = req.user?._id;
-
-//     const dates = getDatesBetween(checkIn, checkOut);
-//     const nights = dates.length;
-
-//     let availableServices = [];
-//     let basePrice = 0;
-//     let servicesTotal = 0;
-//     let finalAmount = 0;
-
-//     /* =================================================
-//        PROPERTY BOOKING
-//     ================================================= */
-
-//     if (bookingType === "PROPERTY") {
-
-//       const bookedDates = await HotelAvailability.find({
-//         hotel: hotelId,
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedDates.length > 0) {
-//         return res.send({
-//           available: false,
-//           message: "Property not available for selected dates"
-//         });
-//       }
-
-//       const hotel = await Properties.findById(hotelId).select("price name");
-
-//       basePrice = hotel.price;
-//       finalAmount = hotel.price * nights;
-//     }
-
-//     /* =================================================
-//        SERVICE BOOKING
-//     ================================================= */
-
-//     if (bookingType === "SERVICE") {
-
-//       const bookedServices = await ServiceAvailability.find({
-//         service: { $in: serviceIds },
-//         date: { $in: dates },
-//         isBooked: true
-//       }).select("service");
-
-//       const bookedServiceIds = bookedServices.map(s =>
-//         s.service.toString()
-//       );
-
-//       const availableServiceIds = serviceIds.filter(
-//         id => !bookedServiceIds.includes(id)
-//       );
-
-//       if (availableServiceIds.length === 0) {
-//         return res.send({
-//           available: false,
-//           message: "Selected services not available"
-//         });
-//       }
-
-//       availableServices = await Service.find({
-//         _id: { $in: availableServiceIds },
-//         isDeleted: false,
-//         isActive: true
-//       }).select("_id name price priceType");
-
-//       servicesTotal = availableServices.reduce(
-//         (sum, s) => sum + s.price,
-//         0
-//       );
-
-//       finalAmount = servicesTotal * nights;
-//     }
-
-//     /* =================================================
-//    PROPERTY + ADDON SERVICES BOOKING
-// ================================================= */
-
-//     if (bookingType === "PROPERTY_SERVICE") {
-
-//       /* -------- PROPERTY CHECK -------- */
-
-//       const bookedDates = await HotelAvailability.find({
-//         hotel: hotelId,
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedDates.length > 0) {
-//         return res.send({
-//           available: false,
-//           message: "Property not available for selected dates"
-//         });
-//       }
-
-//       const hotel = await Properties.findById(hotelId).select("price name");
-
-//       basePrice = hotel.price;
-
-//       /* -------- SERVICE CHECK -------- */
-
-//       const bookedServices = await ServiceAvailability.find({
-//         service: { $in: serviceIds },
-//         date: { $in: dates },
-//         isBooked: true
-//       }).select("service");
-
-//       const bookedServiceIds = bookedServices.map(s =>
-//         s.service.toString()
-//       );
-
-//       const availableServiceIds = serviceIds.filter(
-//         id => !bookedServiceIds.includes(id)
-//       );
-
-//       if (availableServiceIds.length === 0) {
-//         return res.send({
-//           available: false,
-//           message: "Selected services not available"
-//         });
-//       }
-
-//       availableServices = await Service.find({
-//         _id: { $in: availableServiceIds },
-//         isDeleted: false,
-//         isActive: true
-//       }).select("_id name price priceType");
-
-//       servicesTotal = availableServices.reduce(
-//         (sum, s) => sum + s.price,
-//         0
-//       );
-
-//       finalAmount = (basePrice * nights) + (servicesTotal * nights);
-
-//     }
-//     /* =================================================
-//        PACKAGE BOOKING
-//     ================================================= */
-
-//     if (bookingType === "PACKAGE") {
-
-//       const pkg = await Package.findById(packageId)
-//         .populate("property")
-//         .populate("services.service", "name");
-//       if (!pkg) {
-//         return res.status(404).send({
-//           available: false,
-//           message: "Package not found"
-//         });
-//       }
-
-//       basePrice = pkg.basePrice || 0;
-
-//       const bookedProperty = await HotelAvailability.find({
-//         hotel: pkg.property._id,
-//         date: { $in: dates },
-//         isBooked: true
-//       });
-
-//       if (bookedProperty.length > 0) {
-//         return res.send({
-//           available: false,
-//           message: "Package property not available"
-//         });
-//       }
-
-//       /* -------- SERVICE CHECK -------- */
-
-//       const pkgServiceIds = pkg.services.map(s => s.service._id);
-
-//       const bookedServices = await ServiceAvailability.find({
-//         service: { $in: pkgServiceIds },
-//         date: { $in: dates },
-//         isBooked: true
-//       }).select("service");
-
-//       const bookedServiceIds = bookedServices.map(s =>
-//         s.service.toString()
-//       );
-
-//       availableServices = pkg.services
-//         .filter(s => !bookedServiceIds.includes(s.service._id.toString()))
-//         .map(s => ({
-//           serviceId: s.service._id,
-//           name: s.service.name,
-//           price: s.price,
-//           priceType: s.priceType
-//         }));
-
-//       if (availableServices.length === 0) {
-//         return res.send({
-//           available: false,
-//           message: "Package services not available"
-//         });
-//       }
-
-//       servicesTotal = availableServices.reduce(
-//         (sum, s) => sum + s.price,
-//         0
-//       );
-
-//       finalAmount = (basePrice + servicesTotal) * nights;
-//     }
-
-
-//     let discountAmount = 0;
-//     let couponId = null;
-
-//     if (couponCode) {
-
-//       const coupon = await Coupon.findOne({
-//         code: couponCode.toUpperCase(),
-//         isActive: true,
-//         isDelete: false
-//       });
-
-//       if (!coupon) {
-//         return res.status(400).send({
-//           message: "Invalid coupon code"
-//         });
-//       }
-
-//       couponId = coupon._id;
-
-//       const alreadyUsed = coupon.usedBy.find(
-//         u => u.user.toString() === userId.toString()
-//       );
-
-//       if (alreadyUsed) {
-//         return res.status(400).send({
-//           message: "Coupon already used"
-//         });
-//       }
-
-//       if (coupon.discountType === "PERCENTAGE") {
-
-//         discountAmount = (finalAmount * coupon.discountValue) / 100;
-
-//         if (coupon.maxDiscount && discountAmount > coupon.maxDiscount) {
-//           discountAmount = coupon.maxDiscount;
-//         }
-
-//       } else {
-
-//         discountAmount = coupon.discountValue;
-
-//       }
-
-//       finalAmount = finalAmount - discountAmount;
-//     }
-
-//     /* =================================================
-//        RESPONSE
-//     ================================================= */
-
-//     return res.send({
-
-//       available: true,
-
-//       bookingType,
-
-//       availableServices,
-
-//       priceDetails: {
-//         basePrice,
-//         servicesTotal,
-//         nights,
-//         discountAmount,
-//         finalAmount
-//       },
-
-//       couponId
-
-//     });
-
-//   } catch (error) {
-
-//     return res.status(500).send({
-//       message: error.message
-//     });
-
-//   }
-// };
-
 exports.checkAvailability = async (req, res) => {
   try {
 
@@ -351,6 +52,17 @@ exports.checkAvailability = async (req, res) => {
 
     const dates = getDatesBetween(checkIn, checkOut);
 
+    if (!dates || dates.length === 0) {
+      return res.send({
+        available: false,
+        message: "Invalid check-in or check-out dates"
+      });
+    }
+
+    const requestedDays = dates.map(d =>
+      d.toLocaleString("en-US", { weekday: "long" })
+    );
+
     const nights = dates.length;
 
     let availableServices = [];
@@ -367,6 +79,16 @@ exports.checkAvailability = async (req, res) => {
 
     if (bookingType === "PROPERTY") {
 
+      const hotel = await Properties.findById(hotelId)
+        .select("price name");
+
+      if (!hotel) {
+        return res.send({
+          available: false,
+          message: "Property not found"
+        });
+      }
+
       const bookedDates = await HotelAvailability.find({
         hotel: hotelId,
         date: { $in: dates },
@@ -376,12 +98,9 @@ exports.checkAvailability = async (req, res) => {
       if (bookedDates.length > 0) {
         return res.send({
           available: false,
-          message: "Property not available for selected dates"
+          message: "Property is not available on selected date(s)"
         });
       }
-
-      const hotel = await Properties.findById(hotelId)
-        .select("price name");
 
       basePrice = hotel.price;
 
@@ -394,32 +113,51 @@ exports.checkAvailability = async (req, res) => {
 
     if (bookingType === "SERVICE") {
 
+      if (serviceIds.length === 0) {
+        return res.send({
+          available: false,
+          message: "Please select at least one service"
+        });
+      }
+
       const bookedServices = await ServiceAvailability.find({
         service: { $in: serviceIds },
         date: { $in: dates },
         isBooked: true
       }).select("service");
 
-      const bookedServiceIds = bookedServices.map(
-        s => s.service.toString()
-      );
-
-      const availableServiceIds = serviceIds.filter(
-        id => !bookedServiceIds.includes(id)
-      );
-
-      if (availableServiceIds.length === 0) {
+      if (bookedServices.length > 0) {
         return res.send({
           available: false,
-          message: "Selected services not available"
+          message: "Selected service is not available on selected date(s)"
         });
       }
 
       availableServices = await Service.find({
-        _id: { $in: availableServiceIds },
+        _id: { $in: serviceIds },
         isDeleted: false,
         isActive: true
-      }).select("_id name price priceType");
+      }).select("_id name price priceType workingDays");
+
+      if (availableServices.length !== serviceIds.length) {
+        return res.send({
+          available: false,
+          message: "Some selected services not found or inactive"
+        });
+      }
+
+      // ✅ Check workingDays for each service
+      for (const service of availableServices) {
+        if (service.workingDays && service.workingDays.length > 0) {
+          const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
+          if (!isAvailableOnDays) {
+            return res.send({
+              available: false,
+              message: `${service.name} is not available on selected day(s)`
+            });
+          }
+        }
+      }
 
       /* -------- SERVICE PRICE * NIGHTS -------- */
 
@@ -445,6 +183,16 @@ exports.checkAvailability = async (req, res) => {
 
       /* -------- PROPERTY CHECK -------- */
 
+      const hotel = await Properties.findById(hotelId)
+        .select("price name");
+
+      if (!hotel) {
+        return res.send({
+          available: false,
+          message: "Property not found"
+        });
+      }
+
       const bookedDates = await HotelAvailability.find({
         hotel: hotelId,
         date: { $in: dates },
@@ -454,56 +202,69 @@ exports.checkAvailability = async (req, res) => {
       if (bookedDates.length > 0) {
         return res.send({
           available: false,
-          message: "Property not available for selected dates"
+          message: "Property is not available on selected date(s)"
         });
       }
-
-      const hotel = await Properties.findById(hotelId)
-        .select("price name");
 
       basePrice = hotel.price;
 
       /* -------- SERVICE CHECK -------- */
 
-      const bookedServices = await ServiceAvailability.find({
-        service: { $in: serviceIds },
-        date: { $in: dates },
-        isBooked: true
-      }).select("service");
+      if (serviceIds.length > 0) {
 
-      const bookedServiceIds = bookedServices.map(
-        s => s.service.toString()
-      );
+        const bookedServices = await ServiceAvailability.find({
+          service: { $in: serviceIds },
+          date: { $in: dates },
+          isBooked: true
+        }).select("service");
 
-      const availableServiceIds = serviceIds.filter(
-        id => !bookedServiceIds.includes(id)
-      );
+        if (bookedServices.length > 0) {
+          return res.send({
+            available: false,
+            message: "Selected service is not available on selected date(s)"
+          });
+        }
 
-      if (availableServiceIds.length === 0) {
-        return res.send({
-          available: false,
-          message: "Selected services not available"
-        });
+        availableServices = await Service.find({
+          _id: { $in: serviceIds },
+          isDeleted: false,
+          isActive: true
+        }).select("_id name price priceType workingDays");
+
+        if (availableServices.length !== serviceIds.length) {
+          return res.send({
+            available: false,
+            message: "Some selected services not found or inactive"
+          });
+        }
+
+        // ✅ Check workingDays for each service
+        for (const service of availableServices) {
+          if (service.workingDays && service.workingDays.length > 0) {
+            const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
+            if (!isAvailableOnDays) {
+              return res.send({
+                available: false,
+                message: `${service.name} is not available on selected day(s)`
+              });
+            }
+          }
+        }
+
+        /* -------- SERVICE PRICE * NIGHTS -------- */
+
+        availableServices = availableServices.map(service => ({
+          ...service.toObject(),
+          originalPrice: service.price,
+          price: service.price * nights
+        }));
+
+        servicesTotal = availableServices.reduce(
+          (sum, s) => sum + s.price,
+          0
+        );
+
       }
-
-      availableServices = await Service.find({
-        _id: { $in: availableServiceIds },
-        isDeleted: false,
-        isActive: true
-      }).select("_id name price priceType");
-
-      /* -------- SERVICE PRICE * NIGHTS -------- */
-
-      availableServices = availableServices.map(service => ({
-        ...service.toObject(),
-        originalPrice: service.price,
-        price: service.price * nights
-      }));
-
-      servicesTotal = availableServices.reduce(
-        (sum, s) => sum + s.price,
-        0
-      );
 
       finalAmount =
         (basePrice * nights) + servicesTotal;
@@ -517,7 +278,7 @@ exports.checkAvailability = async (req, res) => {
 
       const pkg = await Package.findById(packageId)
         .populate("property")
-        .populate("services.service", "name");
+        .populate("services.service", "name workingDays priceType");
 
       if (!pkg) {
         return res.status(404).send({
@@ -537,7 +298,7 @@ exports.checkAvailability = async (req, res) => {
       if (bookedProperty.length > 0) {
         return res.send({
           available: false,
-          message: "Package property not available"
+          message: "Package property is not available on selected date(s)"
         });
       }
 
@@ -553,31 +314,33 @@ exports.checkAvailability = async (req, res) => {
         isBooked: true
       }).select("service");
 
-      const bookedServiceIds = bookedServices.map(
-        s => s.service.toString()
-      );
-
-      availableServices = pkg.services
-        .filter(
-          s =>
-            !bookedServiceIds.includes(
-              s.service._id.toString()
-            )
-        )
-        .map(s => ({
-          serviceId: s.service._id,
-          name: s.service.name,
-          originalPrice: s.price,
-          price: s.price * nights,
-          priceType: s.priceType
-        }));
-
-      if (availableServices.length === 0) {
+      if (bookedServices.length > 0) {
         return res.send({
           available: false,
-          message: "Package services not available"
+          message: "Package service is not available on selected date(s)"
         });
       }
+
+      for (const s of pkg.services) {
+        const serviceObj = s.service;
+        if (serviceObj && serviceObj.workingDays && serviceObj.workingDays.length > 0) {
+          const isAvailableOnDays = requestedDays.every(day => serviceObj.workingDays.includes(day));
+          if (!isAvailableOnDays) {
+            return res.send({
+              available: false,
+              message: `${serviceObj.name || "Package service"} is not available on selected day(s)`
+            });
+          }
+        }
+      }
+
+      availableServices = pkg.services.map(s => ({
+        serviceId: s.service._id,
+        name: s.service.name,
+        originalPrice: s.price,
+        price: s.price * nights,
+        priceType: s.priceType
+      }));
 
       servicesTotal = availableServices.reduce(
         (sum, s) => sum + s.price,
@@ -739,8 +502,8 @@ exports.createBooking = async (req, res) => {
       return res.status(403).send({
         message: "Identity verification required before booking.",
       });
-    }
-
+    } 
+    
     const {
       bookingType,
       propertyId,
@@ -757,6 +520,16 @@ exports.createBooking = async (req, res) => {
     const totalGuests = Number(children) + Number(adults);
 
     const dates = getDatesBetween(checkIn, checkOut);
+
+    if (!dates || dates.length === 0) {
+      return res.status(400).send({
+        message: "Invalid check-in or check-out dates"
+      });
+    }
+
+    const requestedDays = dates.map(d =>
+      d.toLocaleString("en-US", { weekday: "long" })
+    );
 
     let property = null;
 
@@ -777,11 +550,69 @@ exports.createBooking = async (req, res) => {
     }
 
     /* =================================================
+       PACKAGE VALIDATION (PROPERTY + SERVICES)
+    ================================================= */
+
+    if (bookingType === "PACKAGE" && packageId) {
+      const pkg = await Package.findById(packageId)
+        .populate("property")
+        .populate("services.service");
+
+      if (!pkg) {
+        return res.status(404).send({
+          message: "Package not found"
+        });
+      }
+
+      if (pkg.property) {
+        const bookedPkgProperty = await HotelAvailability.find({
+          hotel: pkg.property._id,
+          date: { $in: dates },
+          isBooked: true
+        });
+
+        if (bookedPkgProperty.length > 0) {
+          return res.status(400).send({
+            message: "Package property is not available on selected date(s)"
+          });
+        }
+      }
+
+      if (pkg.services && pkg.services.length > 0) {
+        const pkgServiceIds = pkg.services.map(s => s.service._id);
+
+        const bookedPkgServices = await ServiceAvailability.find({
+          service: { $in: pkgServiceIds },
+          date: { $in: dates },
+          isBooked: true
+        });
+
+        if (bookedPkgServices.length > 0) {
+          return res.status(400).send({
+            message: "Package services are not available on selected date(s)"
+          });
+        }
+
+        for (const item of pkg.services) {
+          const s = item.service;
+          if (s && s.workingDays && s.workingDays.length > 0) {
+            const isAvailableOnDays = requestedDays.every(day => s.workingDays.includes(day));
+            if (!isAvailableOnDays) {
+              return res.status(400).send({
+                message: `${s.name || "Package service"} is not available on selected day(s)`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    /* =================================================
        PROPERTY VALIDATION + POLICY
     ================================================= */
 
     if (
-      ["PROPERTY", "PACKAGE", "PROPERTY_SERVICE"]
+      ["PROPERTY", "PROPERTY_SERVICE"]
         .includes(bookingType)
     ) {
 
@@ -812,7 +643,7 @@ exports.createBooking = async (req, res) => {
 
       if (bookedDates.length > 0) {
         return res.status(400).send({
-          message: "Selected dates are not available"
+          message: "Selected property dates are not available"
         });
       }
     }
@@ -830,16 +661,18 @@ exports.createBooking = async (req, res) => {
       );
 
       servicesData = await Service.find({
-        _id: { $in: serviceIds }
+        _id: { $in: serviceIds },
+        isDeleted: false,
+        isActive: true
       })
         .populate("cancellationPolicy")
         .select(
-          "user category name policies cancellationPolicy priceType maxPersons"
+          "user category name policies cancellationPolicy priceType maxPersons workingDays"
         );
 
       if (servicesData.length !== services.length) {
         return res.status(400).send({
-          message: "Some services not found"
+          message: "Some services not found or inactive"
         });
       }
 
@@ -852,8 +685,20 @@ exports.createBooking = async (req, res) => {
 
       if (bookedServices.length > 0) {
         return res.status(400).send({
-          message: "Some services are not available"
+          message: "Some services are not available on selected date(s)"
         });
+      }
+
+      // ✅ Check workingDays for each service
+      for (const service of servicesData) {
+        if (service.workingDays && service.workingDays.length > 0) {
+          const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
+          if (!isAvailableOnDays) {
+            return res.status(400).send({
+              message: `${service.name} is not available on selected day(s)`
+            });
+          }
+        }
       }
 
       // ✅ validate service maxPersons
@@ -1186,7 +1031,8 @@ exports.createBooking = async (req, res) => {
       pendingReason: "payment_pending"
     });
 
-    return res.status(201).send({
+    return res.status(201).json({
+      success: true,
       message: "Booking created successfully",
       bookingId: booking._id,
       orderId,
@@ -1372,7 +1218,8 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
     .sort({ checkIn: 1 })
     .lean();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: bookings,
     message: bookings.length
       ? "User upcoming bookings fetched"
@@ -2227,6 +2074,26 @@ exports.cancelBooking = async (req, res) => {
   try {
 
     const { bookingId } = req.params;
+    const reason = req.body.reason || req.body.cancellationReason;
+    const customReason = req.body.customReason || req.body.customCancellationReason;
+
+    /* =============================
+       REASON VALIDATION
+    ============================== */
+
+    const validReasons = ["OWNER_TAKING_TOO_LONG", "CHANGED_MY_MIND", "OTHER"];
+
+    if (!reason || !validReasons.includes(reason)) {
+      return res.status(400).send({
+        message: "Cancellation reason is required and must be valid (OWNER_TAKING_TOO_LONG, CHANGED_MY_MIND, OTHER)",
+      });
+    }
+
+    if (reason === "OTHER" && (!customReason || !customReason.trim())) {
+      return res.status(400).send({
+        message: "Custom cancellation reason is required when reason is OTHER",
+      });
+    }
 
     const booking = await Booking.findById(bookingId);
 
@@ -2269,6 +2136,12 @@ exports.cancelBooking = async (req, res) => {
 
       booking.isCancelled = true;
 
+      booking.cancellationReason = reason;
+
+      if (reason === "OTHER") {
+        booking.customCancellationReason = customReason;
+      }
+
       await booking.save();
 
       await sendNotification({
@@ -2282,8 +2155,243 @@ exports.cancelBooking = async (req, res) => {
       });
 
       return res.send({
+        success: false,
         message: "Booking cancelled (no payment)",
       });
+    }
+
+    /* =================================================
+       🔥 PENDING BOOKING CANCELLATION (100% REFUND)
+    ================================================= */
+
+    if ((booking.bookingStatus === "pending") && (booking.paymentStatus === "paid") && (booking.pendingReason === "approval_pending")) {
+
+      const refundAmount = booking.totalAmount;
+
+      const refundPercentage = 100;
+
+      let tapRefundId = null;
+
+      /* 💳 PROCESS TAP REFUND */
+
+      try {
+
+        if (refundAmount > 0 && booking.tapChargeId) {
+
+          let actualRefundAmount = Number(refundAmount.toFixed(2));
+          let refundCurrency = "SAR";
+
+          try {
+            const chargeRes = await axios.get(
+              `https://api.tap.company/v2/charges/${booking.tapChargeId}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+                },
+              }
+            );
+
+            if (chargeRes.data) {
+              refundCurrency = chargeRes.data.currency || "SAR";
+              const captured = Number(chargeRes.data.amount || 0);
+              const alreadyRefunded = Number(chargeRes.data.amount_refunded || 0);
+              const availableToRefund = Math.max(captured - alreadyRefunded, 0);
+
+              if (actualRefundAmount > availableToRefund) {
+                actualRefundAmount = Number(availableToRefund.toFixed(2));
+              }
+            }
+          } catch (fetchErr) {
+            console.warn(
+              "Could not fetch charge details from TAP, proceeding with default amount:",
+              fetchErr.message
+            );
+          }
+
+          if (actualRefundAmount > 0) {
+            const response = await axios.post(
+              "https://api.tap.company/v2/refunds",
+              {
+                charge_id: booking.tapChargeId,
+                amount: actualRefundAmount,
+                currency: refundCurrency,
+                reason: "Pending booking cancellation refund",
+                reference: {
+                  merchant: booking.orderId,
+                },
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+                  "Content-Type": "application/json",
+                },
+              }
+            );
+
+            tapRefundId = response.data?.id;
+          } else {
+            tapRefundId = "REFUNDED_ON_TAP";
+          }
+        }
+
+      } catch (err) {
+
+        console.error(
+          "Refund failed:",
+          err.response?.data || err.message
+        );
+
+        booking.refundStatus = "failed";
+
+        await booking.save();
+
+        return res.status(500).send({
+          success: false,
+          message: "Refund failed",
+          error: err.response?.data || err.message,
+        });
+      }
+
+      /* 🔓 RELEASE AVAILABILITY */
+
+      if (booking.property) {
+
+        await HotelAvailability.deleteMany({
+          hotel: booking.property,
+          booking: booking._id,
+        });
+      }
+
+      if (booking.services?.length > 0) {
+
+        const serviceIds = booking.services.map((s) => s.service);
+
+        await ServiceAvailability.deleteMany({
+          service: { $in: serviceIds },
+          booking: booking._id,
+        });
+      }
+
+      /* 📝 UPDATE BOOKING */
+
+      booking.bookingStatus = "cancelled";
+
+      booking.isCancelled = true;
+
+      booking.cancellationDate = new Date();
+
+      booking.refundAmount = refundAmount;
+
+      booking.refundPercentage = refundPercentage;
+
+      booking.refundStatus = "processed";
+
+      booking.refundTransactionId = tapRefundId;
+
+      booking.cancellationReason = reason;
+
+      booking.customCancellationReason =
+        reason === "OTHER" ? customReason : null;
+
+      await booking.save();
+
+      /* 🔔 NOTIFICATIONS */
+
+      const cancelData = {
+
+        bookingId: booking._id.toString(),
+
+        totalAmount: booking.totalAmount,
+
+        refundAmount,
+
+        refundPercentage,
+
+        cancellationReason: reason,
+
+        customCancellationReason:
+          reason === "OTHER" ? customReason : undefined,
+
+        bookingStatus: booking.bookingStatus,
+
+        checkIn: booking.checkIn,
+
+        checkOut: booking.checkOut,
+
+        bookingType: booking.bookingType,
+      };
+
+      /* Customer Notification */
+
+      await sendNotification({
+
+        receiverId: booking.user,
+
+        receiverModel: "User",
+
+        title: "Booking Cancelled",
+
+        body: "Your booking was cancelled successfully. Since it had not yet been accepted, a full refund has been processed.",
+
+        type: "REFUND",
+
+        referenceId: booking._id,
+
+        referenceType: "Booking",
+
+        data: cancelData,
+      });
+
+      /* Provider Notification */
+
+      if (booking.providerBreakdown?.length > 0) {
+
+        for (const provider of booking.providerBreakdown) {
+
+          await sendNotification({
+
+            receiverId: provider.user,
+
+            receiverModel: "ServiceUser",
+
+            title: "Pending Booking Cancelled",
+
+            body: "The customer cancelled the booking before it was accepted.",
+
+            type: "BOOKING",
+
+            referenceId: booking._id,
+
+            referenceType: "Booking",
+
+            data: {
+
+              bookingId: booking._id.toString(),
+
+              cancellationReason: reason,
+
+              customCancellationReason:
+                reason === "OTHER" ? customReason : undefined,
+
+              providerType: provider.type,
+            },
+          });
+        }
+      }
+
+      return res.send({
+
+        success: true,
+
+        message: "Booking cancelled successfully",
+
+        refundAmount,
+
+        refundPercentage,
+
+        cancellationReason: reason,
+      });
+
     }
 
     /* =============================
@@ -2300,6 +2408,12 @@ exports.cancelBooking = async (req, res) => {
 
       booking.refundPercentage = 0;
 
+      booking.cancellationReason = reason;
+
+      if (reason === "OTHER") {
+        booking.customCancellationReason = customReason;
+      }
+
       await booking.save();
 
       await sendNotification({
@@ -2313,6 +2427,7 @@ exports.cancelBooking = async (req, res) => {
       });
 
       return res.send({
+        success: false,
         message: "Cancelled (no refund available)",
         refundAmount: 0,
       });
@@ -2583,6 +2698,7 @@ exports.cancelBooking = async (req, res) => {
       await booking.save();
 
       return res.status(500).send({
+        success: false,
         message: "Refund failed",
         error:
           err.response?.data || err.message,
@@ -2635,6 +2751,12 @@ exports.cancelBooking = async (req, res) => {
 
     booking.refundStatus =
       "processed";
+
+    booking.cancellationReason = reason;
+
+    if (reason === "OTHER") {
+      booking.customCancellationReason = customReason;
+    }
 
     await booking.save();
 
@@ -2728,6 +2850,7 @@ exports.cancelBooking = async (req, res) => {
     }
 
     return res.send({
+      success: true,
       message:
         "Booking cancelled successfully",
       refundAmount,
@@ -2868,7 +2991,7 @@ exports.getPendingBookingRequests = async (req, res) => {
 
       .sort({ createdAt: -1 });
 
-    return res.status(200).send({
+    return res.status(200).json({
 
       success: true,
 
@@ -3170,7 +3293,7 @@ exports.updateBookingApprovalStatus = async (req, res) => {
       referenceType: "Booking",
     });
 
-    return res.status(200).send({
+    return res.status(200).json({
 
       success: true,
 

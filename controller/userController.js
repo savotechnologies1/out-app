@@ -74,7 +74,8 @@ const userLogin = catchAsyncError(async (req, res, next) => {
 
   await authenticaOTP(otp, user.email, user.phone);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: { id: user._id },
     message: "OTP sent successfully",
   });
@@ -138,7 +139,7 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
   const randomId = generateRandomId();
   const otp = generateRandomOTP();
   // Create user
-   await authenticaOTP(otp, email, phone);
+  await authenticaOTP(otp, email, phone);
   const user = await User.create({
     salutation,
     firstName,
@@ -149,8 +150,9 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
     phoneCode: mobileCode,
     OTP: otp,
   });
-  
-  return res.status(201).send({
+
+  return res.status(201).json({
+    success: true,
     data: {
       id: user._id,
       mobile: user.phone,
@@ -208,7 +210,8 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
 
   User.updateOne({ _id: user._id }, obj).then();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: token,
     role: user.role,
     message: "OTP successfully verified",
@@ -370,7 +373,8 @@ const getUser = catchAsyncError(async (req, res, next) => {
   // ✅ Mask phone
   user.phone = await codeRem(user.phone);
 
-  return res.status(200).send({ data: user,
+  return res.status(200).json({
+    success: true, data: user,
     yakeen: {
       identityNumber: user.identityNumber,
       identityType: user.identityType,
@@ -391,7 +395,7 @@ const getUser = catchAsyncError(async (req, res, next) => {
       verificationReference: user.verificationReference,
       verificationProvider: user.verificationProvider
     }
-   });
+  });
 });
 
 
@@ -458,7 +462,8 @@ const logout = catchAsyncError(async (req, res, next) => {
       { $pull: { tokens: authToken } }
     ).then();
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       message: "Logout Successfully",
     });
   }
@@ -579,7 +584,8 @@ const updateProfile = catchAsyncError(async (req, res, next) => {
      RESPONSE
   ======================== */
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     message: "Profile updated successfully",
   });
 
@@ -599,7 +605,8 @@ const getCategory = catchAsyncError(async (req, res, next) => {
     },
   ]).lean(true);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: properties,
     message: properties.length
       ? "Properties received successfully"
@@ -624,7 +631,7 @@ const addBooking = catchAsyncError(async (req, res, next) => {
     price: req.body.price,
   });
 
-  return res.status(200).send({ message: "Please verify OTP" });
+  return res.status(200).json({ success: true, message: "Please verify OTP" });
 });
 
 const addBookMark = catchAsyncError(async (req, res, next) => {
@@ -646,13 +653,14 @@ const addBookMark = catchAsyncError(async (req, res, next) => {
     createdBy: req.user._id,
   });
 
-  return res.status(200).send({ message: "Bookmark added successfully" });
+  return res.status(200).json({ success: true, message: "Bookmark added successfully" });
 });
 
 const listBookMark = catchAsyncError(async (req, res, next) => {
   const data = await Bookmark.find({ createdBy: req.user._id }).lean(true);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data,
     message: data.length
       ? "Bookmarks received successfully"
@@ -691,7 +699,7 @@ const testAuthentica = catchAsyncError(async (req, res, next) => {
 
   await authenticaOTP();
 
-  return res.status(200).send({ message: "ok" });
+  return res.status(200).json({ success: true, message: "ok" });
 });
 
 const createPayment = catchAsyncError(async (req, res, next) => {
@@ -701,7 +709,7 @@ const createPayment = catchAsyncError(async (req, res, next) => {
     amount: req.body.amount,
   });
 
-  return res.status(200).send({ data: paymentUrl, message: "ok" });
+  return res.status(200).json({ success: true, data: paymentUrl, message: "ok" });
 })
 
 const getAllProperties = async (req, res) => {
@@ -1180,107 +1188,14 @@ const getUserBanners = async (req, res) => {
 };
 
 
-// const getPropertyDetail = catchAsyncError(async (req, res) => {
-
-//   const data = (await Properties.aggregate([
-
-//     {
-//       $match: {
-//         isDeleted: false,
-//         _id: new mongoose.Types.ObjectId(req.params.id)
-//       }
-//     },
-
-//     // Category lookup
-//     {
-//       $lookup: {
-//         from: "categories",
-//         let: { categoryId: "$category" },
-//         pipeline: [
-//           {
-//             $match: {
-//               $expr: {
-//                 $and: [
-//                   { $eq: ["$_id", "$$categoryId"] },
-//                   { $eq: ["$isDeleted", false] }
-//                 ]
-//               }
-//             }
-//           },
-//           {
-//             $project: {
-//               category: 1
-//             }
-//           }
-//         ],
-//         as: "categoryData"
-//       }
-//     },
-
-//     {
-//       $addFields: {
-//         category: { $arrayElemAt: ["$categoryData.category", 0] }
-//       }
-//     },
-
-//     {
-//       $project: {
-//         categoryData: 0
-//       }
-//     },
-
-//     // 🔥 Bookmark lookup
-//     {
-//       $lookup: {
-//         from: "bookmarks",
-//         let: { propertyId: "$_id" },
-//         pipeline: [
-//           {
-//             $match: {
-//               $expr: {
-//                 $and: [
-//                   { $eq: ["$property", "$$propertyId"] },
-//                   { $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)] },
-//                   { $eq: ["$isDeleted", false] }
-//                 ]
-//               }
-//             }
-//           }
-//         ],
-//         as: "bookmarkData"
-//       }
-//     },
-
-//     // Add isFavorite flag
-//     {
-//       $addFields: {
-//         isFavorite: {
-//           $cond: {
-//             if: { $gt: [{ $size: "$bookmarkData" }, 0] },
-//             then: true,
-//             else: false
-//           }
-//         }
-//       }
-//     },
-
-//     // Clean response
-//     {
-//       $project: {
-//         bookmarkData: 0
-//       }
-//     }
-
-//   ]))[0];
-
-//   return res.status(200).send({
-//     data,
-//     message: data ? "Property detail received successfully" : "No property found",
-//   });
-// });
-
-
 const getPropertyDetail = catchAsyncError(async (req, res) => {
+  if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+    return res.status(200).json({
+      success: true,
+      data: null,
+      message: "No property found",
+    });
+  }
 
   const data = (await Properties.aggregate([
 
@@ -1431,27 +1346,63 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
 
   ]))[0];
 
+  if (data) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  await RecentlyViewed.findOneAndUpdate(
-    {
-      user: req.user._id,
-      property: req.params.id
-    },
-    {
-      $inc: {
-        viewCount: 1
-      },
+    const activeBookings = await Booking.find({
+      property: req.params.id,
+      isCancelled: { $ne: true },
+      bookingStatus: { $in: ["confirmed"] },
+      paymentStatus: { $ne: "failed" },
+      pendingReason: { $nin: ["payment_failed", "user_abandoned", "system_error", "expired"] },
+      checkOut: { $gte: today }
+    })
+      .select("checkIn checkOut")
+      .lean();
 
-      $set: {
-        lastViewedAt: new Date()
+    const bookedDatesSet = new Set();
+
+    activeBookings.forEach((b) => {
+      if (b.checkIn && b.checkOut) {
+        const startStr = moment.utc(b.checkIn).format("YYYY-MM-DD");
+        const endStr = moment.utc(b.checkOut).format("YYYY-MM-DD");
+
+        let curr = moment.utc(startStr, "YYYY-MM-DD");
+        const end = moment.utc(endStr, "YYYY-MM-DD");
+
+        while (curr.isBefore(end)) {
+          bookedDatesSet.add(curr.format("YYYY-MM-DD"));
+          curr.add(1, "day");
+        }
       }
-    },
-    {
-      upsert: true,
-      new: true
-    }
-  );
-  return res.status(200).send({
+    });
+
+    data.bookedDates = Array.from(bookedDatesSet).sort();
+
+    await RecentlyViewed.findOneAndUpdate(
+      {
+        user: req.user._id,
+        property: req.params.id
+      },
+      {
+        $inc: {
+          viewCount: 1
+        },
+
+        $set: {
+          lastViewedAt: new Date()
+        }
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+  }
+
+  return res.status(200).json({
+    success: true,
     data,
     message: data
       ? "Property detail received successfully"
@@ -1460,12 +1411,12 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
 
 });
 
-
 const createToken = catchAsyncError(async (req, res) => {
 
   const data = await createTokenForCard(req.body);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data,
     message: "Token created successfully",
   });
@@ -1533,7 +1484,7 @@ const createBooking = async (req, res) => {
 
     await session.commitTransaction();
 
-    return res.status(201).json(booking);
+    return res.status(201).json({ success: true, data: booking });
 
   } catch (err) {
     await session.abortTransaction();
@@ -1634,7 +1585,15 @@ const search = catchAsyncError(async (req, res) => {
     totalGuest = 1,
     checkIn,
     checkOut,
+    categoryId,
   } = req.body;
+
+  if (categoryId && !mongoose.Types.ObjectId.isValid(categoryId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid categoryId"
+    });
+  }
 
   if (!shareCode && (!lat || !lng)) {
     return res.status(400).json({
@@ -1675,7 +1634,8 @@ const search = catchAsyncError(async (req, res) => {
             shareCode: shareCode.toUpperCase(),
             isDeleted: false,
             is_completed: true,
-            approvalStatus: "approved"
+            approvalStatus: "approved",
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {})
           }
         },
 
@@ -1782,6 +1742,7 @@ const search = catchAsyncError(async (req, res) => {
             isDeleted: false,
             is_completed: true,
             approvalStatus: "approved",
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
             maxGuests: {
               $gte: Number(totalGuest)
             },
@@ -1991,7 +1952,8 @@ const search = catchAsyncError(async (req, res) => {
             shareCode: shareCode.toUpperCase(),
             isDeleted: false,
             isActive: true,
-            approvalStatus: "approved"
+            approvalStatus: "approved",
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {})
           }
         },
 
@@ -2135,6 +2097,7 @@ const search = catchAsyncError(async (req, res) => {
             isDeleted: false,
             isActive: true,
             approvalStatus: "approved",
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
 
             "location.coordinates.coordinates": {
               $exists: true,
@@ -2896,6 +2859,47 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
 
     service.latestReviews = latestReviews;
 
+    /* =====================================
+       📅 BOOKED DATES
+    ===================================== */
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const activeBookings = await Booking.find({
+      "services.service": service._id,
+      isCancelled: { $ne: true },
+      bookingStatus: { $in: ["confirmed"] },
+      paymentStatus: { $ne: "failed" },
+      pendingReason: { $nin: ["payment_failed", "user_abandoned", "system_error", "expired"] },
+      checkOut: { $gte: today }
+    })
+      .select("checkIn checkOut")
+      .lean();
+
+    const bookedDatesSet = new Set();
+
+    activeBookings.forEach((b) => {
+      if (b.checkIn && b.checkOut) {
+        const startStr = moment.utc(b.checkIn).format("YYYY-MM-DD");
+        const endStr = moment.utc(b.checkOut).format("YYYY-MM-DD");
+
+        if (startStr === endStr) {
+          bookedDatesSet.add(startStr);
+        } else {
+          let curr = moment.utc(startStr, "YYYY-MM-DD");
+          const end = moment.utc(endStr, "YYYY-MM-DD");
+
+          while (curr.isBefore(end)) {
+            bookedDatesSet.add(curr.format("YYYY-MM-DD"));
+            curr.add(1, "day");
+          }
+        }
+      }
+    });
+
+    service.bookedDates = Array.from(bookedDatesSet).sort();
+
     return res.status(200).json({
       success: true,
       data: service
@@ -3427,7 +3431,7 @@ const getReviews = async (req, res) => {
 ====================================================== */
 const getUserReviews = async (req, res) => {
   try {
-    const targetUserId = req.params.userId || req.user._id;
+    const targetUserId = req.query.userId || req.user._id;
 
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
       return res.status(400).json({
@@ -3498,14 +3502,131 @@ const getUserReviews = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      summary,
-      pagination: {
-        total,
-        page: pageNum,
-        limit: limitNum,
-        totalPages
-      },
-      reviews
+      data: [
+        {
+          type: "summary",
+          data: summary
+        },
+        {
+          type: "pagination",
+          data: {
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages
+          }
+        },
+        ...reviews.map(review => ({
+          type: "review",
+          data: review
+        }))
+      ]
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/* =====================================================
+   GET /user/getGivenReviews or GET /user/getGivenReviews/:userId
+   Fetch reviews GIVEN/SUBMITTED by a customer (User)
+====================================================== */
+const getGivenReviews = async (req, res) => {
+  try {
+    const targetUserId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID"
+      });
+    }
+
+    const { page = 1, limit = 10, type } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, parseInt(limit) || 10);
+    const skip = (pageNum - 1) * limitNum;
+
+    const match = {
+      reviewer: new mongoose.Types.ObjectId(targetUserId),
+      reviewerModel: "User",
+      isDeleted: { $ne: true }
+    };
+
+    if (type && ["property", "service", "user"].includes(type)) {
+      match.reviewType = type;
+    }
+
+    const reviews = await Review.find(match)
+      .populate("reviewee", "firstName lastName profile email phone")
+      .populate("property", "name title images address")
+      .populate("service", "name images price")
+      .populate({
+        path: "booking",
+        select: "orderId checkIn checkOut bookingType"
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Review.countDocuments(match);
+
+    const summaryAgg = await Review.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$reviewer",
+          averageRating: { $avg: "$rating" },
+          totalRatings: { $sum: 1 },
+          cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          service: { $avg: "$ratingsBreakdown.service" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          value: { $avg: "$ratingsBreakdown.value" }
+        }
+      }
+    ]);
+
+    const stats = summaryAgg[0] || {};
+    const averageRating = stats.averageRating ? Number(stats.averageRating.toFixed(1)) : 0;
+    const totalRatings = stats.totalRatings || 0;
+
+    const summary = {
+      averageRating,
+      totalRatings,
+      breakdown: {
+        cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
+        service: stats.service ? Number(stats.service.toFixed(1)) : 0,
+        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
+        value: stats.value ? Number(stats.value.toFixed(1)) : 0
+      }
+    };
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    return res.status(200).json({
+      success: true,
+      data: [
+        {
+          type: "summary",
+          data: summary
+        },
+        {
+          type: "pagination",
+          data: {
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages
+          }
+        },
+        ...reviews.map(review => ({
+          type: "review",
+          data: review
+        }))
+      ]
     });
   } catch (error) {
     return res.status(500).json({
@@ -3695,7 +3816,8 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
      📦 FINAL RESPONSE
   ======================== */
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: {
       ...user,
 
@@ -3797,7 +3919,8 @@ const serviceUserLoginByUserToken = catchAsyncError(
       }
     );
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       data: token,
       role: serviceUser.role,
       isVerified: serviceUser.isVerified,
@@ -5254,6 +5377,7 @@ module.exports = {
   createUserReview,
   getReviews,
   getUserReviews,
+  getGivenReviews,
   getServiceUser,
   serviceUserLoginByUserToken,
   getServicesByCategory,

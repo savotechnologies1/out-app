@@ -119,7 +119,8 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: { id: user._id },
     message: "Login successfully",
   });
@@ -136,8 +137,16 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
     });
   }
 
-  const { salutation, firstName, lastName, email, description, mobile, mobileCode } =
-    req.body;
+  const {
+    salutation,
+    firstName,
+    lastName,
+    email,
+    description,
+    serviceDetails,
+    mobile,
+    mobileCode,
+  } = req.body;
 
   const phone = `${mobileCode}${mobile}`;
 
@@ -171,18 +180,19 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
   const files = { ...req.files };
 
   const userProfileFiles = files?.userProfile;
-  const userDocuments = files?.docs;
 
-  // ✅ File validation
-  if (
-    (!userProfileFiles && !userProfileFiles?.length) ||
-    (!userDocuments && !userDocuments?.length)
-  ) {
+  // ✅ Validate offering details for admin review (replaces identity proof document requirement)
+  const offeringInfo = serviceDetails
+  if (!offeringInfo || offeringInfo.trim() === "") {
     return res.status(400).send({
-      message:
-        !userProfileFiles && !userProfileFiles?.length
-          ? "Please upload profile image"
-          : "Please upload identity proof",
+      message: "Please describe what you want to offer on the platform (e.g. photography services, chalet listing, or property/service details). Note: This information is only used by the admin team for the approval process.",
+    });
+  }
+
+  // ✅ Profile image validation
+  if (!userProfileFiles || !userProfileFiles?.length) {
+    return res.status(400).send({
+      message: "Please upload profile image",
     });
   }
 
@@ -201,12 +211,12 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
     lastName,
     userId: `SID-${randomId}`,
     email: email && email.trim() !== "" ? email : null, // ✅ optional email
-    description,
+    description: description || null,
+    offeringDetails: offeringInfo,
     phone,
     phoneCode: mobileCode,
     OTP: null,
     profile: userProfileFiles?.[0]?.filename,
-    docs: userDocuments?.[0]?.filename,
     address: {
       street: req.body.street,
       city: req.body.city,
@@ -220,7 +230,8 @@ const serviceSignUp = catchAsyncError(async (req, res, next) => {
 
   const data = await ServiceUser.create(obj);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: { id: data._id },
     message: "Account has been successfully created please login.",
   });
@@ -276,7 +287,8 @@ const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
 
   ServiceUser.updateOne({ _id: user._id }, obj).then();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: token,
     role: user.role,
     message: "OTP successfully verified",
@@ -383,7 +395,8 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
   /* ========================
      📦 FINAL RESPONSE
   ======================== */
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: {
       ...user,
       stats: {
@@ -437,6 +450,7 @@ const editServiceUser = catchAsyncError(async (req, res, next) => {
   );
 
   return res.status(200).json({
+    success: true,
     message: "Profile updated successfully",
     updatedFields: updateData,
   });
@@ -528,7 +542,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
     {
       $lookup: {
-        from: "propertyamenities",
+        from: "amenities",
         localField: "propertyAmenities",
         foreignField: "_id",
         as: "amenitiesData"
@@ -541,7 +555,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
     {
       $lookup: {
-        from: "propertyfeatures",
+        from: "features",
         localField: "propertyFeatures",
         foreignField: "_id",
         as: "featuresData"
@@ -745,7 +759,8 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
   ]))[0];
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data,
     message: data
       ? "Property detail received successfully"
@@ -793,7 +808,8 @@ const getAllCategories = catchAsyncError(async (req, res, next) => {
     };
   });
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: updatedCategories,
     message: categories.length
       ? "Categories with commission fetched successfully"
@@ -803,7 +819,8 @@ const getAllCategories = catchAsyncError(async (req, res, next) => {
 
 const getAllAmenties = catchAsyncError(async (req, res, next) => {
   const amenities = await Amenities.find({ isDeleted: false }).lean(true);
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: amenities,
     message: amenities.length
       ? "Amenities received successfully"
@@ -813,7 +830,8 @@ const getAllAmenties = catchAsyncError(async (req, res, next) => {
 
 const getAllFeatures = catchAsyncError(async (req, res, next) => {
   const features = await Feature.find({ isDeleted: false }).lean(true);
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: features,
     message: features.length
       ? "Features received successfully"
@@ -823,7 +841,8 @@ const getAllFeatures = catchAsyncError(async (req, res, next) => {
 
 const getAllRestRoomFeatures = catchAsyncError(async (req, res, next) => {
   const restRooms = await RestRoom.find({ isDeleted: false }).lean(true);
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: restRooms,
     message: restRooms.length
       ? "RestRooms received successfully"
@@ -842,7 +861,8 @@ const logout = catchAsyncError(async (req, res, next) => {
       { $pull: { tokens: authToken } }
     ).then();
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       message: "Logout Successfully",
     });
   }
@@ -873,7 +893,8 @@ const getProperties = catchAsyncError(async (req, res, next) => {
     Properties.countDocuments(filter)
   ]);
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: properties,
     pagination: {
       total,
@@ -897,7 +918,7 @@ const deleteProperties = catchAsyncError(async (req, res, next) => {
     { _id: req.params.id },
     { $set: { isDeleted: true } }
   ).then();
-  return res.status(200).send({ message: "Service deleted successfully" });
+  return res.status(200).json({ success: true, message: "Service deleted successfully" });
 });
 
 const propertyDetail = catchAsyncError(async (req, res) => {
@@ -914,6 +935,7 @@ const propertyDetail = catchAsyncError(async (req, res) => {
     }
   ).lean(true);
   return res.status(200).json({
+    success: true,
     message: "Property detail retrived successfully !",
     data: data,
   });
@@ -1116,7 +1138,7 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       break;
 
     case 9:
-      obj.description = req.body.description;
+      obj.description = req.body.propertyDescription;
       break;
 
     case 10:
@@ -1214,198 +1236,256 @@ const addProperties = catchAsyncError(async (req, res, next) => {
 
 const editProperties = catchAsyncError(async (req, res, next) => {
   const { id } = req.params;
-
   if (!id) {
     return res.status(400).send({ message: "Property ID is required" });
   }
 
   let property = await Properties.findOne(
     { _id: id, isDeleted: false },
-    { count: 1, media: 1 }
+    { count: 1, media: 1, approvalStatus: 1, document: 1, policies: 1, address: 1, bedRoom: 1, pool: 1, restRoom: 1 }
   );
 
   if (!property) {
     return res.status(404).send({ message: "Property not found" });
   }
 
-  const incomingCount = Number(req.body.count) || property.count || 1;
   const files = req.files || {};
-
   const mainImage = files?.mainImage;
   const poolImage = files?.pool;
   const bathroomImage = files?.bathroom;
   const bedroomImage = files?.bedroom;
-  const document = files.document;
+  const document = files?.document;
 
-  let obj = { media: { ...property.media } };
+  let obj = {};
 
-  switch (incomingCount) {
-    case 1:
-      const policy = await CancellationPolicy.findOne({
-        _id: req.body.cancellationPolicy,
-        isActive: true
-      });
-
-      if (!policy) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid or inactive cancellation policy"
-        });
-      }
-      obj.user = req.user._id;
-      obj.name = req.body.name;
-      obj.category = req.body.category;
-      obj.status = "draft";
-      obj.price = req.body.price;
-      obj.maxGuests = req.body.maxGuests;
-      obj.policies = {
-        checkInTime: req.body.checkInTime,
-        checkOutTime: req.body.checkOutTime,
-        additionalPolicies: req.body.additionalPolicies || [],
-        houseRules: {
-          petsAllowed: req.body.petsAllowed || false,
-          smokingAllowed: req.body.smokingAllowed || false,
-          partiesAllowed: req.body.partiesAllowed || false
-        }
-      };
-      obj.cancellationPolicy = policy._id;
-      if (document?.length) {
-        obj.document = document[0].filename;
-        obj.approvalStatus = "pending";
-        obj.approvedBy = null;
-        obj.approvedAt = null;
-        obj.rejectionReason = null;
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Document is required in step 1"
-        });
-      }
-      break;
-
-    case 2:
-      obj.address = {
-        fullAddress: req.body.fullAddress,
-        country: req.body.country,
-        state: req.body.state,
-        city: req.body.city,
-        pincode: req.body.pincode,
-        neighborhood: req.body.neighborhood,
-        trends: req.body.trends,
-
-        location: {
-          type: "Point",
-          coordinates: [
-            parseFloat(req.body.lng),
-            parseFloat(req.body.lat)
-          ]
-        }
-      };
-      break;
-
-    case 3:
-      obj.area = req.body.area;
-      obj.mainAmenities = req.body.mainAmenities?.split(",") || [];
-      break;
-
-    case 4:
-      obj.bedRoom = {
-        numBedroom: req.body.numBedroom,
-        numSingleBed: req.body.numSingleBed,
-        numMasterBed: req.body.numMasterBed,
-      };
-      break;
-
-    case 5:
-      obj.pool = {
-        dimension: {
-          height: req.body.height,
-          width: req.body.width,
-        },
-        gradient: {
-          type: req.body.gradientType,
-          feet1: req.body.feet1,
-          feet2: req.body.feet2,
-        },
-        additional:
-          req.body.additional?.length > 0 ? req.body.additional.split(",") : [],
-      };
-      break;
-
-    case 6:
-      obj.restRoom = {
-        numBathroom: req.body.numBathroom,
-        facilities: req.body.facilities?.split(",").map(id => new mongoose.Types.ObjectId(id.trim())) || [],
-      };
-      break;
-
-    case 7:
-      if (req.body.propertyAmenities) {
-        obj.propertyAmenities = req.body.propertyAmenities
-          .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
-      }
-      break;
-
-    case 8:
-      if (req.body.propertyFeatures) {
-        obj.propertyFeatures = req.body.propertyFeatures
-          .split(",")
-          .map(id => new mongoose.Types.ObjectId(id.trim()));
-      }
-      break;
-
-    case 9:
-      obj.description = req.body.description;
-      break;
-
-    case 10:
-      if (mainImage && mainImage.length) {
-        obj.media.mainImage = mainImage[0].filename;
-      }
-      break;
-    case 11:
-      obj.media = { ...property.media };
-
-      if (mainImage && mainImage.length) {
-        obj.media.mainImage = [
-          ...(property.media.mainImage || []),
-          ...mainImage.map((f) => f.filename),
-        ];
-      }
-
-      if (poolImage && poolImage.length) {
-        obj.media.pool = [
-          ...(property.media.pool || []),
-          ...poolImage.map((f) => f.filename),
-        ];
-      }
-
-      if (bathroomImage && bathroomImage.length) {
-        obj.media.bathroom = [
-          ...(property.media.bathroom || []),
-          ...bathroomImage.map((f) => f.filename),
-        ];
-      }
-
-      if (bedroomImage && bedroomImage.length) {
-        obj.media.bedroom = [
-          ...(property.media.bedroom || []),
-          ...bedroomImage.map((f) => f.filename),
-        ];
-      }
-
-      break;
-
-    default:
-      return res.status(400).send({ message: "Invalid count step" });
+  // Basic info fields
+  if (req.body.name) obj.name = req.body.name;
+  if (req.body.category) obj.category = req.body.category;
+  if (req.body.price !== undefined) obj.price = Number(req.body.price);
+  if (req.body.maxGuests !== undefined) obj.maxGuests = Number(req.body.maxGuests);
+  if (req.body.area !== undefined) obj.area = Number(req.body.area);
+  if (req.body.propertyDescription || req.body.description) {
+    obj.description = req.body.propertyDescription || req.body.description;
   }
 
-  if (incomingCount > (property.count || 0)) {
-    obj.count = incomingCount;
+  // Cancellation Policy
+  if (req.body.cancellationPolicy) {
+    const policy = await CancellationPolicy.findOne({
+      _id: req.body.cancellationPolicy,
+      isActive: true,
+    });
+
+    if (!policy) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or inactive cancellation policy",
+      });
+    }
+    obj.cancellationPolicy = policy._id;
+  }
+
+  // Policies & House Rules
+  if (
+    req.body.checkInTime ||
+    req.body.checkOutTime ||
+    req.body.additionalPolicies ||
+    req.body.petsAllowed !== undefined ||
+    req.body.smokingAllowed !== undefined ||
+    req.body.partiesAllowed !== undefined
+  ) {
+    obj.policies = {
+      checkInTime: req.body.checkInTime || property.policies?.checkInTime,
+      checkOutTime: req.body.checkOutTime || property.policies?.checkOutTime,
+      additionalPolicies: req.body.additionalPolicies || property.policies?.additionalPolicies || [],
+      houseRules: {
+        petsAllowed: req.body.petsAllowed !== undefined ? (req.body.petsAllowed === "true" || req.body.petsAllowed === true) : (property.policies?.houseRules?.petsAllowed || false),
+        smokingAllowed: req.body.smokingAllowed !== undefined ? (req.body.smokingAllowed === "true" || req.body.smokingAllowed === true) : (property.policies?.houseRules?.smokingAllowed || false),
+        partiesAllowed: req.body.partiesAllowed !== undefined ? (req.body.partiesAllowed === "true" || req.body.partiesAllowed === true) : (property.policies?.houseRules?.partiesAllowed || false),
+      },
+    };
+  }
+
+  // Address & Location
+  if (
+    req.body.fullAddress ||
+    req.body.city ||
+    req.body.state ||
+    req.body.country ||
+    req.body.pincode ||
+    req.body.neighborhood ||
+    req.body.trends ||
+    (req.body.lat && req.body.lng)
+  ) {
+    obj.address = {
+      fullAddress: req.body.fullAddress || property.address?.fullAddress,
+      country: req.body.country || property.address?.country,
+      state: req.body.state || property.address?.state,
+      city: req.body.city || property.address?.city,
+      pincode: req.body.pincode || property.address?.pincode,
+      neighborhood: req.body.neighborhood || property.address?.neighborhood,
+      trends: req.body.trends || property.address?.trends,
+      location: (req.body.lat && req.body.lng) ? {
+        type: "Point",
+        coordinates: [parseFloat(req.body.lng), parseFloat(req.body.lat)],
+      } : property.address?.location,
+    };
+  }
+
+  // Main Amenities
+  if (req.body.mainAmenities) {
+    obj.mainAmenities = typeof req.body.mainAmenities === "string"
+      ? req.body.mainAmenities.split(",")
+      : req.body.mainAmenities;
+  }
+
+  // Bedroom details
+  if (
+    req.body.numBedroom !== undefined ||
+    req.body.numSingleBed !== undefined ||
+    req.body.numMasterBed !== undefined
+  ) {
+    obj.bedRoom = {
+      numBedroom: req.body.numBedroom !== undefined ? Number(req.body.numBedroom) : property.bedRoom?.numBedroom,
+      numSingleBed: req.body.numSingleBed !== undefined ? Number(req.body.numSingleBed) : property.bedRoom?.numSingleBed,
+      numMasterBed: req.body.numMasterBed !== undefined ? Number(req.body.numMasterBed) : property.bedRoom?.numMasterBed,
+    };
+  }
+
+  // Pool details
+  if (
+    req.body.height !== undefined ||
+    req.body.width !== undefined ||
+    req.body.gradientType ||
+    req.body.additional
+  ) {
+    obj.pool = {
+      dimension: {
+        height: req.body.height !== undefined ? Number(req.body.height) : property.pool?.dimension?.height,
+        width: req.body.width !== undefined ? Number(req.body.width) : property.pool?.dimension?.width,
+      },
+      gradient: {
+        type: req.body.gradientType || property.pool?.gradient?.type,
+        feet1: req.body.feet1 !== undefined ? Number(req.body.feet1) : property.pool?.gradient?.feet1,
+        feet2: req.body.feet2 !== undefined ? Number(req.body.feet2) : property.pool?.gradient?.feet2,
+      },
+      additional: req.body.additional
+        ? (typeof req.body.additional === "string" ? req.body.additional.split(",") : req.body.additional)
+        : (property.pool?.additional || []),
+    };
+  }
+
+  // Restroom details
+  if (req.body.numBathroom !== undefined || req.body.facilities) {
+    obj.restRoom = {
+      numBathroom: req.body.numBathroom !== undefined ? Number(req.body.numBathroom) : property.restRoom?.numBathroom,
+      facilities: req.body.facilities
+        ? (typeof req.body.facilities === "string"
+          ? req.body.facilities.split(",").map(id => new mongoose.Types.ObjectId(id.trim()))
+          : req.body.facilities.map(id => new mongoose.Types.ObjectId(id)))
+        : (property.restRoom?.facilities || []),
+    };
+  }
+
+  // Property Amenities & Features
+  if (req.body.propertyAmenities) {
+    obj.propertyAmenities = typeof req.body.propertyAmenities === "string"
+      ? req.body.propertyAmenities.split(",").map(id => new mongoose.Types.ObjectId(id.trim()))
+      : req.body.propertyAmenities.map(id => new mongoose.Types.ObjectId(id));
+  }
+
+  if (req.body.propertyFeatures) {
+    obj.propertyFeatures = typeof req.body.propertyFeatures === "string"
+      ? req.body.propertyFeatures.split(",").map(id => new mongoose.Types.ObjectId(id.trim()))
+      : req.body.propertyFeatures.map(id => new mongoose.Types.ObjectId(id));
+  }
+
+  // Media files (mainImage, pool, bathroom, bedroom)
+  let mediaObj = { ...property.media };
+  let mediaUpdated = false;
+
+  if (mainImage && mainImage.length) {
+    mediaObj.mainImage = [
+      ...(property.media?.mainImage || []),
+      ...mainImage.map((f) => f.filename),
+    ];
+    mediaUpdated = true;
+  }
+
+  if (poolImage && poolImage.length) {
+    mediaObj.pool = [
+      ...(property.media?.pool || []),
+      ...poolImage.map((f) => f.filename),
+    ];
+    mediaUpdated = true;
+  }
+
+  if (bathroomImage && bathroomImage.length) {
+    mediaObj.bathroom = [
+      ...(property.media?.bathroom || []),
+      ...bathroomImage.map((f) => f.filename),
+    ];
+    mediaUpdated = true;
+  }
+
+  if (bedroomImage && bedroomImage.length) {
+    mediaObj.bedroom = [
+      ...(property.media?.bedroom || []),
+      ...bedroomImage.map((f) => f.filename),
+    ];
+    mediaUpdated = true;
+  }
+
+  if (mediaUpdated) {
+    obj.media = mediaObj;
+  }
+
+  // Document update logic
+  if (document?.length) {
+    if (property.approvalStatus === "rejected") {
+      if (property.document) {
+        const oldDocPath = path.join(
+          process.cwd(),
+          "uploads",
+          "propertyDocument",
+          property.document
+        );
+        if (fs.existsSync(oldDocPath)) {
+          try {
+            fs.unlinkSync(oldDocPath);
+          } catch (err) {
+            console.error("Error deleting old property document:", err);
+          }
+        }
+      }
+      obj.document = document[0].filename;
+      obj.approvalStatus = "pending";
+      obj.approvedBy = null;
+      obj.approvedAt = null;
+      obj.rejectionReason = null;
+    } else {
+      // Clean up unallowed uploaded file
+      const newDocPath = path.join(
+        process.cwd(),
+        "uploads",
+        "propertyDocument",
+        document[0].filename
+      );
+      if (fs.existsSync(newDocPath)) {
+        try {
+          fs.unlinkSync(newDocPath);
+        } catch (err) {
+          console.error("Error deleting unallowed new document:", err);
+        }
+      }
+    }
+  }
+
+  if (req.body.count) {
+    obj.count = Number(req.body.count);
   }
 
   await Properties.updateOne({ _id: id }, { $set: obj });
+
   if (obj.approvalStatus === "pending") {
     const admins = await Admin.find({}, "_id");
 
@@ -1426,9 +1506,11 @@ const editProperties = catchAsyncError(async (req, res, next) => {
       });
     }
   }
-  return res.status(200).send({
+
+  return res.status(200).json({
+    success: true,
     message: "Property updated successfully",
-    id,
+    _id: id,
   });
 });
 
@@ -1441,7 +1523,7 @@ const deleteServices = catchAsyncError(async (req, res, next) => {
     { _id: req.params.id },
     { $set: { isDeleted: true } }
   ).then();
-  return res.status(200).send({ message: "Properties deleted successfully" });
+  return res.status(200).json({ success: true, message: "Properties deleted successfully" });
 });
 
 const getUpcomingBookings = catchAsyncError(async (req, res) => {
@@ -1482,7 +1564,8 @@ const getUpcomingBookings = catchAsyncError(async (req, res) => {
     .sort({ checkIn: 1 })
     .lean();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: bookings,
     message: bookings.length
       ? "Upcoming bookings fetched"
@@ -1522,7 +1605,8 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: bookings,
     message: bookings.length
       ? "Booking history fetched successfully"
@@ -1556,7 +1640,8 @@ const getBookingCalendar = catchAsyncError(async (req, res) => {
     })
     .lean();
 
-  return res.status(200).send({
+  return res.status(200).json({
+    success: true,
     data: dates,
     message: "Calendar data fetched"
   });
@@ -1939,7 +2024,7 @@ const getWithdrawHistory = async (req, res) => {
 
     const totalPages = Math.ceil(total / limit);
 
-    return res.status(200).send({
+    return res.status(200).json({
       success: true,
       data: withdraws,
       page,
@@ -2204,10 +2289,10 @@ const createService = async (req, res) => {
       cancellationPolicy
     } = req.body;
 
-    if (!name || !category || !price || !lat || !lng || !oldPrice) {
+    if (!name || !category || !price || !lat || !lng) {
       return res.status(400).json({
         success: false,
-        message: "name, category, price, lat, lng, oldPrice are required"
+        message: "name, category, price, lat, lng, are required"
       });
     }
 
@@ -2346,7 +2431,7 @@ const createService = async (req, res) => {
       name,
 
       category,
-      oldPrice: Number(oldPrice) || null,
+      oldPrice: oldPrice ? Number(oldPrice) : null,
       price: Number(price),
       discountPercent,
       priceType: priceType || "flat",
@@ -2485,6 +2570,7 @@ const updateService = async (req, res) => {
     const {
       name,
       category,
+      oldPrice,
       price,
       priceType,
       maxPersons,
@@ -2512,6 +2598,25 @@ const updateService = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Invalid price"
+      });
+    }
+
+    const effectivePrice = price ? Number(price) : service.price;
+
+    if (oldPrice !== undefined) {
+      if (
+        oldPrice &&
+        (isNaN(oldPrice) || Number(oldPrice) <= effectivePrice)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "oldPrice must be greater than price"
+        });
+      }
+    } else if (service.oldPrice && effectivePrice >= service.oldPrice) {
+      return res.status(400).json({
+        success: false,
+        message: "oldPrice must be greater than price"
       });
     }
 
@@ -2598,30 +2703,46 @@ const updateService = async (req, res) => {
     // ---------------- DOCUMENT UPDATE + RESET APPROVAL ----------------
 
     if (documentFile.length > 0) {
+      if (service.approvalStatus === "rejected") {
+        try {
+          if (service.document) {
+            const oldPath = path.join(
+              __dirname,
+              "../uploads/propertyDocument",
+              service.document
+            );
 
-      try {
-        if (service.document) {
-          const oldPath = path.join(
+            if (fs.existsSync(oldPath)) {
+              fs.unlinkSync(oldPath);
+            }
+          }
+        } catch (err) {
+          console.log("Document delete error:", err.message);
+        }
+
+        service.document = documentFile[0].filename;
+
+        // 🔥 RESET APPROVAL
+        service.approvalStatus = "pending";
+        service.approvedBy = null;
+        service.approvedAt = null;
+        service.rejectionReason = null;
+      } else {
+        // Document update is not allowed when status is not rejected
+        // Clean up newly uploaded file to avoid orphaned files
+        try {
+          const newPath = path.join(
             __dirname,
             "../uploads/propertyDocument",
-            service.document
+            documentFile[0].filename
           );
-
-          if (fs.existsSync(oldPath)) {
-            fs.unlinkSync(oldPath);
+          if (fs.existsSync(newPath)) {
+            fs.unlinkSync(newPath);
           }
+        } catch (err) {
+          console.log("Unallowed document delete error:", err.message);
         }
-      } catch (err) {
-        console.log("Document delete error:", err.message);
       }
-
-      service.document = documentFile[0].filename;
-
-      // 🔥 RESET APPROVAL
-      service.approvalStatus = "pending";
-      service.approvedBy = null;
-      service.approvedAt = null;
-      service.rejectionReason = null;
     }
 
     // ---------------- BASIC FIELD UPDATES ----------------
@@ -2631,6 +2752,18 @@ const updateService = async (req, res) => {
     if (category) service.category = category;
 
     if (price) service.price = Number(price);
+
+    if (oldPrice !== undefined) {
+      service.oldPrice = oldPrice ? Number(oldPrice) : null;
+    }
+
+    if (service.oldPrice && Number(service.oldPrice) > Number(service.price)) {
+      service.discountPercent = Math.round(
+        ((Number(service.oldPrice) - Number(service.price)) / Number(service.oldPrice)) * 100
+      );
+    } else {
+      service.discountPercent = 0;
+    }
 
     if (priceType) service.priceType = priceType;
 
@@ -3706,7 +3839,8 @@ const userLoginByServiceProviderToken = catchAsyncError(
       }
     );
 
-    return res.status(200).send({
+    return res.status(200).json({
+      success: true,
       data: token,
       role: user.role,
       isVerified: user.isVerified,

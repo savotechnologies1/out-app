@@ -31,12 +31,12 @@ const server = http.createServer(app);
 app.use(cors({}));
 
 const port = process.env.PORT || 5000;
-cron.schedule("0 * * * *", async () => {
-  console.log("Running release cron...");
-  await releaseOnCheckIn();
-});
-require("./cron/pendingBookingCleanup");
-require("./cron/couponExpire")
+// cron.schedule("0 * * * *", async () => {
+//   console.log("Running release cron...");
+//   await releaseOnCheckIn();
+// });
+// require("./cron/pendingBookingCleanup");
+// require("./cron/couponExpire")
 // app.use(helmet());
 app.use(
   helmet({
@@ -121,5 +121,5 @@ app.use("/api/identity", require("./routes/identity.routes"));
 app.use(errorHandler);
 
 server.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Server running on http://localhost:${port}`);
 });
