@@ -2121,10 +2121,7 @@ exports.cancelBooking = async (req, res) => {
 
     const now = new Date();
 
-    const bookingStartDate =
-      booking.bookingType === "SERVICE"
-        ? new Date(booking.createdAt)
-        : new Date(booking.checkIn);
+    const bookingStartDate = new Date(booking.checkIn);
 
     /* =============================
        ❌ NO PAYMENT CASE
