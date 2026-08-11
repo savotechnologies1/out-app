@@ -619,7 +619,7 @@ exports.paymentWebhook = async (req, res) => {
             wallet =
               await Wallet.create({
                 user: provider.user,
-                availableBalance: 0,
+                balance: 0,
                 holdBalance: 0,
               });
           }

@@ -2075,7 +2075,6 @@ exports.adminOverrideRefund = async (req, res) => {
 
 exports.cancelBooking = async (req, res) => {
   try {
-
     const { bookingId } = req.params;
     const reason = req.body.reason || req.body.cancellationReason;
     const customReason = req.body.customReason || req.body.customCancellationReason;
@@ -2083,7 +2082,6 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        REASON VALIDATION
     ============================== */
-
     const validReasons = ["OWNER_TAKING_TOO_LONG", "CHANGED_MY_MIND", "OTHER"];
 
     if (!reason || !validReasons.includes(reason)) {
@@ -2098,7 +2096,7 @@ exports.cancelBooking = async (req, res) => {
       });
     }
 
-    const booking = await Booking.findById(bookingId);
+    const booking = await Booking.findById(bookingId).populate("cancellationPolicy");
 
     if (!booking) {
       return res.status(404).send({
@@ -2109,7 +2107,6 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        VALIDATIONS
     ============================== */
-
     if (booking.isCancelled) {
       return res.status(400).send({
         message: "Booking already cancelled",
@@ -2132,13 +2129,9 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        ❌ NO PAYMENT CASE
     ============================== */
-
     if (booking.paymentStatus !== "paid") {
-
       booking.bookingStatus = "cancelled";
-
       booking.isCancelled = true;
-
       booking.cancellationReason = reason;
 
       if (reason === "OTHER") {
@@ -2166,21 +2159,14 @@ exports.cancelBooking = async (req, res) => {
     /* =================================================
        🔥 PENDING BOOKING CANCELLATION (100% REFUND)
     ================================================= */
-
     if ((booking.bookingStatus === "pending") && (booking.paymentStatus === "paid") && (booking.pendingReason === "approval_pending")) {
-
       const refundAmount = booking.totalAmount;
-
       const refundPercentage = 100;
-
       let tapRefundId = null;
 
       /* 💳 PROCESS TAP REFUND */
-
       try {
-
         if (refundAmount > 0 && booking.tapChargeId) {
-
           let actualRefundAmount = Number(refundAmount.toFixed(2));
           let refundCurrency = "SAR";
 
@@ -2236,16 +2222,13 @@ exports.cancelBooking = async (req, res) => {
             tapRefundId = "REFUNDED_ON_TAP";
           }
         }
-
       } catch (err) {
-
         console.error(
           "Refund failed:",
           err.response?.data || err.message
         );
 
         booking.refundStatus = "failed";
-
         await booking.save();
 
         return res.status(500).send({
@@ -2255,10 +2238,35 @@ exports.cancelBooking = async (req, res) => {
         });
       }
 
+      /* 💰 WALLET HOLD DEDUCTION FOR PROVIDERS */
+      if (booking.providerBreakdown?.length > 0) {
+        for (const provider of booking.providerBreakdown) {
+          const wallet = await Wallet.findOne({ user: provider.user });
+          if (!wallet) continue;
+
+          const providerRefund = provider.amount;
+          const holdDeduction = Math.min(wallet.holdBalance, providerRefund);
+
+          if (holdDeduction > 0) {
+            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
+            await wallet.save();
+
+            await WalletTransaction.create({
+              wallet: wallet._id,
+              user: provider.user,
+              type: "debit",
+              amount: holdDeduction,
+              bookingId: booking._id,
+              referenceId: provider.referenceId,
+              description: "Pending booking cancellation refund deducted from hold balance",
+              transactionType: "refund",
+            });
+          }
+        }
+      }
+
       /* 🔓 RELEASE AVAILABILITY */
-
       if (booking.property) {
-
         await HotelAvailability.deleteMany({
           hotel: booking.property,
           booking: booking._id,
@@ -2266,9 +2274,7 @@ exports.cancelBooking = async (req, res) => {
       }
 
       if (booking.services?.length > 0) {
-
         const serviceIds = booking.services.map((s) => s.service);
-
         await ServiceAvailability.deleteMany({
           service: { $in: serviceIds },
           booking: booking._id,
@@ -2276,106 +2282,62 @@ exports.cancelBooking = async (req, res) => {
       }
 
       /* 📝 UPDATE BOOKING */
-
       booking.bookingStatus = "cancelled";
-
       booking.isCancelled = true;
-
       booking.cancellationDate = new Date();
-
       booking.refundAmount = refundAmount;
-
       booking.refundPercentage = refundPercentage;
-
       booking.refundStatus = "processed";
-
       booking.refundTransactionId = tapRefundId;
-
       booking.cancellationReason = reason;
-
       booking.customCancellationReason =
         reason === "OTHER" ? customReason : null;
 
       await booking.save();
 
       /* 🔔 NOTIFICATIONS */
-
       const cancelData = {
-
         bookingId: booking._id.toString(),
-
         totalAmount: booking.totalAmount,
-
         refundAmount,
-
         refundPercentage,
-
         cancellationReason: reason,
-
         customCancellationReason:
           reason === "OTHER" ? customReason : undefined,
-
         bookingStatus: booking.bookingStatus,
-
         checkIn: booking.checkIn,
-
         checkOut: booking.checkOut,
-
         bookingType: booking.bookingType,
       };
 
       /* Customer Notification */
-
       await sendNotification({
-
         receiverId: booking.user,
-
         receiverModel: "User",
-
         title: "Booking Cancelled",
-
         body: "Your booking was cancelled successfully. Since it had not yet been accepted, a full refund has been processed.",
-
         type: "REFUND",
-
         referenceId: booking._id,
-
         referenceType: "Booking",
-
         data: cancelData,
       });
 
       /* Provider Notification */
-
       if (booking.providerBreakdown?.length > 0) {
-
         for (const provider of booking.providerBreakdown) {
-
           await sendNotification({
-
             receiverId: provider.user,
-
             receiverModel: "ServiceUser",
-
             title: "Pending Booking Cancelled",
-
             body: "The customer cancelled the booking before it was accepted.",
-
             type: "BOOKING",
-
             referenceId: booking._id,
-
             referenceType: "Booking",
-
             data: {
-
               bookingId: booking._id.toString(),
-
               cancellationReason: reason,
-
               customCancellationReason:
                 reason === "OTHER" ? customReason : undefined,
-
               providerType: provider.type,
             },
           });
@@ -2383,34 +2345,22 @@ exports.cancelBooking = async (req, res) => {
       }
 
       return res.send({
-
         success: true,
-
         message: "Booking cancelled successfully",
-
         refundAmount,
-
         refundPercentage,
-
         cancellationReason: reason,
       });
-
     }
 
     /* =============================
        ❌ NO REFUND AFTER START
     ============================== */
-
     if (now >= bookingStartDate) {
-
       booking.bookingStatus = "cancelled";
-
       booking.isCancelled = true;
-
       booking.refundAmount = 0;
-
       booking.refundPercentage = 0;
-
       booking.cancellationReason = reason;
 
       if (reason === "OTHER") {
@@ -2418,6 +2368,32 @@ exports.cancelBooking = async (req, res) => {
       }
 
       await booking.save();
+
+      /* Clear provider hold balance and release non-refundable earnings */
+      if (booking.providerBreakdown?.length > 0) {
+        for (const provider of booking.providerBreakdown) {
+          const wallet = await Wallet.findOne({ user: provider.user });
+          if (!wallet) continue;
+
+          const holdDeduction = Math.min(wallet.holdBalance, provider.amount);
+          if (holdDeduction > 0) {
+            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
+            wallet.balance = Number(((wallet.balance || 0) + holdDeduction).toFixed(2));
+            await wallet.save();
+
+            await WalletTransaction.create({
+              wallet: wallet._id,
+              user: provider.user,
+              type: "credit",
+              amount: holdDeduction,
+              bookingId: booking._id,
+              referenceId: provider.referenceId,
+              description: "Non-refundable amount released to available balance on cancellation after start",
+              transactionType: "release_on_checkin",
+            });
+          }
+        }
+      }
 
       await sendNotification({
         receiverId: booking.user,
@@ -2439,295 +2415,237 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        🔥 CALCULATE REFUND
     ============================== */
-
     let refundPercentage = 0;
-
     let refundAmount = 0;
 
-    const isOverride =
-      booking.adminOverride?.isOverridden;
+    const isOverride = booking.adminOverride?.isOverridden;
 
     /* -----------------------------
        ADMIN OVERRIDE REFUND
     ----------------------------- */
-
     if (isOverride) {
-
-      refundAmount =
-        booking.adminOverride.refundAmount;
-
+      refundAmount = booking.adminOverride.refundAmount;
+      refundPercentage = null;
     } else {
-
       let totalRefund = 0;
 
-      /* =========================================
-         PROPERTY REFUND
-      ========================================= */
+      const policyObj = booking.cancellationPolicy || {};
+      const snapshot = booking.policySnapshot || {};
 
-      if (
-        booking.priceBreakdown?.propertyPrice > 0 &&
-        booking.policySnapshot?.propertyPolicy
-      ) {
+      /* Check if explicit sub-policies exist (e.g. propertyPolicy or servicePolicies) */
+      if (snapshot.propertyPolicy || (snapshot.servicePolicies && snapshot.servicePolicies.length > 0)) {
+        if (booking.priceBreakdown?.propertyPrice > 0 && snapshot.propertyPolicy) {
+          const propertyPolicy = snapshot.propertyPolicy;
+          const rules = propertyPolicy.rules || [];
+          const diffHours = (new Date(booking.checkIn) - now) / (1000 * 60 * 60);
 
-        const propertyPolicy =
-          booking.policySnapshot.propertyPolicy;
+          let propertyRefundPercentage = 0;
+          const sortedRules = [...rules].sort((a, b) => b.from - a.from);
 
-        const diffHours =
-          (new Date(booking.checkIn) - now) /
-          (1000 * 60 * 60);
-
-        let propertyRefundPercentage = 0;
-
-        for (const rule of propertyPolicy.rules || []) {
-
-          const value =
-            rule.unit === "days"
-              ? diffHours / 24
-              : diffHours;
-
-          if (value >= rule.from) {
-
-            propertyRefundPercentage =
-              rule.refundPercentage;
-
-            break;
-          }
-        }
-
-        let propertyRefund =
-
-          (
-            booking.priceBreakdown.propertyPrice *
-            propertyRefundPercentage
-          ) / 100;
-
-        propertyRefund = Math.max(
-          propertyRefund -
-          (propertyPolicy.cancellationFee || 0),
-          0
-        );
-
-        totalRefund += propertyRefund;
-      }
-
-      /* =========================================
-         SERVICE REFUND
-      ========================================= */
-
-      if (
-        booking.priceBreakdown?.servicePrice > 0 &&
-        booking.policySnapshot?.servicePolicies?.length > 0
-      ) {
-
-        const diffHours =
-          (bookingStartDate - now) /
-          (1000 * 60 * 60);
-
-        for (const servicePolicy of booking.policySnapshot.servicePolicies) {
-
-          const bookingService =
-            booking.services.find(
-              s =>
-                s.service.toString() ===
-                servicePolicy.serviceId.toString()
-            );
-
-          if (!bookingService) continue;
-
-          let serviceRefundPercentage = 0;
-
-          for (const rule of servicePolicy.rules || []) {
-
-            const value =
-              rule.unit === "days"
-                ? diffHours / 24
-                : diffHours;
-
+          for (const rule of sortedRules) {
+            const value = rule.unit === "days" ? diffHours / 24 : diffHours;
             if (value >= rule.from) {
-
-              serviceRefundPercentage =
-                rule.refundPercentage;
-
+              propertyRefundPercentage = rule.refundPercentage;
               break;
             }
           }
 
-          let serviceRefund =
-
-            (
-              bookingService.price *
-              serviceRefundPercentage
-            ) / 100;
-
-          serviceRefund = Math.max(
-            serviceRefund -
-            (servicePolicy.cancellationFee || 0),
-            0
-          );
-
-          totalRefund += serviceRefund;
+          let propertyRefund = (booking.priceBreakdown.propertyPrice * propertyRefundPercentage) / 100;
+          totalRefund += propertyRefund;
+          refundPercentage = propertyRefundPercentage;
         }
+
+        if (booking.priceBreakdown?.servicePrice > 0 && snapshot.servicePolicies?.length > 0) {
+          const diffHours = (bookingStartDate - now) / (1000 * 60 * 60);
+
+          for (const servicePolicy of snapshot.servicePolicies) {
+            const bookingService = booking.services?.find(
+              s => s.service.toString() === servicePolicy.serviceId?.toString()
+            );
+
+            if (!bookingService) continue;
+
+            let serviceRefundPercentage = 0;
+            const sortedRules = [...(servicePolicy.rules || [])].sort((a, b) => b.from - a.from);
+
+            for (const rule of sortedRules) {
+              const value = rule.unit === "days" ? diffHours / 24 : diffHours;
+              if (value >= rule.from) {
+                serviceRefundPercentage = rule.refundPercentage;
+                break;
+              }
+            }
+
+            let serviceRefund = (bookingService.price * serviceRefundPercentage) / 100;
+            totalRefund += serviceRefund;
+            if (!refundPercentage) refundPercentage = serviceRefundPercentage;
+          }
+        }
+      } else {
+        /* Primary Top-Level Policy (Flexible, Moderate, Strict, etc.) */
+        const rules = snapshot.rules || policyObj.rules || [];
+        const diffHours = (new Date(booking.checkIn || bookingStartDate) - now) / (1000 * 60 * 60);
+
+        let topRefundPercentage = 0;
+        const sortedRules = [...rules].sort((a, b) => b.from - a.from);
+
+        for (const rule of sortedRules) {
+          const value = rule.unit === "days" ? diffHours / 24 : diffHours;
+          if (value >= rule.from) {
+            topRefundPercentage = rule.refundPercentage;
+            break;
+          }
+        }
+
+        let calculatedRefund = (booking.totalAmount * topRefundPercentage) / 100;
+        totalRefund = calculatedRefund;
+        refundPercentage = topRefundPercentage;
       }
 
-      refundAmount = totalRefund;
-
-      refundPercentage = null;
+      refundAmount = Math.min(totalRefund, booking.totalAmount);
+      refundAmount = Number(refundAmount.toFixed(2));
     }
 
     /* =============================
-       💰 WALLET HOLD DEDUCTION
+       💰 WALLET HOLD DEDUCTION & PROVIDER EARNINGS
     ============================== */
-
-    if (
-      booking.providerBreakdown?.length > 0
-    ) {
-
-      const totalProviderAmount =
-        booking.providerBreakdown.reduce(
-          (sum, provider) =>
-            sum + provider.amount,
-          0
-        );
+    if (booking.providerBreakdown?.length > 0) {
+      const refundRatio = booking.totalAmount > 0 ? Math.min(refundAmount / booking.totalAmount, 1) : 0;
 
       for (const provider of booking.providerBreakdown) {
+        const providerRefund = Number(Math.min(provider.amount * refundRatio, provider.amount).toFixed(2));
 
-        let providerRefund = 0;
-
-        if (isOverride) {
-
-          const ratio =
-            provider.amount /
-            totalProviderAmount;
-
-          providerRefund =
-            refundAmount * ratio;
-
-        } else {
-
-          const ratio =
-            provider.amount /
-            totalProviderAmount;
-
-          providerRefund =
-            refundAmount * ratio;
-        }
-
-        const wallet = await Wallet.findOne({
-          user: provider.user
-        });
-
+        const wallet = await Wallet.findOne({ user: provider.user });
         if (!wallet) continue;
 
-        if (
-          wallet.holdBalance <
-          providerRefund
-        ) {
-          continue;
-        }
+        // Clear provider hold balance allocated for this booking
+        const holdDeduction = Math.min(wallet.holdBalance, provider.amount);
+        wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
 
-        wallet.holdBalance -= providerRefund;
+        // Transfer any retained non-refundable amount (e.g. cancellation policy retained share) to provider's available balance
+        const providerEarned = Number(Math.max(provider.amount - providerRefund, 0).toFixed(2));
+        if (providerEarned > 0) {
+          wallet.balance = Number(((wallet.balance || 0) + providerEarned).toFixed(2));
+        }
 
         await wallet.save();
 
-        await WalletTransaction.create({
+        if (providerRefund > 0) {
+          await WalletTransaction.create({
+            wallet: wallet._id,
+            user: provider.user,
+            type: "debit",
+            amount: providerRefund,
+            bookingId: booking._id,
+            referenceId: provider.referenceId,
+            description: `Refund deducted from ${provider.type} hold balance`,
+            transactionType: "refund",
+          });
+        }
 
-          wallet: wallet._id,
-
-          user: provider.user,
-
-          type: "debit",
-
-          amount: providerRefund,
-
-          bookingId: booking._id,
-
-          referenceId:
-            provider.referenceId,
-
-          description:
-            `Refund deducted from ${provider.type}`,
-
-          transactionType: "refund",
-        });
+        if (providerEarned > 0) {
+          await WalletTransaction.create({
+            wallet: wallet._id,
+            user: provider.user,
+            type: "credit",
+            amount: providerEarned,
+            bookingId: booking._id,
+            referenceId: provider.referenceId,
+            description: `Retained non-refundable earnings from cancelled booking (${provider.type})`,
+            transactionType: "release_on_checkin",
+          });
+        }
       }
     }
 
     /* =============================
        💳 TAP REFUND
     ============================== */
-
     try {
+      if (refundAmount > 0 && booking.tapChargeId) {
+        let actualRefundAmount = Number(refundAmount.toFixed(2));
+        let refundCurrency = "SAR";
 
-      if (
-        refundAmount > 0 &&
-        booking.tapChargeId
-      ) {
+        try {
+          const chargeRes = await axios.get(
+            `https://api.tap.company/v2/charges/${booking.tapChargeId}`,
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+              },
+            }
+          );
 
-        const response = await axios.post(
-          "https://api.tap.company/v2/refunds",
-          {
-            charge_id: booking.tapChargeId,
-            amount: refundAmount,
-            currency: "SAR",
-            reason:
-              "Booking cancellation refund",
-            reference: {
-              merchant: booking.orderId,
-            },
-          },
-          {
-            headers: {
-              Authorization:
-                `Bearer ${process.env.TAP_SECRET_KEY}`,
-              "Content-Type":
-                "application/json",
-            },
+          if (chargeRes.data) {
+            refundCurrency = chargeRes.data.currency || "SAR";
+            const captured = Number(chargeRes.data.amount || 0);
+            const alreadyRefunded = Number(chargeRes.data.amount_refunded || 0);
+            const availableToRefund = Math.max(captured - alreadyRefunded, 0);
+
+            if (actualRefundAmount > availableToRefund) {
+              actualRefundAmount = Number(availableToRefund.toFixed(2));
+            }
           }
-        );
+        } catch (fetchErr) {
+          console.warn(
+            "Could not fetch charge details from TAP, proceeding with default amount:",
+            fetchErr.message
+          );
+        }
 
-        booking.refundTransactionId =
-          response.data?.id;
+        if (actualRefundAmount > 0) {
+          const response = await axios.post(
+            "https://api.tap.company/v2/refunds",
+            {
+              charge_id: booking.tapChargeId,
+              amount: actualRefundAmount,
+              currency: refundCurrency,
+              reason: "Booking cancellation refund",
+              reference: {
+                merchant: booking.orderId,
+              },
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+
+          booking.refundTransactionId = response.data?.id;
+        } else {
+          booking.refundTransactionId = "REFUNDED_ON_TAP";
+        }
       }
-
     } catch (err) {
-
       console.error(
         "Refund failed:",
         err.response?.data || err.message
       );
 
       booking.refundStatus = "failed";
-
       await booking.save();
 
       return res.status(500).send({
         success: false,
         message: "Refund failed",
-        error:
-          err.response?.data || err.message,
+        error: err.response?.data || err.message,
       });
     }
 
     /* =============================
        RELEASE AVAILABILITY
     ============================== */
-
     if (booking.property) {
-
       await HotelAvailability.deleteMany({
         hotel: booking.property,
         booking: booking._id,
       });
     }
 
-    if (
-      booking.services?.length > 0
-    ) {
-
-      const serviceIds =
-        booking.services.map(
-          (s) => s.service
-        );
+    if (booking.services?.length > 0) {
+      const serviceIds = booking.services.map((s) => s.service);
 
       await ServiceAvailability.deleteMany({
         service: { $in: serviceIds },
@@ -2738,23 +2656,12 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        UPDATE BOOKING
     ============================== */
-
     booking.bookingStatus = "cancelled";
-
     booking.isCancelled = true;
-
-    booking.cancellationDate =
-      new Date();
-
-    booking.refundAmount =
-      refundAmount;
-
-    booking.refundPercentage =
-      refundPercentage;
-
-    booking.refundStatus =
-      "processed";
-
+    booking.cancellationDate = new Date();
+    booking.refundAmount = refundAmount;
+    booking.refundPercentage = refundPercentage;
+    booking.refundStatus = "processed";
     booking.cancellationReason = reason;
 
     if (reason === "OTHER") {
@@ -2766,87 +2673,44 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        🔔 NOTIFICATIONS
     ============================== */
-
     const cancelData = {
-
-      bookingId:
-        booking._id.toString(),
-
-      totalAmount:
-        booking.totalAmount,
-
+      bookingId: booking._id.toString(),
+      totalAmount: booking.totalAmount,
       refundAmount,
-
       refundPercentage,
-
-      bookingStatus:
-        booking.bookingStatus,
-
-      checkIn:
-        booking.checkIn,
-
-      checkOut:
-        booking.checkOut,
-
-      bookingType:
-        booking.bookingType,
+      bookingStatus: booking.bookingStatus,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      bookingType: booking.bookingType,
     };
 
     /* 👤 USER */
-
     await sendNotification({
-
       receiverId: booking.user,
-
       receiverModel: "User",
-
       title: "Booking Cancelled ❌",
-
-      body:
-        `Refund Amount: ${refundAmount}`,
-
+      body: `Refund Amount: ${refundAmount}`,
       type: "REFUND",
-
       referenceId: booking._id,
-
       referenceType: "Booking",
-
       data: cancelData,
     });
 
     /* 🧑‍🔧 PROVIDERS */
-
-    if (
-      booking.providerBreakdown?.length > 0
-    ) {
-
+    if (booking.providerBreakdown?.length > 0) {
       for (const provider of booking.providerBreakdown) {
-
         await sendNotification({
-
           receiverId: provider.user,
-
           receiverModel: "ServiceUser",
-
           title: "Booking Cancelled ❌",
-
-          body:
-            `Booking cancelled for ${provider.type}`,
-
+          body: `Booking cancelled for ${provider.type}`,
           type: "BOOKING",
-
-          referenceId: booking._id,
-
+          referenceId: provider.referenceId || booking._id,
           referenceType: "Booking",
-
           data: {
-            bookingId:
-              booking._id.toString(),
-
+            bookingId: booking._id.toString(),
             refundAmount,
-
-            providerType:
-              provider.type,
+            providerType: provider.type,
           },
         });
       }
@@ -2854,14 +2718,12 @@ exports.cancelBooking = async (req, res) => {
 
     return res.send({
       success: true,
-      message:
-        "Booking cancelled successfully",
+      message: "Booking cancelled successfully",
       refundAmount,
       refundPercentage,
     });
 
   } catch (error) {
-
     return res.status(500).send({
       message: error.message,
     });
@@ -3179,7 +3041,7 @@ exports.updateBookingApprovalStatus = async (req, res) => {
             wallet =
               await Wallet.create({
                 user: provider.user,
-                availableBalance: 0,
+                balance: 0,
                 holdBalance: 0,
               });
           }

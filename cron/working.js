@@ -101,10 +101,10 @@ exports.releaseOnCheckIn = async () => {
           if (wallet.holdBalance < amount) continue;
 
           /* =============================
-             MOVE HOLD → AVAILABLE
+             MOVE HOLD → BALANCE
           ============================== */
           wallet.holdBalance -= amount;
-          wallet.availableBalance += amount;
+          wallet.balance += amount;
 
           await wallet.save();
 
