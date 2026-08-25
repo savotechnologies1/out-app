@@ -3762,7 +3762,7 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
   }
 
   const service = await Service.findById(serviceId)
-    .select("name price category instantBooking user workingDays workingHours description")
+    .select("name price category instantBooking user schedule description")
     .lean();
 
   if (!service) {
@@ -3877,7 +3877,8 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
   while (curr <= rangeEnd) {
     const dateStr = curr.toISOString().split("T")[0];
     const dayOfWeek = curr.toLocaleDateString("en-US", { weekday: "long" }); // "Monday", "Tuesday", etc.
-    const isWorkingDay = !service.workingDays?.length || service.workingDays.includes(dayOfWeek);
+    const activeScheduleDays = service.schedule?.filter(s => s.enabled).map(s => s.day) || [];
+    const isWorkingDay = activeScheduleDays.includes(dayOfWeek);
 
     const isBooked = bookedDateMap.has(dateStr);
     const isCancelled = cancelledDateMap.has(dateStr);
@@ -3898,13 +3899,22 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
       cancelledBookingDetails = cancelledDateMap.get(dateStr);
     }
 
+    let earliest = "09:00";
+    let latest = "17:00";
+    const dayConfig = service.schedule?.find(s => s.day === dayOfWeek);
+    if (dayConfig && dayConfig.slots && dayConfig.slots.length > 0) {
+      earliest = dayConfig.slots[0].start;
+      latest = dayConfig.slots[dayConfig.slots.length - 1].end;
+    }
+    const derivedWorkingHours = { start: earliest, end: latest };
+
     calendarDays.push({
       date: dateStr,
       dayOfWeek,
       isWorkingDay,
       status, // "AVAILABLE" (free to book), "BOOKED", "PENDING", or "OFF_DAY"
       isFreeToBook: status === "AVAILABLE",
-      workingHours: isWorkingDay ? service.workingHours : null,
+      workingHours: isWorkingDay ? derivedWorkingHours : null,
       booking: bookingDetails,
       wasCancelled: isCancelled,
       cancelledBooking: cancelledBookingDetails
@@ -3913,22 +3923,32 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
     curr.setDate(curr.getDate() + 1);
   }
 
+  const activeDays = service.schedule?.filter(s => s.enabled).map(s => s.day) || [];
+  let summaryEarliest = "09:00";
+  let summaryLatest = "17:00";
+  const firstEnabled = service.schedule?.find(s => s.enabled && s.slots && s.slots.length > 0);
+  if (firstEnabled) {
+    summaryEarliest = firstEnabled.slots[0].start;
+    summaryLatest = firstEnabled.slots[firstEnabled.slots.length - 1].end;
+  }
+  const summaryWorkingHours = { start: summaryEarliest, end: summaryLatest };
+
   return res.status(200).send({
     success: true,
     service: {
       _id: service._id,
       name: service.name,
       price: service.price,
-      workingDays: service.workingDays || [],
-      workingHours: service.workingHours || {}
+      workingDays: activeDays,
+      workingHours: summaryWorkingHours
     },
     summary: {
       totalBookedDays: bookedAvailability.length,
       confirmedBookingsCount: confirmedBookings.length,
       pendingBookingsCount: pendingBookings.length,
       cancelledBookingsCount: cancelledBookings.length,
-      workingDays: service.workingDays || [],
-      workingHours: service.workingHours || {}
+      workingDays: activeDays,
+      workingHours: summaryWorkingHours
     },
     data: bookedAvailability,
     confirmedBookings,
@@ -4494,8 +4514,7 @@ const getAllServicesAdmin = catchAsyncError(async (req, res, next) => {
         approvalStatus: 1,
         approvedAt: 1,
         rejectionReason: 1,
-        workingDays: 1,
-        workingHours: 1,
+        schedule: 1,
         media: 1,
         location: 1,
         isActive: 1,
@@ -4714,8 +4733,7 @@ const getSingleServiceAdmin = async (req, res) => {
           approvalStatus: 1,
           approvedAt: 1,
           rejectionReason: 1,
-          workingDays: 1,
-          workingHours: 1,
+          schedule: 1,
           media: 1,
           location: 1,
           isActive: 1,
@@ -5306,8 +5324,7 @@ const getPendingServices = catchAsyncError(async (req, res, next) => {
         approvalStatus: 1,
         approvedAt: 1,
         rejectionReason: 1,
-        workingDays: 1,
-        workingHours: 1,
+        schedule: 1,
         media: 1,
         location: 1,
         isActive: 1,

@@ -18,6 +18,7 @@ const PaymentTransaction = require("../models/PaymentTransaction");
 const Notification = require("../models/Notification");
 const Review = require("../models/Review");
 const { calculateAcceptanceDeadline } = require("../services/bookingExpiryService");
+const { validateServiceSlot, getAvailableSlots, reserveServiceSlots } = require("../utils/serviceAvailabilityUtils");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -36,42 +37,68 @@ function getDatesBetween(startDate, endDate) {
   return dates;
 }
 
+const getZeroTimeDate = (d) => {
+  const nd = new Date(d);
+  nd.setUTCHours(0, 0, 0, 0);
+  return nd;
+};
+
 exports.checkAvailability = async (req, res) => {
   try {
-
     const {
       bookingType,
       hotelId,
-      serviceIds = [],
+      services = [],
       packageId,
       checkIn,
       checkOut,
       couponCode
     } = req.body;
-
     const userId = req.user?._id;
 
-    const dates = getDatesBetween(checkIn, checkOut);
+    const normalizedServices = (services || []).map(item => {
+      let sDate = item.serviceDate;
+      if (!sDate && checkIn) {
+        sDate = checkIn;
+      }
 
-    if (!dates || dates.length === 0) {
-      return res.send({
-        available: false,
-        message: "Invalid check-in or check-out dates"
-      });
+      let startTime = item.serviceStartTime;
+      let endTime = item.serviceEndTime;
+
+      const slot = item.timeSlot || req.body.timeSlot;
+      if (slot && slot.includes(" - ")) {
+        const parts = slot.split(" - ");
+        if (!startTime) startTime = parts[0]?.trim();
+        if (!endTime) endTime = parts[1]?.trim();
+      }
+
+      return {
+        ...item,
+        price: Number(item.price || 0),
+        serviceDate: sDate,
+        serviceStartTime: startTime,
+        serviceEndTime: endTime
+      };
+    });
+
+    let dates = [];
+    let nights = 0;
+
+    if (["PROPERTY", "PROPERTY_SERVICE", "PACKAGE"].includes(bookingType)) {
+      dates = getDatesBetween(checkIn, checkOut);
+
+      if (!dates || dates.length === 0) {
+        return res.send({
+          available: false,
+          message: "Invalid check-in or check-out dates"
+        });
+      }
+      nights = dates.length;
     }
 
-    const requestedDays = dates.map(d =>
-      d.toLocaleString("en-US", { weekday: "long" })
-    );
-
-    const nights = dates.length;
-
     let availableServices = [];
-
     let basePrice = 0;
-
     let servicesTotal = 0;
-
     let finalAmount = 0;
 
     /* =================================================
@@ -113,67 +140,92 @@ exports.checkAvailability = async (req, res) => {
     ================================================= */
 
     if (bookingType === "SERVICE") {
+      let serviceList = normalizedServices;
 
-      if (serviceIds.length === 0) {
+      if (serviceList.length === 0) {
         return res.send({
           available: false,
           message: "Please select at least one service"
         });
       }
 
-      const bookedServices = await ServiceAvailability.find({
-        service: { $in: serviceIds },
-        date: { $in: dates },
-        isBooked: true
-      }).select("service");
+      const hasServicesWithSlots = serviceList.every(item => item && item.service && item.serviceDate && item.serviceStartTime && item.serviceEndTime);
 
-      if (bookedServices.length > 0) {
-        return res.send({
-          available: false,
-          message: "Selected service is not available on selected date(s)"
+      if (!hasServicesWithSlots) {
+        const serviceIds = serviceList.map(item => item.service).filter(Boolean);
+        const servicesData = await Service.find({
+          _id: { $in: serviceIds },
+          isDeleted: false,
+          isActive: true
         });
-      }
 
-      availableServices = await Service.find({
-        _id: { $in: serviceIds },
-        isDeleted: false,
-        isActive: true
-      }).select("_id name price priceType workingDays");
+        if (servicesData.length === 0) {
+          return res.send({
+            available: false,
+            message: "Service not found or inactive"
+          });
+        }
 
-      if (availableServices.length !== serviceIds.length) {
-        return res.send({
-          available: false,
-          message: "Some selected services not found or inactive"
-        });
-      }
+        for (const service of servicesData) {
+          availableServices.push({
+            ...service.toObject(),
+            originalPrice: service.price,
+            price: service.price,
+          });
+        }
 
-      // ✅ Check workingDays for each service
-      for (const service of availableServices) {
-        if (service.workingDays && service.workingDays.length > 0) {
-          const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
-          if (!isAvailableOnDays) {
+        servicesTotal = availableServices.reduce(
+          (sum, s) => sum + s.price,
+          0
+        );
+
+        finalAmount = servicesTotal;
+      } else {
+        for (const item of serviceList) {
+          const service = await Service.findOne({
+            _id: item.service,
+            isDeleted: false,
+            isActive: true
+          });
+
+          if (!service) {
             return res.send({
               available: false,
-              message: `${service.name} is not available on selected day(s)`
+              message: "Service not found or inactive"
             });
           }
+
+          const slotCheck = await validateServiceSlot(
+            service,
+            item.serviceDate,
+            item.serviceStartTime,
+            item.serviceEndTime
+          );
+
+          if (!slotCheck.valid) {
+            return res.send({
+              available: false,
+              message: `${service.name}: ${slotCheck.message}`
+            });
+          }
+
+          availableServices.push({
+            ...service.toObject(),
+            originalPrice: service.price,
+            price: service.price, // price per slot
+            serviceDate: item.serviceDate,
+            serviceStartTime: item.serviceStartTime,
+            serviceEndTime: item.serviceEndTime
+          });
         }
+
+        servicesTotal = availableServices.reduce(
+          (sum, s) => sum + s.price,
+          0
+        );
+
+        finalAmount = servicesTotal;
       }
-
-      /* -------- SERVICE PRICE * NIGHTS -------- */
-
-      availableServices = availableServices.map(service => ({
-        ...service.toObject(),
-        originalPrice: service.price,
-        price: service.price * nights
-      }));
-
-      servicesTotal = availableServices.reduce(
-        (sum, s) => sum + s.price,
-        0
-      );
-
-      finalAmount = servicesTotal;
     }
 
     /* =================================================
@@ -211,54 +263,63 @@ exports.checkAvailability = async (req, res) => {
 
       /* -------- SERVICE CHECK -------- */
 
-      if (serviceIds.length > 0) {
+      if (normalizedServices && normalizedServices.length > 0) {
+        const checkInDate = getZeroTimeDate(checkIn);
+        const checkOutDate = getZeroTimeDate(checkOut);
 
-        const bookedServices = await ServiceAvailability.find({
-          service: { $in: serviceIds },
-          date: { $in: dates },
-          isBooked: true
-        }).select("service");
-
-        if (bookedServices.length > 0) {
-          return res.send({
-            available: false,
-            message: "Selected service is not available on selected date(s)"
-          });
-        }
-
-        availableServices = await Service.find({
-          _id: { $in: serviceIds },
-          isDeleted: false,
-          isActive: true
-        }).select("_id name price priceType workingDays");
-
-        if (availableServices.length !== serviceIds.length) {
-          return res.send({
-            available: false,
-            message: "Some selected services not found or inactive"
-          });
-        }
-
-        // ✅ Check workingDays for each service
-        for (const service of availableServices) {
-          if (service.workingDays && service.workingDays.length > 0) {
-            const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
-            if (!isAvailableOnDays) {
-              return res.send({
-                available: false,
-                message: `${service.name} is not available on selected day(s)`
-              });
-            }
+        for (const item of normalizedServices) {
+          if (!item.service || !item.serviceDate || !item.serviceStartTime || !item.serviceEndTime) {
+            return res.send({
+              available: false,
+              message: "All services must have a scheduled date, start time, and end time"
+            });
           }
+
+          const service = await Service.findOne({
+            _id: item.service,
+            isDeleted: false,
+            isActive: true
+          });
+
+          if (!service) {
+            return res.send({
+              available: false,
+              message: "Service not found or inactive"
+            });
+          }
+
+          // Enforce date constraint
+          const sDate = getZeroTimeDate(item.serviceDate);
+          if (sDate < checkInDate || sDate > checkOutDate) {
+            return res.send({
+              available: false,
+              message: `${service.name} date must fall within the property stay dates (${checkIn} to ${checkOut})`
+            });
+          }
+
+          const slotCheck = await validateServiceSlot(
+            service,
+            item.serviceDate,
+            item.serviceStartTime,
+            item.serviceEndTime
+          );
+
+          if (!slotCheck.valid) {
+            return res.send({
+              available: false,
+              message: `${service.name}: ${slotCheck.message}`
+            });
+          }
+
+          availableServices.push({
+            ...service.toObject(),
+            originalPrice: service.price,
+            price: service.price, // price per slot
+            serviceDate: item.serviceDate,
+            serviceStartTime: item.serviceStartTime,
+            serviceEndTime: item.serviceEndTime
+          });
         }
-
-        /* -------- SERVICE PRICE * NIGHTS -------- */
-
-        availableServices = availableServices.map(service => ({
-          ...service.toObject(),
-          originalPrice: service.price,
-          price: service.price * nights
-        }));
 
         servicesTotal = availableServices.reduce(
           (sum, s) => sum + s.price,
@@ -279,7 +340,7 @@ exports.checkAvailability = async (req, res) => {
 
       const pkg = await Package.findById(packageId)
         .populate("property")
-        .populate("services.service", "name workingDays priceType");
+        .populate("services.service", "name priceType duration price");
 
       if (!pkg) {
         return res.status(404).send({
@@ -305,48 +366,65 @@ exports.checkAvailability = async (req, res) => {
 
       /* -------- SERVICE CHECK -------- */
 
-      const pkgServiceIds = pkg.services.map(
-        s => s.service._id
-      );
+      if (pkg.services && pkg.services.length > 0) {
+        const checkInDate = getZeroTimeDate(checkIn);
+        const checkOutDate = getZeroTimeDate(checkOut);
 
-      const bookedServices = await ServiceAvailability.find({
-        service: { $in: pkgServiceIds },
-        date: { $in: dates },
-        isBooked: true
-      }).select("service");
+        for (const pkgService of pkg.services) {
+          const serviceObj = pkgService.service;
+          if (!serviceObj) continue;
 
-      if (bookedServices.length > 0) {
-        return res.send({
-          available: false,
-          message: "Package service is not available on selected date(s)"
-        });
-      }
+          const scheduled = normalizedServices.find(
+            s => s.service.toString() === serviceObj._id.toString()
+          );
 
-      for (const s of pkg.services) {
-        const serviceObj = s.service;
-        if (serviceObj && serviceObj.workingDays && serviceObj.workingDays.length > 0) {
-          const isAvailableOnDays = requestedDays.every(day => serviceObj.workingDays.includes(day));
-          if (!isAvailableOnDays) {
+          if (!scheduled || !scheduled.serviceDate || !scheduled.serviceStartTime || !scheduled.serviceEndTime) {
             return res.send({
               available: false,
-              message: `${serviceObj.name || "Package service"} is not available on selected day(s)`
+              message: `Please schedule a date and time slot for service: ${serviceObj.name}`
             });
           }
+
+          // Enforce date constraint
+          const sDate = getZeroTimeDate(scheduled.serviceDate);
+          if (sDate < checkInDate || sDate > checkOutDate) {
+            return res.send({
+              available: false,
+              message: `${serviceObj.name} date must fall within the property stay dates (${checkIn} to ${checkOut})`
+            });
+          }
+
+          const slotCheck = await validateServiceSlot(
+            serviceObj,
+            scheduled.serviceDate,
+            scheduled.serviceStartTime,
+            scheduled.serviceEndTime
+          );
+
+          if (!slotCheck.valid) {
+            return res.send({
+              available: false,
+              message: `${serviceObj.name}: ${slotCheck.message}`
+            });
+          }
+
+          availableServices.push({
+            serviceId: serviceObj._id,
+            name: serviceObj.name,
+            originalPrice: pkgService.price,
+            price: pkgService.price, // price per slot
+            priceType: serviceObj.priceType,
+            serviceDate: scheduled.serviceDate,
+            serviceStartTime: scheduled.serviceStartTime,
+            serviceEndTime: scheduled.serviceEndTime
+          });
         }
+
+        servicesTotal = availableServices.reduce(
+          (sum, s) => sum + s.price,
+          0
+        );
       }
-
-      availableServices = pkg.services.map(s => ({
-        serviceId: s.service._id,
-        name: s.service.name,
-        originalPrice: s.price,
-        price: s.price * nights,
-        priceType: s.priceType
-      }));
-
-      servicesTotal = availableServices.reduce(
-        (sum, s) => sum + s.price,
-        0
-      );
 
       finalAmount =
         (basePrice * nights) + servicesTotal;
@@ -518,19 +596,49 @@ exports.createBooking = async (req, res) => {
       couponId = null
     } = req.body;
 
+    const normalizedServices = (services || []).map(item => {
+      let sDate = item.serviceDate;
+      if (!sDate && checkIn) {
+        sDate = checkIn;
+      }
+
+      let startTime = item.serviceStartTime;
+      let endTime = item.serviceEndTime;
+
+      const slot = item.timeSlot || req.body.timeSlot;
+      if (slot && slot.includes(" - ")) {
+        const parts = slot.split(" - ");
+        if (!startTime) startTime = parts[0]?.trim();
+        if (!endTime) endTime = parts[1]?.trim();
+      }
+
+      return {
+        ...item,
+        price: Number(item.price || 0),
+        serviceDate: sDate,
+        serviceStartTime: startTime,
+        serviceEndTime: endTime
+      };
+    });
+
     const totalGuests = Number(children) + Number(adults);
 
-    const dates = getDatesBetween(checkIn, checkOut);
+    let dates = [];
+    let requestedDays = [];
 
-    if (!dates || dates.length === 0) {
-      return res.status(400).send({
-        message: "Invalid check-in or check-out dates"
-      });
+    if (["PROPERTY", "PROPERTY_SERVICE", "PACKAGE"].includes(bookingType)) {
+      dates = getDatesBetween(checkIn, checkOut);
+
+      if (!dates || dates.length === 0) {
+        return res.status(400).send({
+          message: "Invalid check-in or check-out dates"
+        });
+      }
+
+      requestedDays = dates.map(d =>
+        d.toLocaleString("en-US", { weekday: "long" })
+      );
     }
-
-    const requestedDays = dates.map(d =>
-      d.toLocaleString("en-US", { weekday: "long" })
-    );
 
     let property = null;
 
@@ -580,29 +688,42 @@ exports.createBooking = async (req, res) => {
       }
 
       if (pkg.services && pkg.services.length > 0) {
-        const pkgServiceIds = pkg.services.map(s => s.service._id);
+        const checkInDate = getZeroTimeDate(checkIn);
+        const checkOutDate = getZeroTimeDate(checkOut);
 
-        const bookedPkgServices = await ServiceAvailability.find({
-          service: { $in: pkgServiceIds },
-          date: { $in: dates },
-          isBooked: true
-        });
+        for (const pkgService of pkg.services) {
+          const serviceObj = pkgService.service;
+          if (!serviceObj) continue;
 
-        if (bookedPkgServices.length > 0) {
-          return res.status(400).send({
-            message: "Package services are not available on selected date(s)"
-          });
-        }
+          const scheduled = normalizedServices.find(
+            s => s.service.toString() === serviceObj._id.toString()
+          );
 
-        for (const item of pkg.services) {
-          const s = item.service;
-          if (s && s.workingDays && s.workingDays.length > 0) {
-            const isAvailableOnDays = requestedDays.every(day => s.workingDays.includes(day));
-            if (!isAvailableOnDays) {
-              return res.status(400).send({
-                message: `${s.name || "Package service"} is not available on selected day(s)`
-              });
-            }
+          if (!scheduled || !scheduled.serviceDate || !scheduled.serviceStartTime || !scheduled.serviceEndTime) {
+            return res.status(400).send({
+              message: `Please schedule a date and time slot for service: ${serviceObj.name}`
+            });
+          }
+
+          // Enforce date constraint
+          const sDate = getZeroTimeDate(scheduled.serviceDate);
+          if (sDate < checkInDate || sDate > checkOutDate) {
+            return res.status(400).send({
+              message: `${serviceObj.name} date must fall within the property stay dates (${checkIn} to ${checkOut})`
+            });
+          }
+
+          const slotCheck = await validateServiceSlot(
+            serviceObj,
+            scheduled.serviceDate,
+            scheduled.serviceStartTime,
+            scheduled.serviceEndTime
+          );
+
+          if (!slotCheck.valid) {
+            return res.status(400).send({
+              message: `${serviceObj.name}: ${slotCheck.message}`
+            });
           }
         }
       }
@@ -655,9 +776,9 @@ exports.createBooking = async (req, res) => {
 
     let servicesData = [];
 
-    if (services.length > 0) {
+    if (normalizedServices.length > 0) {
 
-      const serviceIds = services.map(
+      const serviceIds = normalizedServices.map(
         s => s.service
       );
 
@@ -668,52 +789,59 @@ exports.createBooking = async (req, res) => {
       })
         .populate("cancellationPolicy")
         .select(
-          "user category name policies cancellationPolicy priceType maxPersons workingDays"
+          "user category name policies cancellationPolicy priceType maxPersons duration price schedule"
         );
 
-      if (servicesData.length !== services.length) {
+      if (servicesData.length !== normalizedServices.length) {
         return res.status(400).send({
           message: "Some services not found or inactive"
         });
       }
 
-      const bookedServices =
-        await ServiceAvailability.find({
-          service: { $in: serviceIds },
-          date: { $in: dates },
-          isBooked: true
-        });
+      const checkInDate = checkIn ? getZeroTimeDate(checkIn) : null;
+      const checkOutDate = checkOut ? getZeroTimeDate(checkOut) : null;
 
-      if (bookedServices.length > 0) {
-        return res.status(400).send({
-          message: "Some services are not available on selected date(s)"
-        });
-      }
+      for (const item of normalizedServices) {
+        if (!item.service || !item.serviceDate || !item.serviceStartTime || !item.serviceEndTime) {
+          return res.status(400).send({
+            message: "All services must have a scheduled date, start time, and end time"
+          });
+        }
 
-      // ✅ Check workingDays for each service
-      for (const service of servicesData) {
-        if (service.workingDays && service.workingDays.length > 0) {
-          const isAvailableOnDays = requestedDays.every(day => service.workingDays.includes(day));
-          if (!isAvailableOnDays) {
+        const service = servicesData.find(s => s._id.toString() === item.service.toString());
+        if (!service) {
+          return res.status(400).send({
+            message: "Service not found in retrieved services"
+          });
+        }
+
+        // Enforce date constraint for PROPERTY_SERVICE
+        if (bookingType === "PROPERTY_SERVICE" && checkInDate && checkOutDate) {
+          const sDate = getZeroTimeDate(item.serviceDate);
+          if (sDate < checkInDate || sDate > checkOutDate) {
             return res.status(400).send({
-              message: `${service.name} is not available on selected day(s)`
+              message: `${service.name} date must fall within the property stay dates (${checkIn} to ${checkOut})`
             });
           }
         }
-      }
 
-      // ✅ validate service maxPersons
+        const slotCheck = await validateServiceSlot(
+          service,
+          item.serviceDate,
+          item.serviceStartTime,
+          item.serviceEndTime
+        );
 
-      for (const service of servicesData) {
-
-        if (
-          service.priceType === "flat" &&
-          totalGuests > (service.maxPersons || 1)
-        ) {
+        if (!slotCheck.valid) {
           return res.status(400).send({
-            message:
-              `${service.name} allows maximum ` +
-              `${service.maxPersons} persons`
+            message: `${service.name}: ${slotCheck.message}`
+          });
+        }
+
+        // Validate service maxPersons
+        if (service.priceType === "flat" && totalGuests > (service.maxPersons || 1)) {
+          return res.status(400).send({
+            message: `${service.name} allows maximum ${service.maxPersons} persons`
           });
         }
       }
@@ -798,7 +926,7 @@ exports.createBooking = async (req, res) => {
 
     for (const s of servicesData) {
 
-      const item = services.find(
+      const item = normalizedServices.find(
         x => x.service.toString() === s._id.toString()
       );
 
@@ -857,7 +985,7 @@ exports.createBooking = async (req, res) => {
 
     for (const s of servicesData) {
 
-      const item = services.find(
+      const item = normalizedServices.find(
         x => x.service.toString() === s._id.toString()
       );
 
@@ -935,7 +1063,7 @@ exports.createBooking = async (req, res) => {
 
     servicesData.forEach(s => {
 
-      const item = services.find(
+      const item = normalizedServices.find(
         x => x.service.toString() === s._id.toString()
       );
 
@@ -980,7 +1108,7 @@ exports.createBooking = async (req, res) => {
 
       package: packageId || null,
 
-      services,
+      services: normalizedServices,
 
       couponId,
 
@@ -1093,7 +1221,7 @@ exports.getUserBookings = async (req, res) => {
         path: "property",
         select: "name media.mainImage address.city"
       })
-      .populate("services.service", "name price policies maxPersons")
+      .populate("services.service", "name price policies maxPersons media")
       .populate({
         path: "package",
         select: "name"
@@ -1101,6 +1229,19 @@ exports.getUserBookings = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNumber);
+
+    for (let i = 0; i < bookings.length; i++) {
+      if (bookings[i].bookingStatus === "confirmed" && !bookings[i].invoiceUrl) {
+        const { generateInvoicePDF } = require("../utils/invoiceGenerator");
+        const invoiceUrl = await generateInvoicePDF(bookings[i]._id);
+        if (invoiceUrl) {
+          if (bookings[i].toObject) {
+            bookings[i] = bookings[i].toObject();
+          }
+          bookings[i].invoiceUrl = invoiceUrl;
+        }
+      }
+    }
 
     const totalPages = Math.ceil(total / limitNumber);
 
@@ -1131,6 +1272,7 @@ exports.getBookingDetail = async (req, res) => {
       _id: bookingId,
       user: req.user._id
     })
+      .populate("user", "firstName lastName email phone profile")
       .populate({
         path: "property",
         populate: [
@@ -1153,7 +1295,22 @@ exports.getBookingDetail = async (req, res) => {
       })
       .populate({
         path: "services.service",
-        select: "name price duration policies maxPersons"
+        select: "name price duration policies maxPersons user cancellationPolicy media",
+        populate: [
+          {
+            path: "user",
+            model: "ServiceUser",
+            select: "firstName lastName email phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr"
+          },
+          {
+            path: "cancellationPolicy",
+            model: "CancellationPolicy"
+          },
+          {
+            path: "instructions",
+            model: "Instructions"
+          }
+        ]
       })
       .populate({
         path: "package",
@@ -1182,6 +1339,14 @@ exports.getBookingDetail = async (req, res) => {
 
     const isCustomerReview = !!existingCustomerReview || !!booking.reviewGiven;
     const isServiceUserReview = !!existingServiceUserReview;
+
+    if (booking.bookingStatus === "confirmed" && !booking.invoiceUrl) {
+      const { generateInvoicePDF } = require("../utils/invoiceGenerator");
+      const invoiceUrl = await generateInvoicePDF(booking._id);
+      if (invoiceUrl) {
+        booking.invoiceUrl = invoiceUrl;
+      }
+    }
 
     res.json({
       success: true,
@@ -1221,6 +1386,16 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
     .sort({ checkIn: 1 })
     .lean();
 
+  for (let i = 0; i < bookings.length; i++) {
+    if (bookings[i].bookingStatus === "confirmed" && !bookings[i].invoiceUrl) {
+      const { generateInvoicePDF } = require("../utils/invoiceGenerator");
+      const invoiceUrl = await generateInvoicePDF(bookings[i]._id);
+      if (invoiceUrl) {
+        bookings[i].invoiceUrl = invoiceUrl;
+      }
+    }
+  }
+
   return res.status(200).json({
     success: true,
     data: bookings,
@@ -1229,211 +1404,6 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
       : "No upcoming bookings found"
   });
 });
-
-
-// exports.adminOverrideRefund = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-//     const { refundAmount, reason } = req.body;
-
-//     const booking = await Booking.findById(bookingId);
-
-//     if (!booking) {
-//       return res.status(404).send({ message: "Booking not found" });
-//     }
-
-//     /* =============================
-//        VALIDATIONS
-//     ============================== */
-//     if (booking.isCancelled) {
-//       return res.status(400).send({
-//         message: "Booking already cancelled",
-//       });
-//     }
-
-//     if (booking.paymentStatus !== "paid") {
-//       return res.status(400).send({
-//         message: "Cannot refund unpaid booking",
-//       });
-//     }
-
-//     if (booking.refundTransactionId) {
-//       return res.status(400).send({
-//         message: "Refund already processed",
-//       });
-//     }
-
-//     if (refundAmount > booking.totalAmount) {
-//       return res.status(400).send({
-//         message: "Refund exceeds total amount",
-//       });
-//     }
-
-//     /* =============================
-//        SAVE ADMIN OVERRIDE
-//     ============================== */
-//     booking.adminOverride = {
-//       isOverridden: true,
-//       refundAmount,
-//       reason,
-//     };
-
-//     /* =============================
-//        💰 WALLET HOLD DEDUCTION
-//     ============================== */
-//     if (booking.providerBreakdown?.length > 0) {
-//       for (const provider of booking.providerBreakdown) {
-//         const ratio = provider.amount / booking.totalAmount;
-//         const providerRefund = refundAmount * ratio;
-
-//         const wallet = await Wallet.findOne({ user: provider.user });
-
-//         if (!wallet) continue;
-//         if (wallet.holdBalance < providerRefund) continue;
-
-//         wallet.holdBalance -= providerRefund;
-//         await wallet.save();
-
-//         await WalletTransaction.create({
-//           wallet: wallet._id,
-//           user: provider.user,
-//           type: "debit",
-//           amount: providerRefund,
-//           bookingId: booking._id,
-//           referenceId: provider.referenceId,
-//           description: "Admin override refund deducted",
-//           transactionType: "refund",
-//         });
-//       }
-//     }
-
-//     /* =============================
-//        💳 TAP REFUND
-//     ============================== */
-//     try {
-//       if (refundAmount > 0 && booking.tapChargeId) {
-//         const response = await axios.post(
-//           "https://api.tap.company/v2/refunds",
-//           {
-//             charge_id: booking.tapChargeId,
-//             amount: refundAmount,
-//             currency: "SAR",
-//             reason: "Admin override refund",
-//             reference: {
-//               merchant: booking.orderId,
-//             },
-//           },
-//           {
-//             headers: {
-//               Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-//               "Content-Type": "application/json",
-//             },
-//           }
-//         );
-
-//         booking.refundTransactionId = response.data?.id;
-//       }
-//     } catch (err) {
-//       console.error("Refund failed:", err.response?.data || err.message);
-
-//       booking.refundStatus = "failed";
-//       await booking.save();
-
-//       return res.status(500).send({
-//         message: "Refund failed",
-//         error: err.response?.data || err.message,
-//       });
-//     }
-
-//     /* =============================
-//        🔥 RELEASE AVAILABILITY
-//     ============================== */
-//     if (booking.property) {
-//       await HotelAvailability.deleteMany({
-//         hotel: booking.property,
-//         booking: booking._id,
-//       });
-//     }
-
-//     if (booking.services?.length > 0) {
-//       const serviceIds = booking.services.map((s) => s.service);
-
-//       await ServiceAvailability.deleteMany({
-//         service: { $in: serviceIds },
-//         booking: booking._id,
-//       });
-//     }
-
-//     /* =============================
-//        UPDATE BOOKING
-//     ============================== */
-//     booking.bookingStatus = "cancelled";
-//     booking.isCancelled = true;
-//     booking.cancellationDate = new Date();
-
-//     booking.refundAmount = refundAmount;
-//     booking.refundPercentage = null;
-//     booking.refundStatus = "processed";
-
-//     await booking.save();
-
-//     /* =============================
-//        🔔 NOTIFICATIONS (NEW)
-//     ============================== */
-
-//     const refundData = {
-//       bookingId: booking._id.toString(),
-//       totalAmount: booking.totalAmount,
-//       refundAmount,
-//       reason,
-//       bookingStatus: booking.bookingStatus,
-//       checkIn: booking.checkIn,
-//       checkOut: booking.checkOut,
-//       type: "ADMIN_REFUND",
-//     };
-
-//     /* 👤 USER */
-//     await sendNotification({
-//       receiverId: booking.user,
-//       receiverModel: "User",
-//       title: "Refund Processed 💸",
-//       body: `Admin approved refund of ${refundAmount}`,
-//       type: "REFUND",
-//       referenceId: booking._id,
-//       referenceType: "Booking",
-//       data: refundData,
-//     });
-
-//     /* 🧑‍🔧 PROVIDERS */
-//     if (booking.providerBreakdown?.length > 0) {
-//       for (const provider of booking.providerBreakdown) {
-//         await sendNotification({
-//           receiverId: provider.user,
-//           receiverModel: "ServiceUser",
-//           title: "Booking Cancelled ❌",
-//           body: "Booking cancelled with admin refund",
-//           type: "BOOKING",
-//           referenceId: booking._id,
-//           referenceType: "Booking",
-//           data: {
-//             bookingId: booking._id.toString(),
-//             refundAmount,
-//             reason,
-//           },
-//         });
-//       }
-//     }
-
-//     return res.send({
-//       message: "Admin override refund processed successfully",
-//       refundAmount,
-//       refundTransactionId: booking.refundTransactionId,
-//     });
-
-//   } catch (err) {
-//     return res.status(500).send({ message: err.message });
-//   }
-// };
 
 
 exports.adminOverrideRefund = async (req, res) => {
@@ -1506,155 +1476,107 @@ exports.adminOverrideRefund = async (req, res) => {
        💰 WALLET HOLD DEDUCTION
     ============================== */
 
-    if (
-      booking.providerBreakdown?.length > 0
-    ) {
-
-      const totalProviderAmount =
-        booking.providerBreakdown.reduce(
-          (sum, provider) =>
-            sum + provider.amount,
-          0
-        );
-
-      for (const provider of booking.providerBreakdown) {
-
-        const ratio =
-          provider.amount /
-          totalProviderAmount;
-
-        const providerRefund =
-          Number(refundAmount) * ratio;
-
-        const wallet =
-          await Wallet.findOne({
-            user: provider.user
-          });
-
-        if (!wallet) continue;
-
-        if (
-          wallet.holdBalance <
-          providerRefund
-        ) {
-          continue;
-        }
-
-        wallet.holdBalance -= providerRefund;
-
-        await wallet.save();
-
-        await WalletTransaction.create({
-
-          wallet: wallet._id,
-
-          user: provider.user,
-
-          type: "debit",
-
-          amount: providerRefund,
-
-          bookingId: booking._id,
-
-          referenceId:
-            provider.referenceId,
-
-          description:
-            `Admin refund deducted for ${provider.type}`,
-
-          transactionType: "refund",
-        });
-      }
-    }
-
     /* =============================
-       💳 TAP REFUND
+       🔥 RELEASE AVAILABILITY (Freed immediately on cancellation)
     ============================== */
-
-    try {
-
-      if (
-        Number(refundAmount) > 0 &&
-        booking.tapChargeId
-      ) {
-
-        const response =
-          await axios.post(
-            "https://api.tap.company/v2/refunds",
-            {
-              charge_id:
-                booking.tapChargeId,
-
-              amount:
-                Number(refundAmount),
-
-              currency: "SAR",
-
-              reason:
-                "Admin override refund",
-
-              reference: {
-                merchant:
-                  booking.orderId,
-              },
-            },
-            {
-              headers: {
-                Authorization:
-                  `Bearer ${process.env.TAP_SECRET_KEY}`,
-
-                "Content-Type":
-                  "application/json",
-              },
-            }
-          );
-
-        booking.refundTransactionId =
-          response.data?.id;
-      }
-
-    } catch (err) {
-
-      console.error(
-        "Refund failed:",
-        err.response?.data || err.message
-      );
-
-      booking.refundStatus = "failed";
-
-      await booking.save();
-
-      return res.status(500).send({
-        message: "Refund failed",
-        error:
-          err.response?.data || err.message,
-      });
-    }
-
-    /* =============================
-       🔥 RELEASE AVAILABILITY
-    ============================== */
-
     if (booking.property) {
-
       await HotelAvailability.deleteMany({
         hotel: booking.property,
         booking: booking._id,
       });
     }
 
-    if (
-      booking.services?.length > 0
-    ) {
-
-      const serviceIds =
-        booking.services.map(
-          (s) => s.service
-        );
-
+    if (booking.services?.length > 0) {
+      const serviceIds = booking.services.map((s) => s.service);
       await ServiceAvailability.deleteMany({
         service: { $in: serviceIds },
         booking: booking._id,
+      });
+    }
+
+    /* =============================
+       💰 WALLET HOLD DEDUCTION (Cleared on cancellation, earnings deferred to cron)
+    ============================== */
+    if (booking.providerBreakdown?.length > 0) {
+      const totalProviderAmount = booking.providerBreakdown.reduce((sum, p) => sum + p.amount, 0);
+
+      for (const provider of booking.providerBreakdown) {
+        const ratio = totalProviderAmount > 0 ? provider.amount / totalProviderAmount : 0;
+        const providerRefund = Number((Number(refundAmount) * ratio).toFixed(2));
+        const providerKeptAmount = Number((provider.amount - providerRefund).toFixed(2));
+
+        const wallet = await Wallet.findOne({ user: provider.user });
+        if (!wallet) continue;
+
+        // Deduct only the refundable portion from hold balance immediately
+        const holdDeduction = Math.min(wallet.holdBalance, providerRefund);
+        wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
+        await wallet.save();
+
+        // Update tracking fields
+        provider.refundAmount = providerRefund;
+        provider.retainedAmount = providerKeptAmount;
+        if (providerKeptAmount > 0) {
+          provider.payoutReleaseStatus = "PENDING";
+          provider.payoutReleaseDate = new Date(Date.now() + 48 * 60 * 60 * 1000);
+        } else {
+          provider.payoutReleaseStatus = "RELEASED";
+          provider.payoutReleasedAt = new Date();
+        }
+
+        if (providerRefund > 0) {
+          await WalletTransaction.create({
+            wallet: wallet._id,
+            user: provider.user,
+            type: "debit",
+            amount: providerRefund,
+            bookingId: booking._id,
+            referenceId: provider.referenceId,
+            description: `Admin override refund deducted for ${provider.type}`,
+            transactionType: "refund",
+          });
+        }
+      }
+    }
+
+    /* =============================
+       💳 TAP REFUND
+    ============================== */
+    try {
+      if (Number(refundAmount) > 0 && booking.tapChargeId) {
+        const response = await axios.post(
+          "https://api.tap.company/v2/refunds",
+          {
+            charge_id: booking.tapChargeId,
+            amount: Number(refundAmount),
+            currency: "SAR",
+            reason: "Admin override refund",
+            reference: {
+              merchant: booking.orderId,
+            },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        booking.refundTransactionId = response.data?.id;
+      }
+    } catch (err) {
+      console.error(
+        "Refund failed:",
+        err.response?.data || err.message
+      );
+
+      booking.refundStatus = "failed";
+      await booking.save();
+
+      return res.status(500).send({
+        message: "Refund failed",
+        error: err.response?.data || err.message,
       });
     }
 
@@ -1751,8 +1673,9 @@ exports.adminOverrideRefund = async (req, res) => {
 
           title: "Booking Cancelled ❌",
 
-          body:
-            `Booking cancelled with refund for ${provider.type}`,
+          body: provider.retainedAmount > 0
+            ? `Booking cancelled. Your payout of ${provider.retainedAmount} SAR will be released to your available wallet balance after 48 hours.`
+            : `Booking cancelled with refund for ${provider.type}`,
 
           type: "BOOKING",
 
@@ -1795,282 +1718,6 @@ exports.adminOverrideRefund = async (req, res) => {
     });
   }
 };
-
-
-// exports.cancelBooking = async (req, res) => {
-//   try {
-//     const { bookingId } = req.params;
-
-//     const booking = await Booking.findById(bookingId);
-//     if (!booking) {
-//       return res.status(404).send({ message: "Booking not found" });
-//     }
-
-//     /* =============================
-//        VALIDATIONS
-//     ============================== */
-//     if (booking.isCancelled) {
-//       return res.status(400).send({
-//         message: "Booking already cancelled",
-//       });
-//     }
-
-//     if (booking.refundTransactionId) {
-//       return res.status(400).send({
-//         message: "Refund already processed",
-//       });
-//     }
-
-//     /* =============================
-//        ❌ NO PAYMENT CASE
-//     ============================== */
-//     if (booking.paymentStatus !== "paid") {
-//       booking.bookingStatus = "cancelled";
-//       booking.isCancelled = true;
-
-//       await booking.save();
-
-//       // 🔔 USER
-//       await sendNotification({
-//         receiverId: booking.user,
-//         receiverModel: "User",
-//         title: "Booking Cancelled ❌",
-//         body: "Your booking has been cancelled",
-//         type: "BOOKING",
-//         referenceId: booking._id,
-//         referenceType: "Booking",
-//       });
-
-//       return res.send({
-//         message: "Booking cancelled (no payment)",
-//       });
-//     }
-
-//     const now = new Date();
-
-//     /* =============================
-//        ❌ NO REFUND AFTER CHECK-IN
-//     ============================== */
-//     if (now >= booking.checkIn) {
-//       booking.bookingStatus = "cancelled";
-//       booking.isCancelled = true;
-//       booking.refundAmount = 0;
-//       booking.refundPercentage = 0;
-
-//       await booking.save();
-
-//       // 🔔 USER
-//       await sendNotification({
-//         receiverId: booking.user,
-//         receiverModel: "User",
-//         title: "Booking Cancelled ❌",
-//         body: "No refund available after check-in",
-//         type: "REFUND",
-//         referenceId: booking._id,
-//         referenceType: "Booking",
-//       });
-
-//       return res.send({
-//         message: "Cancelled (no refund after check-in)",
-//         refundAmount: 0,
-//       });
-//     }
-
-//     /* =============================
-//        🔥 CALCULATE REFUND
-//     ============================== */
-//     let refundPercentage = 0;
-//     let refundAmount = 0;
-
-//     const isOverride = booking.adminOverride?.isOverridden;
-
-//     if (isOverride) {
-//       refundAmount = booking.adminOverride.refundAmount;
-//     } else {
-//       const rules = booking.policySnapshot?.rules || [];
-
-//       const diffHours = (booking.checkIn - now) / (1000 * 60 * 60);
-
-//       for (const rule of rules) {
-//         const value = rule.unit === "days" ? diffHours / 24 : diffHours;
-
-//         if (value >= rule.from) {
-//           refundPercentage = rule.refundPercentage;
-//           break;
-//         }
-//       }
-
-//       refundAmount = (booking.totalAmount * refundPercentage) / 100;
-
-//       const cancellationFee =
-//         booking.policySnapshot?.cancellationFee || 0;
-
-//       refundAmount = Math.max(refundAmount - cancellationFee, 0);
-//     }
-
-//     /* =============================
-//        💰 WALLET HOLD DEDUCTION
-//     ============================== */
-//     if (booking.providerBreakdown?.length > 0) {
-//       for (const provider of booking.providerBreakdown) {
-//         let providerRefund = 0;
-
-//         if (isOverride) {
-//           const ratio = provider.amount / booking.totalAmount;
-//           providerRefund = refundAmount * ratio;
-//         } else {
-//           providerRefund =
-//             provider.amount * (refundPercentage / 100);
-//         }
-
-//         const wallet = await Wallet.findOne({ user: provider.user });
-
-//         if (!wallet) continue;
-//         if (wallet.holdBalance < providerRefund) continue;
-
-//         wallet.holdBalance -= providerRefund;
-
-//         await wallet.save();
-
-//         await WalletTransaction.create({
-//           wallet: wallet._id,
-//           user: provider.user,
-//           type: "debit",
-//           amount: providerRefund,
-//           bookingId: booking._id,
-//           referenceId: provider.referenceId,
-//           description: "Refund deducted from hold",
-//           transactionType: "refund",
-//         });
-//       }
-//     }
-
-//     /* =============================
-//        💳 TAP REFUND
-//     ============================== */
-//     try {
-//       if (refundAmount > 0 && booking.tapChargeId) {
-//         const response = await axios.post(
-//           "https://api.tap.company/v2/refunds",
-//           {
-//             charge_id: booking.tapChargeId,
-//             amount: refundAmount,
-//             currency: "SAR",
-//             reason: "Booking cancellation refund",
-//             reference: {
-//               merchant: booking.orderId,
-//             },
-//           },
-//           {
-//             headers: {
-//               Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-//               "Content-Type": "application/json",
-//             },
-//           }
-//         );
-
-//         booking.refundTransactionId = response.data?.id;
-//       }
-//     } catch (err) {
-//       console.error("Refund failed:", err.response?.data || err.message);
-
-//       booking.refundStatus = "failed";
-//       await booking.save();
-
-//       return res.status(500).send({
-//         message: "Refund failed",
-//         error: err.response?.data || err.message,
-//       });
-//     }
-
-//     /* =============================
-//        RELEASE AVAILABILITY
-//     ============================== */
-//     if (booking.property) {
-//       await HotelAvailability.deleteMany({
-//         hotel: booking.property,
-//         booking: booking._id,
-//       });
-//     }
-
-//     if (booking.services?.length > 0) {
-//       const serviceIds = booking.services.map((s) => s.service);
-
-//       await ServiceAvailability.deleteMany({
-//         service: { $in: serviceIds },
-//         booking: booking._id,
-//       });
-//     }
-
-//     /* =============================
-//        UPDATE BOOKING
-//     ============================== */
-//     booking.bookingStatus = "cancelled";
-//     booking.isCancelled = true;
-//     booking.cancellationDate = new Date();
-//     booking.refundAmount = refundAmount;
-//     booking.refundPercentage = isOverride ? null : refundPercentage;
-//     booking.refundStatus = "processed";
-
-//     await booking.save();
-
-//     /* =============================
-//        🔔 NOTIFICATIONS
-//     ============================== */
-
-//     const cancelData = {
-//       bookingId: booking._id.toString(),
-//       totalAmount: booking.totalAmount,
-//       refundAmount,
-//       refundPercentage,
-//       bookingStatus: booking.bookingStatus,
-//       checkIn: booking.checkIn,
-//       checkOut: booking.checkOut,
-//     };
-
-//     // 👤 USER
-//     await sendNotification({
-//       receiverId: booking.user,
-//       receiverModel: "User",
-//       title: "Booking Cancelled ❌",
-//       body: `Refund Amount: ${refundAmount}`,
-//       type: "REFUND",
-//       referenceId: booking._id,
-//       referenceType: "Booking",
-//       data: cancelData,
-//     });
-
-//     // 🧑‍🔧 PROVIDERS
-//     if (booking.providerBreakdown?.length > 0) {
-//       for (const provider of booking.providerBreakdown) {
-//         await sendNotification({
-//           receiverId: provider.user,
-//           receiverModel: "ServiceUser",
-//           title: "Booking Cancelled ❌",
-//           body: "A booking has been cancelled",
-//           type: "BOOKING",
-//           referenceId: booking._id,
-//           referenceType: "Booking",
-//           data: {
-//             bookingId: booking._id.toString(),
-//             refundAmount,
-//           },
-//         });
-//       }
-//     }
-
-//     return res.send({
-//       message: "Booking cancelled successfully",
-//       refundAmount,
-//       refundPercentage: isOverride ? null : refundPercentage,
-//     });
-
-//   } catch (error) {
-//     return res.status(500).send({
-//       message: error.message,
-//     });
-//   }
-// };
 
 
 exports.cancelBooking = async (req, res) => {
@@ -2121,7 +1768,29 @@ exports.cancelBooking = async (req, res) => {
 
     const now = new Date();
 
-    const bookingStartDate = new Date(booking.checkIn);
+    let bookingStartDate;
+    if (booking.checkIn) {
+      bookingStartDate = new Date(booking.checkIn);
+    } else if (booking.services && booking.services.length > 0) {
+      let earliest = null;
+      for (const s of booking.services) {
+        if (s.serviceDate) {
+          const d = new Date(s.serviceDate);
+          if (s.serviceStartTime) {
+            const [hours, minutes] = s.serviceStartTime.split(":").map(Number);
+            d.setUTCHours(hours, minutes, 0, 0);
+          }
+          if (!earliest || d < earliest) {
+            earliest = d;
+          }
+        }
+      }
+      bookingStartDate = earliest;
+    }
+
+    if (!bookingStartDate) {
+      bookingStartDate = new Date();
+    }
 
     /* =============================
        ❌ NO PAYMENT CASE
@@ -2160,6 +1829,54 @@ exports.cancelBooking = async (req, res) => {
       const refundAmount = booking.totalAmount;
       const refundPercentage = 100;
       let tapRefundId = null;
+
+      /* 🔓 RELEASE AVAILABILITY (Freed immediately on cancellation) */
+      if (booking.property) {
+        await HotelAvailability.deleteMany({
+          hotel: booking.property,
+          booking: booking._id,
+        });
+      }
+
+      if (booking.services?.length > 0) {
+        const serviceIds = booking.services.map((s) => s.service);
+        await ServiceAvailability.deleteMany({
+          service: { $in: serviceIds },
+          booking: booking._id,
+        });
+      }
+
+      /* 💰 WALLET HOLD DEDUCTION FOR PROVIDERS */
+      if (booking.providerBreakdown?.length > 0) {
+        for (const provider of booking.providerBreakdown) {
+          const wallet = await Wallet.findOne({ user: provider.user });
+          if (!wallet) continue;
+
+          const providerRefund = provider.amount;
+          const holdDeduction = Math.min(wallet.holdBalance, providerRefund);
+
+          if (holdDeduction > 0) {
+            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
+            await wallet.save();
+
+            await WalletTransaction.create({
+              wallet: wallet._id,
+              user: provider.user,
+              type: "debit",
+              amount: holdDeduction,
+              bookingId: booking._id,
+              referenceId: provider.referenceId,
+              description: "Pending booking cancellation refund deducted from hold balance",
+              transactionType: "refund",
+            });
+          }
+
+          provider.refundAmount = provider.amount;
+          provider.retainedAmount = 0;
+          provider.payoutReleaseStatus = "RELEASED";
+          provider.payoutReleasedAt = new Date();
+        }
+      }
 
       /* 💳 PROCESS TAP REFUND */
       try {
@@ -2232,49 +1949,6 @@ exports.cancelBooking = async (req, res) => {
           success: false,
           message: "Refund failed",
           error: err.response?.data || err.message,
-        });
-      }
-
-      /* 💰 WALLET HOLD DEDUCTION FOR PROVIDERS */
-      if (booking.providerBreakdown?.length > 0) {
-        for (const provider of booking.providerBreakdown) {
-          const wallet = await Wallet.findOne({ user: provider.user });
-          if (!wallet) continue;
-
-          const providerRefund = provider.amount;
-          const holdDeduction = Math.min(wallet.holdBalance, providerRefund);
-
-          if (holdDeduction > 0) {
-            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
-            await wallet.save();
-
-            await WalletTransaction.create({
-              wallet: wallet._id,
-              user: provider.user,
-              type: "debit",
-              amount: holdDeduction,
-              bookingId: booking._id,
-              referenceId: provider.referenceId,
-              description: "Pending booking cancellation refund deducted from hold balance",
-              transactionType: "refund",
-            });
-          }
-        }
-      }
-
-      /* 🔓 RELEASE AVAILABILITY */
-      if (booking.property) {
-        await HotelAvailability.deleteMany({
-          hotel: booking.property,
-          booking: booking._id,
-        });
-      }
-
-      if (booking.services?.length > 0) {
-        const serviceIds = booking.services.map((s) => s.service);
-        await ServiceAvailability.deleteMany({
-          service: { $in: serviceIds },
-          booking: booking._id,
         });
       }
 
@@ -2356,6 +2030,7 @@ exports.cancelBooking = async (req, res) => {
     if (now >= bookingStartDate) {
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
+      booking.cancellationDate = new Date();
       booking.refundAmount = 0;
       booking.refundPercentage = 0;
       booking.cancellationReason = reason;
@@ -2364,31 +2039,34 @@ exports.cancelBooking = async (req, res) => {
         booking.customCancellationReason = customReason;
       }
 
-      await booking.save();
-
-      /* Clear provider hold balance and release non-refundable earnings */
       if (booking.providerBreakdown?.length > 0) {
         for (const provider of booking.providerBreakdown) {
-          const wallet = await Wallet.findOne({ user: provider.user });
-          if (!wallet) continue;
+          provider.refundAmount = 0;
+          provider.retainedAmount = provider.amount;
+          provider.payoutReleaseStatus = "PENDING";
+          provider.payoutReleaseDate = new Date(Date.now() + 48 * 60 * 60 * 1000);
+        }
+      }
 
-          const holdDeduction = Math.min(wallet.holdBalance, provider.amount);
-          if (holdDeduction > 0) {
-            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
-            wallet.balance = Number(((wallet.balance || 0) + holdDeduction).toFixed(2));
-            await wallet.save();
+      await booking.save();
 
-            await WalletTransaction.create({
-              wallet: wallet._id,
-              user: provider.user,
-              type: "credit",
-              amount: holdDeduction,
-              bookingId: booking._id,
-              referenceId: provider.referenceId,
-              description: "Non-refundable amount released to available balance on cancellation after start",
-              transactionType: "release_on_checkin",
-            });
-          }
+      /* Notify provider of upcoming non-refundable payment release */
+      if (booking.providerBreakdown?.length > 0) {
+        for (const provider of booking.providerBreakdown) {
+          await sendNotification({
+            receiverId: provider.user,
+            receiverModel: "ServiceUser",
+            title: "Booking Cancelled ❌",
+            body: `Booking cancelled. Your payout of ${provider.amount} SAR will be released to your available wallet balance after 48 hours.`,
+            type: "BOOKING",
+            referenceId: booking._id,
+            referenceType: "Booking",
+            data: {
+              bookingId: booking._id.toString(),
+              cancellationReason: reason,
+              amount: provider.amount
+            }
+          });
         }
       }
 
@@ -2481,7 +2159,7 @@ exports.cancelBooking = async (req, res) => {
       } else {
         /* Primary Top-Level Policy (Flexible, Moderate, Strict, etc.) */
         const rules = snapshot.rules || policyObj.rules || [];
-        const diffHours = (new Date(booking.checkIn || bookingStartDate) - now) / (1000 * 60 * 60);
+        const diffHours = (bookingStartDate - now) / (1000 * 60 * 60);
 
         let topRefundPercentage = 0;
         const sortedRules = [...rules].sort((a, b) => b.from - a.from);
@@ -2504,28 +2182,53 @@ exports.cancelBooking = async (req, res) => {
     }
 
     /* =============================
-       💰 WALLET HOLD DEDUCTION & PROVIDER EARNINGS
+       RELEASE AVAILABILITY (Freed immediately on cancellation)
+    ============================== */
+    if (booking.property) {
+      await HotelAvailability.deleteMany({
+        hotel: booking.property,
+        booking: booking._id,
+      });
+    }
+
+    if (booking.services?.length > 0) {
+      const serviceIds = booking.services.map((s) => s.service);
+
+      await ServiceAvailability.deleteMany({
+        service: { $in: serviceIds },
+        booking: booking._id,
+      });
+    }
+
+    /* =============================
+       💰 WALLET HOLD DEDUCTION (Cleared on cancellation, earnings deferred to cron)
     ============================== */
     if (booking.providerBreakdown?.length > 0) {
       const refundRatio = booking.totalAmount > 0 ? Math.min(refundAmount / booking.totalAmount, 1) : 0;
 
       for (const provider of booking.providerBreakdown) {
         const providerRefund = Number(Math.min(provider.amount * refundRatio, provider.amount).toFixed(2));
+        const providerKeptAmount = Number((provider.amount - providerRefund).toFixed(2));
 
         const wallet = await Wallet.findOne({ user: provider.user });
         if (!wallet) continue;
 
-        // Clear provider hold balance allocated for this booking
-        const holdDeduction = Math.min(wallet.holdBalance, provider.amount);
+        // Deduct only the refundable portion from hold balance immediately
+        const holdDeduction = Math.min(wallet.holdBalance, providerRefund);
         wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
 
-        // Transfer any retained non-refundable amount (e.g. cancellation policy retained share) to provider's available balance
-        const providerEarned = Number(Math.max(provider.amount - providerRefund, 0).toFixed(2));
-        if (providerEarned > 0) {
-          wallet.balance = Number(((wallet.balance || 0) + providerEarned).toFixed(2));
-        }
-
         await wallet.save();
+
+        // Update tracking fields
+        provider.refundAmount = providerRefund;
+        provider.retainedAmount = providerKeptAmount;
+        if (providerKeptAmount > 0) {
+          provider.payoutReleaseStatus = "PENDING";
+          provider.payoutReleaseDate = new Date(Date.now() + 48 * 60 * 60 * 1000);
+        } else {
+          provider.payoutReleaseStatus = "RELEASED";
+          provider.payoutReleasedAt = new Date();
+        }
 
         if (providerRefund > 0) {
           await WalletTransaction.create({
@@ -2537,19 +2240,6 @@ exports.cancelBooking = async (req, res) => {
             referenceId: provider.referenceId,
             description: `Refund deducted from ${provider.type} hold balance`,
             transactionType: "refund",
-          });
-        }
-
-        if (providerEarned > 0) {
-          await WalletTransaction.create({
-            wallet: wallet._id,
-            user: provider.user,
-            type: "credit",
-            amount: providerEarned,
-            bookingId: booking._id,
-            referenceId: provider.referenceId,
-            description: `Retained non-refundable earnings from cancelled booking (${provider.type})`,
-            transactionType: "release_on_checkin",
           });
         }
       }
@@ -2632,25 +2322,6 @@ exports.cancelBooking = async (req, res) => {
     }
 
     /* =============================
-       RELEASE AVAILABILITY
-    ============================== */
-    if (booking.property) {
-      await HotelAvailability.deleteMany({
-        hotel: booking.property,
-        booking: booking._id,
-      });
-    }
-
-    if (booking.services?.length > 0) {
-      const serviceIds = booking.services.map((s) => s.service);
-
-      await ServiceAvailability.deleteMany({
-        service: { $in: serviceIds },
-        booking: booking._id,
-      });
-    }
-
-    /* =============================
        UPDATE BOOKING
     ============================== */
     booking.bookingStatus = "cancelled";
@@ -2660,6 +2331,7 @@ exports.cancelBooking = async (req, res) => {
     booking.refundPercentage = refundPercentage;
     booking.refundStatus = "processed";
     booking.cancellationReason = reason;
+    booking.isAmountReleased = false;
 
     if (reason === "OTHER") {
       booking.customCancellationReason = customReason;
@@ -2695,12 +2367,18 @@ exports.cancelBooking = async (req, res) => {
 
     /* 🧑‍🔧 PROVIDERS */
     if (booking.providerBreakdown?.length > 0) {
+      const refundRatio = booking.totalAmount > 0 ? Math.min(refundAmount / booking.totalAmount, 1) : 0;
       for (const provider of booking.providerBreakdown) {
+        const providerRefund = Number(Math.min(provider.amount * refundRatio, provider.amount).toFixed(2));
+        const providerKeptAmount = Number((provider.amount - providerRefund).toFixed(2));
+
         await sendNotification({
           receiverId: provider.user,
           receiverModel: "ServiceUser",
           title: "Booking Cancelled ❌",
-          body: `Booking cancelled for ${provider.type}`,
+          body: providerKeptAmount > 0
+            ? `Booking cancelled. Your payout of ${providerKeptAmount} SAR will be released to your available wallet balance after 48 hours.`
+            : `Booking cancelled for ${provider.type}`,
           type: "BOOKING",
           referenceId: provider.referenceId || booking._id,
           referenceType: "Booking",
@@ -2708,6 +2386,7 @@ exports.cancelBooking = async (req, res) => {
             bookingId: booking._id.toString(),
             refundAmount,
             providerType: provider.type,
+            keptAmount: providerKeptAmount
           },
         });
       }
@@ -2954,20 +2633,24 @@ exports.updateBookingApprovalStatus = async (req, res) => {
 
     await booking.save();
 
+    if (status === "confirmed") {
+      const { generateInvoicePDF } = require("../utils/invoiceGenerator");
+      await generateInvoicePDF(booking._id);
+    }
+
     /* =========================================
        IF APPROVED → BLOCK AVAILABILITY
     ========================================= */
 
     if (status === "confirmed") {
 
-      const dates = getDatesBetween(
-        booking.checkIn,
-        booking.checkOut
-      );
-
       /* PROPERTY AVAILABILITY */
 
       if (booking.property) {
+        const dates = getDatesBetween(
+          booking.checkIn,
+          booking.checkOut
+        );
 
         const availabilityDocs =
           dates.map((date) => ({
@@ -2985,39 +2668,7 @@ exports.updateBookingApprovalStatus = async (req, res) => {
       /* SERVICE AVAILABILITY */
 
       if (booking.services?.length > 0) {
-
-        const serviceIds =
-          booking.services.map(
-            s => s.service
-          );
-
-        const servicesData =
-          await Service.find({
-            _id: { $in: serviceIds }
-          }).select("_id workingHours");
-
-        const serviceAvailabilityDocs = [];
-
-        servicesData.forEach((service) => {
-
-          dates.forEach((date) => {
-
-            serviceAvailabilityDocs.push({
-              service: service._id,
-              date,
-              startTime:
-                service.workingHours.start,
-              endTime:
-                service.workingHours.end,
-              booking: booking._id,
-              isBooked: true,
-            });
-          });
-        });
-
-        await ServiceAvailability.insertMany(
-          serviceAvailabilityDocs
-        );
+        await reserveServiceSlots(booking._id, booking.services);
       }
 
       /* =========================================
@@ -3188,5 +2839,36 @@ exports.updateBookingApprovalStatus = async (req, res) => {
       message: error.message
     });
 
+  }
+};
+
+exports.getServiceAvailability = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+    const { date } = req.query;
+
+    if (!serviceId) {
+      return res.status(400).json({ success: false, message: "serviceId is required" });
+    }
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: "date is required" });
+    }
+
+    const service = await Service.findOne({ _id: serviceId, isDeleted: false, isActive: true });
+    if (!service) {
+      return res.status(404).json({ success: false, message: "Service not found or inactive" });
+    }
+
+    const availableSlots = await getAvailableSlots(service, date);
+
+    return res.status(200).json({
+      success: true,
+      serviceId,
+      date,
+      slots: availableSlots
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

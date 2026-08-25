@@ -46,13 +46,31 @@ const bookingSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: "Service",
       required: function () {
-        return this.bookingType === "SERVICE" || this.bookingType === "PROPERTY_SERVICE";
+        return ["SERVICE", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
       }
     },
     price: {
       type: Number,
       required: function () {
-        return this.bookingType === "SERVICE" || this.bookingType === "PROPERTY_SERVICE";
+        return ["SERVICE", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
+      }
+    },
+    serviceDate: {
+      type: Date,
+      required: function () {
+        return ["SERVICE", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
+      }
+    },
+    serviceStartTime: {
+      type: String,
+      required: function () {
+        return ["SERVICE", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
+      }
+    },
+    serviceEndTime: {
+      type: String,
+      required: function () {
+        return ["SERVICE", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
       }
     }
   }],
@@ -68,7 +86,9 @@ const bookingSchema = new mongoose.Schema({
 
   checkIn: {
     type: Date,
-    required: true,
+    required: function () {
+      return ["PROPERTY", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
+    },
     index: true
   },
   reviewGiven: {
@@ -79,7 +99,9 @@ const bookingSchema = new mongoose.Schema({
 
   checkOut: {
     type: Date,
-    required: true,
+    required: function () {
+      return ["PROPERTY", "PROPERTY_SERVICE", "PACKAGE"].includes(this.bookingType);
+    },
     index: true
   },
 
@@ -128,7 +150,22 @@ const bookingSchema = new mongoose.Schema({
         type: String,
         enum: ["property", "service"]
       },
-      referenceId: mongoose.Schema.Types.ObjectId // propertyId or serviceId
+      referenceId: mongoose.Schema.Types.ObjectId, // propertyId or serviceId
+      refundAmount: {
+        type: Number,
+        default: 0
+      },
+      retainedAmount: {
+        type: Number,
+        default: 0
+      },
+      payoutReleaseStatus: {
+        type: String,
+        enum: ["PENDING", "RELEASED"],
+        default: "PENDING"
+      },
+      payoutReleaseDate: Date,
+      payoutReleasedAt: Date
     }
   ],
 
@@ -255,6 +292,10 @@ const bookingSchema = new mongoose.Schema({
   isCheckInNotified: {
     type: Boolean,
     default: false
+  },
+
+  invoiceUrl: {
+    type: String
   }
 
 }, { timestamps: true });

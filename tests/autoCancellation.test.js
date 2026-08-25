@@ -8,6 +8,9 @@ const Booking = require("../models/Booking");
 const Wallet = require("../models/Wallet");
 const WalletTransaction = require("../models/WalletTransaction");
 
+const nextOrderId = () => "TEST_" + Math.random().toString(36).substring(2, 9).toUpperCase();
+
+
 async function runTests() {
   console.log("==================================================");
   console.log("🧪 RUNNING AUTOMATIC CANCELLATION TEST SUITE");
@@ -83,6 +86,7 @@ async function runTests() {
           checkIn: new Date(Date.now() + 48 * 60 * 60 * 1000),
           checkOut: new Date(Date.now() + 72 * 60 * 60 * 1000),
           totalAmount: 100,
+          orderId: nextOrderId(),
           paymentStatus: "paid",
           bookingStatus: "pending",
           pendingReason: "approval_pending",
@@ -117,6 +121,7 @@ async function runTests() {
           checkIn: new Date(Date.now() + 48 * 60 * 60 * 1000),
           checkOut: new Date(Date.now() + 72 * 60 * 60 * 1000),
           totalAmount: 200,
+          orderId: nextOrderId(),
           paymentStatus: "paid",
           bookingStatus: "pending",
           pendingReason: "approval_pending",
@@ -148,6 +153,7 @@ async function runTests() {
           checkIn: new Date(Date.now() + 48 * 60 * 60 * 1000),
           checkOut: new Date(Date.now() + 72 * 60 * 60 * 1000),
           totalAmount: 150,
+          orderId: nextOrderId(),
           paymentStatus: "paid",
           bookingStatus: "cancelled", // user already cancelled
           isCancelled: true,
@@ -178,6 +184,7 @@ async function runTests() {
           checkIn: new Date(Date.now() + 48 * 60 * 60 * 1000),
           checkOut: new Date(Date.now() + 72 * 60 * 60 * 1000),
           totalAmount: 300,
+          orderId: nextOrderId(),
           paymentStatus: "paid",
           bookingStatus: "pending",
           pendingReason: "approval_pending",
@@ -215,6 +222,7 @@ async function runTests() {
           checkIn: new Date(Date.now() + 48 * 60 * 60 * 1000),
           checkOut: new Date(Date.now() + 72 * 60 * 60 * 1000),
           totalAmount: 250,
+          orderId: nextOrderId(),
           paymentStatus: "paid",
           bookingStatus: "pending",
           pendingReason: "approval_pending",

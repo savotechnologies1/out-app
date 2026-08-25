@@ -19,6 +19,7 @@ const { validationResult } = require("express-validator");
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const HotelAvailability = require("../models/Availability");
+const ServiceAvailability = require("../models/ServiceAvailability");
 const Wallet = require("../models/Wallet");
 const BankDetails = require("../models/BankDetails");
 const WalletTransaction = require("../models/WalletTransaction");
@@ -33,7 +34,27 @@ const Admin = require("../models/Admin");
 const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
 const { authenticaOTP } = require("../functions/authentica");
+const { timeToMinutes } = require("../utils/serviceAvailabilityUtils");
 const User = require("../models/User");
+
+function isSlotInNewSchedule(schedule, date, startTime, endTime) {
+  const dateObj = new Date(date);
+  const dayName = dateObj.toLocaleString("en-US", { weekday: "long" });
+
+  const dayConfig = schedule.find(s => s.day === dayName);
+  if (!dayConfig || !dayConfig.enabled) {
+    return false;
+  }
+
+  const requestedStart = timeToMinutes(startTime);
+  const requestedEnd = timeToMinutes(endTime);
+
+  return dayConfig.slots.some(slot => {
+    const slotStart = timeToMinutes(slot.start);
+    const slotEnd = timeToMinutes(slot.end);
+    return (requestedStart >= slotStart && requestedEnd <= slotEnd);
+  });
+}
 
 
 const serviceLogin = catchAsyncError(async (req, res, next) => {
@@ -1000,7 +1021,6 @@ const addProperties = catchAsyncError(async (req, res, next) => {
   const pool = files?.pool;
   const bathroom = files?.bathroom;
   const document = files?.document;
-
   let obj = {};
 
   switch (incomingCount) {
@@ -1142,19 +1162,33 @@ const addProperties = catchAsyncError(async (req, res, next) => {
       break;
 
     case 10:
-      obj.media = {};
-
-      if (mainImage?.length) {
-        obj.media.mainImage = mainImage.map((f) => f.filename);
-      }
-      if (pool?.length) {
-        obj.media.pool = pool.map((f) => f.filename);
-      }
-      if (bathroom?.length) {
-        obj.media.bathroom = bathroom.map((f) => f.filename);
-      }
-      if (bedroom?.length) {
-        obj.media.bedroom = bedroom.map((f) => f.filename);
+      if (id) {
+        if (mainImage?.length) {
+          obj["media.mainImage"] = mainImage.map((f) => f.filename);
+        }
+        if (pool?.length) {
+          obj["media.pool"] = pool.map((f) => f.filename);
+        }
+        if (bathroom?.length) {
+          obj["media.bathroom"] = bathroom.map((f) => f.filename);
+        }
+        if (bedroom?.length) {
+          obj["media.bedroom"] = bedroom.map((f) => f.filename);
+        }
+      } else {
+        obj.media = {};
+        if (mainImage?.length) {
+          obj.media.mainImage = mainImage.map((f) => f.filename);
+        }
+        if (pool?.length) {
+          obj.media.pool = pool.map((f) => f.filename);
+        }
+        if (bathroom?.length) {
+          obj.media.bathroom = bathroom.map((f) => f.filename);
+        }
+        if (bedroom?.length) {
+          obj.media.bedroom = bedroom.map((f) => f.filename);
+        }
       }
       break;
 
@@ -1527,41 +1561,40 @@ const deleteServices = catchAsyncError(async (req, res, next) => {
 });
 
 const getUpcomingBookings = catchAsyncError(async (req, res) => {
-
   const userId = req.user._id;
-
-  // ✅ Get properties of this service user
-  const properties = await Properties.find({ user: userId })
-    .select("_id")
-    .lean();
-
-  const propertyIds = properties.map(p => p._id);
-
-  // ✅ Get services of this service user
-  const services = await Service.find({ user: userId })
-    .select("_id")
-    .lean();
-
-  const serviceIds = services.map(s => s._id);
+  const { type = "PROPERTY" } = req.query;
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
 
-  const bookings = await Booking.find({
-
-    $or: [
-      { property: { $in: propertyIds } },
-      { "services.service": { $in: serviceIds } }
-    ],
-
-    checkOut: { $gte: today },
+  let filter = {
     bookingStatus: { $in: ["confirmed", "pending"] },
     paymentStatus: "paid"
-  })
+  };
+
+  if (type === "PROPERTY") {
+    const properties = await Properties.find({ user: userId })
+      .select("_id")
+      .lean();
+    const propertyIds = properties.map(p => p._id);
+
+    filter.property = { $in: propertyIds };
+    filter.checkOut = { $gte: today };
+  } else if (type === "SERVICE") {
+    const services = await Service.find({ user: userId })
+      .select("_id")
+      .lean();
+    const serviceIds = services.map(s => s._id);
+
+    filter["services.service"] = { $in: serviceIds };
+    filter["services.serviceDate"] = { $gte: today };
+  }
+
+  const bookings = await Booking.find(filter)
     .populate("user", "firstName lastName phone profile")
     .populate("property", "name address")
     .populate("services.service", "name price duration")
-    .sort({ checkIn: 1 })
+    .sort(type === "PROPERTY" ? { checkIn: 1 } : { createdAt: -1 })
     .lean();
 
   return res.status(200).json({
@@ -1616,36 +1649,57 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
 });
 
 const getBookingCalendar = catchAsyncError(async (req, res) => {
-
   const userId = req.user._id;
-
-  const properties = await Properties.find({ user: userId })
-    .select("_id")
-    .lean();
-
-  const propertyIds = properties.map(p => p._id);
+  const { type = "PROPERTY" } = req.query;
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setUTCHours(0, 0, 0, 0);
 
-  const dates = await HotelAvailability.find({
-    hotel: { $in: propertyIds },
-    isBooked: true,
-    date: { $gte: today }
-  })
-    .select("date booking hotel")
-    .populate({
-      path: "booking",
-      select: "bookingStatus"
+  let data = [];
+
+  if (type === "PROPERTY") {
+    const properties = await Properties.find({ user: userId })
+      .select("_id")
+      .lean();
+
+    const propertyIds = properties.map(p => p._id);
+
+    data = await HotelAvailability.find({
+      hotel: { $in: propertyIds },
+      isBooked: true,
+      date: { $gte: today }
     })
-    .lean();
+      .select("date booking hotel")
+      .populate({
+        path: "booking",
+        select: "bookingStatus"
+      })
+      .lean();
+  } else if (type === "SERVICE") {
+    const services = await Service.find({ user: userId })
+      .select("_id")
+      .lean();
+
+    const serviceIds = services.map(s => s._id);
+
+    data = await ServiceAvailability.find({
+      service: { $in: serviceIds },
+      isBooked: true,
+      date: { $gte: today }
+    })
+      .select("date startTime endTime booking service")
+      .populate({
+        path: "booking",
+        select: "bookingStatus"
+      })
+      .lean();
+  }
 
   return res.status(200).json({
     success: true,
-    data: dates,
+    data: data,
     message: "Calendar data fetched"
   });
-
 });
 
 
@@ -2267,7 +2321,6 @@ function convertToMinutes(time) {
 
 
 const createService = async (req, res) => {
-  console.log("req.body", req.body);
   try {
     const {
       name,
@@ -2278,15 +2331,15 @@ const createService = async (req, res) => {
       maxPersons,
       policies,
       description,
-      workingDays,
-      start,
-      end,
+      schedule,
+      slotDuration,
       city,
       state,
       country,
       lat,
       lng,
-      cancellationPolicy
+      cancellationPolicy,
+      instantBooking
     } = req.body;
 
     if (!name || !category || !price || !lat || !lng) {
@@ -2373,24 +2426,20 @@ const createService = async (req, res) => {
       });
     }
 
-    let duration = null;
-
-    if (start && end) {
-      const startMinutes = convertToMinutes(start);
-      const endMinutes = convertToMinutes(end);
-
-      if (startMinutes === null || endMinutes === null) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid start or end time format"
-        });
-      }
-
-      duration = endMinutes - startMinutes;
-      if (duration <= 0) {
-        duration += 24 * 60; // Handle overnight times (e.g., 12:05PM to 12:05AM)
+    let parsedSchedule = [];
+    if (schedule) {
+      if (typeof schedule === "string") {
+        try {
+          parsedSchedule = JSON.parse(schedule);
+        } catch (e) {
+          return res.status(400).json({ success: false, message: "Invalid schedule format" });
+        }
+      } else {
+        parsedSchedule = schedule;
       }
     }
+
+    const finalSlotDuration = Number(slotDuration || req.body.duration || 60);
 
     const policy = await CancellationPolicy.findOne({
       _id: cancellationPolicy,
@@ -2429,33 +2478,26 @@ const createService = async (req, res) => {
       user: req.user._id,
 
       name,
-
+      instantBooking: instantBooking === "true" || instantBooking === true ? true : false,
       category,
       oldPrice: oldPrice ? Number(oldPrice) : null,
       price: Number(price),
       discountPercent,
       priceType: priceType || "flat",
 
-      // ✅ NEW
       maxPersons: Number(maxPersons) || 1,
 
-      // ✅ NEW
       policies: parsedPolicies,
 
-      duration,
+      duration: finalSlotDuration,
 
       description,
-
-      workingDays,
 
       document,
 
       cancellationPolicy: policy._id,
 
-      workingHours: {
-        start,
-        end
-      },
+      schedule: parsedSchedule,
 
       media: {
         images
@@ -2532,7 +2574,7 @@ const getSingleService = async (req, res) => {
     const service = await Service.findOne({
       _id: req.params.id,
       isDeleted: false
-    }).populate("category", "name icon")
+    }).populate("category", "name icon").populate("cancellationPolicy")
 
     if (!service) {
       return res.status(404).json({ message: "Service not found" });
@@ -2576,15 +2618,15 @@ const updateService = async (req, res) => {
       maxPersons,
       policies,
       description,
-      workingDays,
-      start,
-      end,
+      schedule,
+      slotDuration,
       city,
       state,
       country,
       lat,
       lng,
-      cancellationPolicy
+      cancellationPolicy,
+      instantBooking
     } = req.body;
 
     // ✅ FILE HANDLING FIX
@@ -2640,12 +2682,7 @@ const updateService = async (req, res) => {
       });
     }
 
-    if ((start && !end) || (!start && end)) {
-      return res.status(400).json({
-        success: false,
-        message: "Start and end time must be together"
-      });
-    }
+
 
     if ((lat && !lng) || (!lat && lng)) {
       return res.status(400).json({
@@ -2767,6 +2804,10 @@ const updateService = async (req, res) => {
 
     if (priceType) service.priceType = priceType;
 
+    if (instantBooking !== undefined) {
+      service.instantBooking = instantBooking === "true" || instantBooking === true ? true : false;
+    }
+
     // ✅ NEW
     if (maxPersons) {
       service.maxPersons = Number(maxPersons);
@@ -2785,57 +2826,54 @@ const updateService = async (req, res) => {
       service.description = description.trim();
     }
 
-    // ---------------- WORKING DAYS ----------------
+    // ---------------- WORKING DAYS & SCHEDULE ----------------
 
-    if (workingDays) {
-      const validDays = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday"
-      ];
-
-      const invalid = workingDays.filter(
-        day => !validDays.includes(day)
-      );
-
-      if (invalid.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid workingDays: ${invalid.join(", ")}`
-        });
+    let parsedSchedule = undefined;
+    if (schedule !== undefined) {
+      if (typeof schedule === "string") {
+        try {
+          parsedSchedule = JSON.parse(schedule);
+        } catch (e) {
+          return res.status(400).json({ success: false, message: "Invalid schedule format" });
+        }
+      } else {
+        parsedSchedule = schedule;
       }
-
-      service.workingDays = workingDays;
     }
 
-    // ---------------- TIME + DURATION ----------------
+    if (parsedSchedule !== undefined) {
+      // Validate active bookings conflicts
+      const activeBookings = await Booking.find({
+        "services.service": service._id,
+        bookingStatus: { $in: ["confirmed", "pending"] },
+        paymentStatus: "paid",
+        isCancelled: false
+      });
 
-    if (start || end) {
-      const newStart = start || service.workingHours.start;
-      const newEnd = end || service.workingHours.end;
-
-      const startMinutes = convertToMinutes(newStart);
-      const endMinutes = convertToMinutes(newEnd);
-
-      if (startMinutes === null || endMinutes === null) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid start or end time format"
-        });
+      for (const booking of activeBookings) {
+        const bookedService = booking.services.find(s => s.service.toString() === service._id.toString());
+        if (bookedService && bookedService.serviceDate) {
+          const isValid = isSlotInNewSchedule(
+            parsedSchedule,
+            bookedService.serviceDate,
+            bookedService.serviceStartTime,
+            bookedService.serviceEndTime
+          );
+          if (!isValid) {
+            return res.status(400).json({
+              success: false,
+              message: `Cannot update schedule. Conflict with active booking ${booking.orderId} scheduled on ${bookedService.serviceDate.toISOString().split('T')[0]} at ${bookedService.serviceStartTime}`
+            });
+          }
+        }
       }
 
-      let duration = endMinutes - startMinutes;
-      if (duration <= 0) {
-        duration += 24 * 60; // Handle overnight times (e.g., 12:05PM to 12:05AM)
-      }
+      service.schedule = parsedSchedule;
+    }
 
-      service.workingHours.start = newStart;
-      service.workingHours.end = newEnd;
-      service.duration = duration;
+    const finalSlotDuration = slotDuration || req.body.duration;
+    if (finalSlotDuration !== undefined) {
+      service.duration = Number(finalSlotDuration);
     }
 
     // ---------------- LOCATION TEXT ----------------
@@ -3350,27 +3388,81 @@ const createServiceUserReview = async (req, res) => {
   try {
     const { bookingId, ratingsBreakdown, comment, captions } = req.body;
 
-    // Fetch booking and populate property owner & user
-    const booking = await Booking.findById(bookingId).populate("user property");
+    // Fetch booking and populate property, services & user
+    const booking = await Booking.findById(bookingId).populate("user property services.service");
     if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-    // Ensure reviewer is the property owner
-    if (!booking.property || booking.property.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "You are not the owner of this property" });
+    // Ensure reviewer is either the property owner or the service provider
+    let isAuthorized = false;
+
+    if (booking.property && booking.property.user.toString() === req.user._id.toString()) {
+      isAuthorized = true;
     }
 
-    // Ensure review is after checkout
-    if (new Date() < new Date(booking.checkOut)) {
-      return res.status(400).json({ message: "Review allowed only after checkout" });
+    if (!isAuthorized && booking.services && booking.services.length > 0) {
+      const isServiceProvider = booking.services.some(s =>
+        s.service && s.service.user && s.service.user.toString() === req.user._id.toString()
+      );
+      if (isServiceProvider) {
+        isAuthorized = true;
+      }
     }
 
-    const checkOutDate = new Date(booking.checkOut);
+    if (!isAuthorized) {
+      return res.status(403).json({ message: "You are not authorized to review the guest for this booking" });
+    }
+
+    // Determine completion or checkout date
+    let checkOutDate;
+    if (booking.checkOut) {
+      checkOutDate = new Date(booking.checkOut);
+    } else if (booking.services && booking.services.length > 0) {
+      // Find the service item belonging to this provider
+      const providerService = booking.services.find(s =>
+        s.service && s.service.user && s.service.user.toString() === req.user._id.toString()
+      );
+      if (providerService) {
+        checkOutDate = new Date(providerService.serviceDate);
+        const [hours, minutes] = providerService.serviceEndTime.split(":").map(Number);
+        checkOutDate.setUTCHours(hours, minutes, 0, 0);
+      } else {
+        // Fallback: use the latest service date/time in the booking
+        let latestDate = null;
+        for (const s of booking.services) {
+          if (s.serviceDate && s.serviceEndTime) {
+            const d = new Date(s.serviceDate);
+            const [h, m] = s.serviceEndTime.split(":").map(Number);
+            d.setUTCHours(h, m, 0, 0);
+            if (!latestDate || d > latestDate) {
+              latestDate = d;
+            }
+          }
+        }
+        checkOutDate = latestDate;
+      }
+    }
+
+    if (!checkOutDate) {
+      return res.status(400).json({ message: "No completion or checkout date available for this booking" });
+    }
+
+    // Ensure review is after checkout/completion
+    if (new Date() < checkOutDate) {
+      const isService = !booking.checkOut;
+      return res.status(400).json({
+        message: isService ? "Review allowed only after service completion" : "Review allowed only after checkout"
+      });
+    }
+
     const reviewLastDate = new Date(checkOutDate);
     reviewLastDate.setDate(reviewLastDate.getDate() + 7);
 
     if (new Date() > reviewLastDate) {
+      const isService = !booking.checkOut;
       return res.status(400).json({
-        message: "Review can only be submitted within 7 days after checkout"
+        message: isService
+          ? "Review can only be submitted within 7 days after service completion"
+          : "Review can only be submitted within 7 days after checkout"
       });
     }
 
@@ -3422,7 +3514,7 @@ const createServiceUserReview = async (req, res) => {
     const review = await Review.create({
       reviewer: req.user._id,
       reviewerModel: "ServiceUser",
-      reviewee: booking.user._id,
+      reviewee: booking.user?._id || booking.user,
       revieweeModel: "User",
       booking: bookingId,
       reviewType: "user",
@@ -3979,6 +4071,395 @@ const toggleInstantBooking = async (req, res) => {
   }
 };
 
+const createPropertyInstruction = async (req, res) => {
+  try {
+    const { propertyId } = req.params;
+
+    let instructionsInput = [];
+    if (Array.isArray(req.body)) {
+      instructionsInput = req.body;
+    } else if (req.body && Array.isArray(req.body.instructions)) {
+      instructionsInput = req.body.instructions;
+    } else if (req.body) {
+      instructionsInput = [req.body];
+    }
+
+    if (instructionsInput.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No instructions provided",
+      });
+    }
+
+    const property = await Properties.findOne({
+      _id: propertyId,
+      isDeleted: false,
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    // Ownership check
+    if (property.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    const allowedIcons = ["KEY", "LOCATION", "PARKING", "WIFI", "RULES"];
+    const addedIcons = new Set();
+    const newInstructionsToAdd = [];
+
+    for (const inst of instructionsInput) {
+      const { title, description, icon, sortOrder, isActive } = inst;
+
+      // Validation
+      if (!title || !description || !icon) {
+        continue; // Skip invalid instructions
+      }
+
+      if (!allowedIcons.includes(icon)) {
+        continue; // Skip invalid icons
+      }
+
+      // Prevent duplicate instruction (based on icon)
+      const alreadyExists = property.instructions.some(
+        (existing) => existing.icon === icon
+      ) || addedIcons.has(icon);
+
+      if (alreadyExists) {
+        continue; // Skip duplicate
+      }
+
+      addedIcons.add(icon);
+      newInstructionsToAdd.push({
+        title,
+        description,
+        icon,
+        sortOrder: sortOrder ?? (property.instructions.length + newInstructionsToAdd.length + 1),
+        isActive: isActive !== undefined ? isActive : true,
+      });
+    }
+
+    if (newInstructionsToAdd.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No new instructions were added (all provided were duplicates or invalid)",
+        data: [],
+      });
+    }
+
+    property.instructions.push(...newInstructionsToAdd);
+
+    // Keep sorted
+    property.instructions.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    await property.save();
+
+    // Get the newly created instructions
+    const created = property.instructions.filter(
+      (inst) => addedIcons.has(inst.icon)
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: `${newInstructionsToAdd.length} instruction(s) created successfully`,
+      data: created,
+    });
+  } catch (error) {
+    console.error("Error creating instruction:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+const updatePropertyInstruction = async (req, res) => {
+  try {
+    const { propertyId, instructionId } = req.params;
+    const { title, description, icon, sortOrder, isActive } = req.body;
+
+    const property = await Properties.findOne({
+      _id: propertyId,
+      isDeleted: false,
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found",
+      });
+    }
+
+    // Optional ownership check
+    if (property.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: "Not authorized" });
+    }
+
+    const instruction = property.instructions.id(instructionId);
+
+    if (!instruction) {
+      return res.status(404).json({
+        success: false,
+        message: "Instruction not found",
+      });
+    }
+
+    // Update only provided fields
+    if (title !== undefined) instruction.title = title;
+    if (description !== undefined) instruction.description = description;
+    if (icon !== undefined) {
+      const allowedIcons = ["KEY", "LOCATION", "PARKING", "WIFI", "RULES"];
+      if (!allowedIcons.includes(icon)) {
+        return res.status(400).json({
+          success: false,
+          message: `icon must be one of: ${allowedIcons.join(", ")}`,
+        });
+      }
+      instruction.icon = icon;
+    }
+    if (sortOrder !== undefined) instruction.sortOrder = sortOrder;
+    if (isActive !== undefined) instruction.isActive = isActive;
+
+    // Keep sorted
+    property.instructions.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Instruction updated successfully",
+      data: instruction,
+    });
+  } catch (error) {
+    console.error("Error updating instruction:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+const createServiceInstruction = async (req, res) => {
+  try {
+    const { serviceId } = req.params;
+
+    let instructionsInput = [];
+    if (Array.isArray(req.body)) {
+      instructionsInput = req.body;
+    } else if (req.body && Array.isArray(req.body.instructions)) {
+      instructionsInput = req.body.instructions;
+    } else if (req.body) {
+      instructionsInput = [req.body];
+    }
+
+    if (instructionsInput.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No instructions provided",
+      });
+    }
+
+    const service = await Service.findOne({
+      _id: serviceId,
+      isDeleted: false,
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    // Ownership check
+    if (service.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    const allowedTypes = [
+      "LOCATION",
+      "ARRIVAL",
+      "WHAT_TO_BRING",
+      "PREPARATION",
+      "MEETING_POINT",
+      "DURATION",
+      "REQUIREMENTS",
+      "IMPORTANT_INFO",
+      "CONTACT",
+    ];
+    const addedTypes = new Set();
+    const newInstructionsToAdd = [];
+
+    for (const inst of instructionsInput) {
+      const { title, description, type, sortOrder, isActive } = inst;
+
+      // Validation
+      if (!title || !description || !type) {
+        continue; // Skip invalid instructions
+      }
+
+      if (!allowedTypes.includes(type)) {
+        continue; // Skip invalid types
+      }
+
+      // Prevent duplicate instruction (based on type)
+      const alreadyExists = service.instructions.some(
+        (existing) => existing.type === type
+      ) || addedTypes.has(type);
+
+      if (alreadyExists) {
+        continue; // Skip duplicate
+      }
+
+      addedTypes.add(type);
+      newInstructionsToAdd.push({
+        title,
+        description,
+        type,
+        sortOrder: sortOrder ?? (service.instructions.length + newInstructionsToAdd.length + 1),
+        isActive: isActive !== undefined ? isActive : true,
+      });
+    }
+
+    if (newInstructionsToAdd.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No new instructions were added (all provided were duplicates or invalid)",
+        data: [],
+      });
+    }
+
+    service.instructions.push(...newInstructionsToAdd);
+
+    // Keep sorted
+    service.instructions.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    await service.save();
+
+    // Get the newly created instructions
+    const created = service.instructions.filter(
+      (inst) => addedTypes.has(inst.type)
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: `${newInstructionsToAdd.length} instruction(s) created successfully`,
+      data: created,
+    });
+  } catch (error) {
+    console.error("Error creating instruction:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+const updateServiceInstruction = async (req, res) => {
+  try {
+    const { serviceId, instructionId } = req.params;
+    const { type, title, description, sortOrder, isActive } = req.body;
+
+    const service = await Service.findOne({
+      _id: serviceId,
+      isDeleted: false,
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    // Ownership check
+    if (service.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized",
+      });
+    }
+
+    const instruction = service.instructions.id(instructionId);
+
+    if (!instruction) {
+      return res.status(404).json({
+        success: false,
+        message: "Instruction not found",
+      });
+    }
+
+    // If type is being changed, check for duplicate
+    if (type && type !== instruction.type) {
+      const allowedTypes = [
+        "LOCATION",
+        "ARRIVAL",
+        "WHAT_TO_BRING",
+        "PREPARATION",
+        "MEETING_POINT",
+        "DURATION",
+        "REQUIREMENTS",
+        "IMPORTANT_INFO",
+        "CONTACT",
+      ];
+
+      if (!allowedTypes.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          message: `type must be one of: ${allowedTypes.join(", ")}`,
+        });
+      }
+
+      const alreadyExists = service.instructions.some(
+        (inst) => inst.type === type && inst._id.toString() !== instructionId
+      );
+
+      if (alreadyExists) {
+        return res.status(409).json({
+          success: false,
+          message: `Instruction with type "${type}" already exists`,
+        });
+      }
+
+      instruction.type = type;
+    }
+
+    if (title !== undefined) instruction.title = title;
+    if (description !== undefined) instruction.description = description;
+    if (sortOrder !== undefined) instruction.sortOrder = sortOrder;
+    if (isActive !== undefined) instruction.isActive = isActive;
+
+    service.instructions.sort((a, b) => a.sortOrder - b.sortOrder);
+    await service.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Instruction updated successfully",
+      data: instruction,
+    });
+  } catch (error) {
+    console.error("Error updating instruction:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 
 module.exports = {
   serviceLogin,
@@ -4033,5 +4514,9 @@ module.exports = {
   getAllCommissionsForServiceUser,
   userLoginByServiceProviderToken,
   deleteServiceUserAccount,
-  toggleInstantBooking
+  toggleInstantBooking,
+  createPropertyInstruction,
+  updatePropertyInstruction,
+  createServiceInstruction,
+  updateServiceInstruction
 };

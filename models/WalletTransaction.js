@@ -27,6 +27,7 @@ const walletTransactionSchema = new mongoose.Schema(
             enum: [
                 "booking_hold",
                 "release_on_checkin",
+                "release_on_cancellation",
                 "refund",
                 "withdraw"
             ]

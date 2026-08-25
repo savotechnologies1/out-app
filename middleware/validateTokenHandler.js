@@ -17,7 +17,6 @@ const validateToken = async (req, res, next) => {
     }
 
     const token = authHeader.split(" ")[1];
-
     let decoded;
     try {
       decoded = await verifyJwt(token, process.env.JWT_SECRET);
@@ -31,7 +30,6 @@ const validateToken = async (req, res, next) => {
       { _id: decoded.user._id },
       { tokens: 1, email: 1, role: 1, isActive: 1 }
     ).lean();
-
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }

@@ -32,18 +32,18 @@ app.use(cors({}));
 
 const port = process.env.PORT || 5000;
 
-cron.schedule("0 * * * *", async () => {
-  console.log("Running release cron...");
-  await releaseOnCheckIn();
-  await notifyOnCheckIn();
-});
+// cron.schedule("0 * * * *", async () => {
+//   console.log("Running release cron...");
+//   await releaseOnCheckIn();
+//   await notifyOnCheckIn();
+// });
 
-// Schedule auto-cancellation worker every 5 minutes
-cron.schedule("*/5 * * * *", async () => {
-  await autoCancelExpiredBookings();
-});
-require("./cron/pendingBookingCleanup");
-require("./cron/couponExpire")
+// // Schedule auto-cancellation worker every 5 minutes
+// cron.schedule("*/5 * * * *", async () => {
+//   await autoCancelExpiredBookings();
+// });
+// require("./cron/pendingBookingCleanup");
+// require("./cron/couponExpire")
 // app.use(helmet());
 app.use(
   helmet({

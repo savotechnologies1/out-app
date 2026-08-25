@@ -29,6 +29,45 @@ const generateUniqueShareCode = async (Model) => {
   return code;
 };
 
+const instructionSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: [
+        "LOCATION",
+        "ARRIVAL",
+        "WHAT_TO_BRING",
+        "PREPARATION",
+        "MEETING_POINT",
+        "DURATION",
+        "REQUIREMENTS",
+        "IMPORTANT_INFO",
+        "CONTACT",
+      ],
+      required: true,
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    sortOrder: {
+      type: Number,
+      default: 0,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { _id: true }
+);
+
 const serviceSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "ServiceUser" },
@@ -91,17 +130,22 @@ const serviceSchema = new mongoose.Schema(
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "Admin" },
     approvedAt: Date,
     rejectionReason: String,
-    workingDays: [{
-      type: String,
-      enum: [
-        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
-      ]
-    }],
 
-    workingHours: {
-      start: String,
-      end: String
-    },
+
+    schedule: [{
+      day: {
+        type: String,
+        enum: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+      },
+      enabled: {
+        type: Boolean,
+        default: true
+      },
+      slots: [{
+        start: String,
+        end: String
+      }]
+    }],
 
     media: {
       images: [String]
@@ -134,7 +178,11 @@ const serviceSchema = new mongoose.Schema(
     isDeleted: {
       type: Boolean,
       default: false
-    }
+    },
+    instructions: {
+      type: [instructionSchema],
+      default: [],
+    },
 
   },
   { timestamps: true }
@@ -142,7 +190,7 @@ const serviceSchema = new mongoose.Schema(
 
 serviceSchema.index({ "location.coordinates": "2dsphere" });
 
-serviceSchema.index({ workingDays: 1 });
+
 serviceSchema.index({ isActive: 1, isDeleted: 1 });
 
 serviceSchema.pre("save", async function () {

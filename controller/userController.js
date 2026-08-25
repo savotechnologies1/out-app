@@ -1289,6 +1289,46 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
     },
 
     // =====================================================
+    // CANCELLATION POLICY LOOKUP
+    // =====================================================
+
+    {
+      $lookup: {
+        from: "cancellationpolicies",
+        let: { policyId: "$cancellationPolicy" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$policyId"]
+              }
+            }
+          }
+        ],
+        as: "cancellationPolicyData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$cancellationPolicyData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    {
+      $addFields: {
+        cancellationPolicy: "$cancellationPolicyData"
+      }
+    },
+
+    {
+      $project: {
+        cancellationPolicyData: 0
+      }
+    },
+
+    // =====================================================
     // BOOKMARK LOOKUP
     // =====================================================
 
@@ -1348,7 +1388,7 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
 
   if (data) {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
 
     const activeBookings = await Booking.find({
       property: req.params.id,
@@ -1620,6 +1660,14 @@ const search = catchAsyncError(async (req, res) => {
     radius = 200000;
   }
 
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
   // =========================================================
   // ================= PROPERTY SEARCH =======================
   // =========================================================
@@ -1635,7 +1683,8 @@ const search = catchAsyncError(async (req, res) => {
             isDeleted: false,
             is_completed: true,
             approvalStatus: "approved",
-            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {})
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
+            ...(serviceUserIds.length > 0 ? { user: { $nin: serviceUserIds } } : {})
           }
         },
 
@@ -1718,26 +1767,18 @@ const search = catchAsyncError(async (req, res) => {
       });
 
     }
-    const properties = await Properties.aggregate([
-
+    const propertyPipeline = [
       // ✅ GEO SEARCH INSIDE RADIUS CIRCLE
       {
         $geoNear: {
-
           near: {
             type: "Point",
             coordinates
           },
-
           distanceField: "distance",
-
           spherical: true,
-
-          // ✅ CORRECT KEY
           key: "address.location",
-
-          maxDistance: radius,
-
+          ...(searchMode !== "ANYWHERE" ? { maxDistance: radius } : {}),
           query: {
             isDeleted: false,
             is_completed: true,
@@ -1746,13 +1787,12 @@ const search = catchAsyncError(async (req, res) => {
             maxGuests: {
               $gte: Number(totalGuest)
             },
-
             "address.location.coordinates": {
               $exists: true,
               $ne: []
-            }
+            },
+            ...(serviceUserIds.length > 0 ? { user: { $nin: serviceUserIds } } : {})
           }
-
         }
       },
 
@@ -1768,125 +1808,108 @@ const search = catchAsyncError(async (req, res) => {
             ]
           }
         }
-      },
+      }
+    ];
 
-      // =====================================================
-      // Availability check
-      // =====================================================
+    if (checkIn && checkOut) {
+      const startHotelDate = new Date(checkIn);
+      startHotelDate.setUTCHours(0, 0, 0, 0);
+      const endHotelDate = new Date(checkOut);
+      endHotelDate.setUTCHours(23, 59, 59, 999);
 
-      {
-        $lookup: {
-          from: "hotelavailabilities",
-
-          let: {
-            propertyId: "$_id"
-          },
-
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-
-                    {
-                      $eq: [
-                        "$hotel",
-                        "$$propertyId"
-                      ]
-                    },
-
-                    {
-                      $eq: [
-                        "$isBooked",
-                        true
-                      ]
-                    },
-
-                    ...(checkIn && checkOut
-                      ? [
-                        {
-                          $gte: [
-                            "$date",
-                            new Date(checkIn)
-                          ]
-                        },
-                        {
-                          $lte: [
-                            "$date",
-                            new Date(checkOut)
-                          ]
-                        }
-                      ]
-                      : [])
-
-                  ]
+      propertyPipeline.push(
+        {
+          $lookup: {
+            from: "hotelavailabilities",
+            let: {
+              propertyId: "$_id"
+            },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      {
+                        $eq: [
+                          "$hotel",
+                          "$$propertyId"
+                        ]
+                      },
+                      {
+                        $eq: [
+                          "$isBooked",
+                          true
+                        ]
+                      },
+                      {
+                        $gte: [
+                          "$date",
+                          startHotelDate
+                        ]
+                      },
+                      {
+                        $lte: [
+                          "$date",
+                          endHotelDate
+                        ]
+                      }
+                    ]
+                  }
                 }
               }
+            ],
+            as: "bookedDates"
+          }
+        },
+        {
+          $match: {
+            bookedDates: {
+              $size: 0
             }
-          ],
-
-          as: "bookedDates"
-        }
-      },
-
-      {
-        $match: {
-          bookedDates: {
-            $size: 0
           }
         }
-      },
+      );
+    }
 
-      // =====================================================
-      // FAVORITE LOOKUP
-      // =====================================================
-
+    // Favorite Lookup, Projection, Sorting, Limit
+    propertyPipeline.push(
       {
         $lookup: {
-
           from: "bookmarks",
-
           let: {
             propertyId: "$_id"
           },
-
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-
                     {
                       $eq: [
                         "$property",
                         "$$propertyId"
                       ]
                     },
-
                     {
                       $eq: [
                         "$user",
                         new mongoose.Types.ObjectId(req.user._id)
                       ]
                     },
-
                     {
                       $eq: [
                         "$isDeleted",
                         false
                       ]
                     }
-
                   ]
                 }
               }
             }
           ],
-
           as: "bookmarkData"
         }
       },
-
       {
         $addFields: {
           isFavorite: {
@@ -1899,11 +1922,6 @@ const search = catchAsyncError(async (req, res) => {
           }
         }
       },
-
-      // =====================================================
-      // FINAL RESPONSE
-      // =====================================================
-
       {
         $project: {
           name: 1,
@@ -1916,18 +1934,17 @@ const search = catchAsyncError(async (req, res) => {
           isFavorite: 1
         }
       },
-
       {
         $sort: {
           distance: 1
         }
       },
-
       {
         $limit: 20
       }
+    );
 
-    ]);
+    const properties = await Properties.aggregate(propertyPipeline);
 
     return res.json({
       success: true,
@@ -1953,7 +1970,8 @@ const search = catchAsyncError(async (req, res) => {
             isDeleted: false,
             isActive: true,
             approvalStatus: "approved",
-            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {})
+            ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
+            ...(serviceUserIds.length > 0 ? { user: { $nin: serviceUserIds } } : {})
           }
         },
 
@@ -2050,10 +2068,10 @@ const search = catchAsyncError(async (req, res) => {
     }
 
     const startDate = new Date(checkIn);
-    startDate.setHours(0, 0, 0, 0);
+    startDate.setUTCHours(0, 0, 0, 0);
 
     const endDate = new Date(checkOut);
-    endDate.setHours(23, 59, 59, 999);
+    endDate.setUTCHours(23, 59, 59, 999);
 
     const daysArray = [];
 
@@ -2064,7 +2082,7 @@ const search = catchAsyncError(async (req, res) => {
       daysArray.push(
         current.toLocaleString(
           "en-US",
-          { weekday: "long" }
+          { weekday: "long", timeZone: "UTC" }
         )
       );
 
@@ -2078,49 +2096,57 @@ const search = catchAsyncError(async (req, res) => {
 
       {
         $geoNear: {
-
           near: {
             type: "Point",
             coordinates
           },
-
           distanceField: "distance",
-
           spherical: true,
-
-          // ✅ MUST MATCH INDEX FIELD
           key: "location.coordinates",
-
-          maxDistance: radius,
-
+          ...(searchMode !== "ANYWHERE" ? { maxDistance: radius } : {}),
           query: {
             isDeleted: false,
             isActive: true,
             approvalStatus: "approved",
             ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
-
             "location.coordinates.coordinates": {
               $exists: true,
               $ne: []
+            },
+            ...(serviceUserIds.length > 0 ? { user: { $nin: serviceUserIds } } : {})
+          }
+        }
+      },
+
+      {
+        $addFields: {
+          activeDays: {
+            $map: {
+              input: {
+                $filter: {
+                  input: { $ifNull: ["$schedule", []] },
+                  as: "s",
+                  cond: { $eq: ["$$s.enabled", true] }
+                }
+              },
+              as: "item",
+              in: "$$item.day"
             }
           }
-
         }
       },
 
       // ✅ PRIORITY LOGIC
       {
         $addFields: {
-
           matchedDaysCount: {
             $size: {
               $setIntersection: [
-                "$workingDays",
+                "$activeDays",
                 daysArray
               ]
             }
           },
-
           isExactMatch: {
             $cond: [
               {
@@ -2128,7 +2154,7 @@ const search = catchAsyncError(async (req, res) => {
                   {
                     $size: {
                       $setIntersection: [
-                        "$workingDays",
+                        "$activeDays",
                         daysArray
                       ]
                     }
@@ -2139,8 +2165,28 @@ const search = catchAsyncError(async (req, res) => {
               1,
               0
             ]
+          },
+          // ✅ Calculate total slots defined in schedule for matching days
+          totalSlots: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: { $ifNull: ["$schedule", []] },
+                    as: "s",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$s.enabled", true] },
+                        { $in: ["$$s.day", daysArray] }
+                      ]
+                    }
+                  }
+                },
+                as: "item",
+                in: { $size: { $ifNull: ["$$item.slots", []] } }
+              }
+            }
           }
-
         }
       },
 
@@ -2169,61 +2215,108 @@ const search = catchAsyncError(async (req, res) => {
 
       {
         $lookup: {
-
           from: "serviceavailabilities",
-
           let: {
             serviceId: "$_id"
           },
-
           pipeline: [
             {
               $match: {
                 $expr: {
                   $and: [
-
                     {
                       $eq: [
-                        { $toString: "$service" },
-                        { $toString: "$$serviceId" }
+                        "$service",
+                        "$$serviceId"
                       ]
                     },
-
                     {
                       $eq: [
                         "$isBooked",
                         true
                       ]
                     },
-
                     {
                       $gte: [
                         "$date",
                         startDate
                       ]
                     },
-
                     {
                       $lte: [
                         "$date",
                         endDate
                       ]
                     }
-
                   ]
                 }
               }
             }
           ],
-
           as: "bookedSlots"
         }
       },
 
+      // ✅ Keep service if booked slots < total slots (at least 1 free slot)
       {
         $match: {
-          bookedSlots: {
-            $size: 0
+          $expr: {
+            $and: [
+              { $gt: ["$totalSlots", 0] },
+              { $lt: [{ $size: "$bookedSlots" }, "$totalSlots"] }
+            ]
+          }
+        }
+      },
+
+      // Bookmark Lookup for isFavorite
+      {
+        $lookup: {
+          from: "bookmarks",
+          let: {
+            serviceId: "$_id"
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    {
+                      $eq: [
+                        "$service",
+                        "$$serviceId"
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$user",
+                        new mongoose.Types.ObjectId(req.user._id)
+                      ]
+                    },
+                    {
+                      $eq: [
+                        "$isDeleted",
+                        false
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          as: "bookmarkData"
+        }
+      },
+
+      {
+        $addFields: {
+          isFavorite: {
+            $gt: [
+              {
+                $size: "$bookmarkData"
+              },
+              0
+            ]
           }
         }
       },
@@ -2234,10 +2327,11 @@ const search = catchAsyncError(async (req, res) => {
           price: 1,
           location: 1,
           media: 1,
-          workingDays: 1,
+          schedule: 1,
           distance: 1,
           matchedDaysCount: 1,
-          isExactMatch: 1
+          isExactMatch: 1,
+          isFavorite: 1
         }
       },
 
@@ -2779,7 +2873,7 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
         path: "category",
         model: "ServiceCategory",
         select: "name"
-      })
+      }).populate("cancellationPolicy")
       .lean();
 
     if (!service) {
@@ -3216,28 +3310,19 @@ const createUserReview = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    if (new Date() < new Date(booking.checkOut)) {
-      return res.status(400).json({ message: "Review allowed only after checkout" });
-    }
-    const checkOutDate = new Date(booking.checkOut);
-
-    const reviewLastDate = new Date(checkOutDate);
-
-    reviewLastDate.setDate(reviewLastDate.getDate() + 7);
-
-    if (new Date() > reviewLastDate) {
-      return res.status(400).json({
-        message:
-          "Review can only be submitted within 7 days after checkout"
-      });
-    }
     let reviewee, revieweeModel, property = null, service = null;
+    let checkOutDate;
 
     if (reviewType === "property") {
       if (!booking.property) return res.status(400).json({ message: "No property in booking" });
       reviewee = booking.property.user;
       revieweeModel = "ServiceUser";
       property = booking.property._id;
+
+      if (!booking.checkOut) {
+        return res.status(400).json({ message: "No checkout date available for this property booking" });
+      }
+      checkOutDate = new Date(booking.checkOut);
     }
 
     if (reviewType === "service") {
@@ -3247,6 +3332,32 @@ const createUserReview = async (req, res) => {
       reviewee = serviceItem.service.user;
       revieweeModel = "ServiceUser";
       service = serviceId;
+
+      if (!serviceItem.serviceDate || !serviceItem.serviceEndTime) {
+        return res.status(400).json({ message: "Service date or end time not found in booking" });
+      }
+      checkOutDate = new Date(serviceItem.serviceDate);
+      const [hours, minutes] = serviceItem.serviceEndTime.split(":").map(Number);
+      checkOutDate.setUTCHours(hours, minutes, 0, 0);
+    }
+
+    if (new Date() < checkOutDate) {
+      const isService = reviewType === "service";
+      return res.status(400).json({
+        message: isService ? "Review allowed only after service completion" : "Review allowed only after checkout"
+      });
+    }
+
+    const reviewLastDate = new Date(checkOutDate);
+    reviewLastDate.setDate(reviewLastDate.getDate() + 7);
+
+    if (new Date() > reviewLastDate) {
+      const isService = reviewType === "service";
+      return res.status(400).json({
+        message: isService
+          ? "Review can only be submitted within 7 days after service completion"
+          : "Review can only be submitted within 7 days after checkout"
+      });
     }
 
     const exists = await Review.findOne({
@@ -3836,9 +3947,7 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
 
 const serviceUserLoginByUserToken = catchAsyncError(
   async (req, res, next) => {
-
     const { fcmToken } = req.body;
-
     // ✅ Logged in normal user
     const user = await User.findOne(
       {
@@ -3939,6 +4048,14 @@ const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
 
   const { lastId, limit = 10 } = req.query;
 
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
   const matchStage = {
     user: new mongoose.Types.ObjectId(req.user._id)
   };
@@ -3947,6 +4064,16 @@ const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
     matchStage._id = {
       $lt: new mongoose.Types.ObjectId(lastId)
     };
+  }
+
+  const matchPropertyStage = {
+    "propertyData.isDeleted": false,
+    "propertyData.is_completed": true,
+    "propertyData.approvalStatus": "approved"
+  };
+
+  if (serviceUserIds.length > 0) {
+    matchPropertyStage["propertyData.user"] = { $nin: serviceUserIds };
   }
 
   const data = await RecentlyViewed.aggregate([
@@ -3979,11 +4106,7 @@ const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
     },
 
     {
-      $match: {
-        "propertyData.isDeleted": false,
-        "propertyData.is_completed": true,
-        "propertyData.approvalStatus": "approved"
-      }
+      $match: matchPropertyStage
     },
 
     // Ratings
@@ -4337,6 +4460,28 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
 
   const skip = (parsedPage - 1) * parsedLimit;
 
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isDeleted: false,
+    is_completed: true,
+    approvalStatus: "approved",
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
   // ✅ PIPELINE
   const pipeline = [
 
@@ -4361,20 +4506,7 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
 
         includeLocs: "address.location",
 
-        query: {
-
-          isDeleted: false,
-
-          is_completed: true,
-
-          approvalStatus: "approved",
-
-          "address.location.coordinates": {
-            $exists: true,
-            $ne: []
-          }
-
-        }
+        query: geoNearQuery
 
       }
     },
@@ -4540,20 +4672,7 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
   const data = await Properties.aggregate(pipeline);
 
   // ✅ TOTAL COUNT
-  const total = await Properties.countDocuments({
-
-    isDeleted: false,
-
-    is_completed: true,
-
-    approvalStatus: "approved",
-
-    "address.location.coordinates": {
-      $exists: true,
-      $ne: []
-    }
-
-  });
+  const total = await Properties.countDocuments(geoNearQuery);
 
   // ✅ RESPONSE
   return res.status(200).json({
@@ -4755,6 +4874,29 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
   const skip = (parsedPage - 1) * parsedLimit;
 
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isRecommended: true,
+    isDeleted: false,
+    is_completed: true,
+    approvalStatus: "approved",
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
   // ✅ PIPELINE
   const pipeline = [
 
@@ -4780,23 +4922,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
 
         spherical: true,
 
-        query: {
-
-          isRecommended: true,
-
-          isDeleted: false,
-
-          is_completed: true,
-
-          approvalStatus: "approved",
-
-          // ✅ VALID GEO DOCS
-          "address.location.coordinates": {
-            $exists: true,
-            $ne: []
-          }
-
-        }
+        query: geoNearQuery
 
       }
     },
@@ -4847,22 +4973,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
   const data = await Properties.aggregate(pipeline);
 
   // ✅ TOTAL COUNT
-  const total = await Properties.countDocuments({
-
-    isRecommended: true,
-
-    isDeleted: false,
-
-    is_completed: true,
-
-    approvalStatus: "approved",
-
-    "address.location.coordinates": {
-      $exists: true,
-      $ne: []
-    }
-
-  });
+  const total = await Properties.countDocuments(geoNearQuery);
 
   // ✅ RESPONSE
   return res.status(200).json({
@@ -4920,6 +5031,28 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   const skip = (parsedPage - 1) * parsedLimit;
 
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isDeleted: false,
+    is_completed: true,
+    approvalStatus: "approved",
+    "address.location.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
   // ✅ PIPELINE
   const pipeline = [
 
@@ -4944,20 +5077,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
         includeLocs: "address.location",
 
-        query: {
-
-          isDeleted: false,
-
-          is_completed: true,
-
-          approvalStatus: "approved",
-
-          "address.location.coordinates": {
-            $exists: true,
-            $ne: []
-          }
-
-        }
+        query: geoNearQuery
 
       }
     },
@@ -5182,20 +5302,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
   const data = await Properties.aggregate(pipeline);
 
   // ✅ TOTAL COUNT
-  const total = await Properties.countDocuments({
-
-    isDeleted: false,
-
-    is_completed: true,
-
-    approvalStatus: "approved",
-
-    "address.location.coordinates": {
-      $exists: true,
-      $ne: []
-    }
-
-  });
+  const total = await Properties.countDocuments(geoNearQuery);
 
   // ✅ RESPONSE
   return res.status(200).json({

@@ -1,0 +1,603 @@
+{
+  "info": {
+    "_postman_id": "14f2e96d-3da0-4629-873b-53c7c251410d",
+    "name": "OutApp Service Time-Slot & Booking Flows",
+    "description": "Postman Collection for verifying all four booking scenarios (PROPERTY, SERVICE, PROPERTY_SERVICE, PACKAGE) along with service creation and scheduling management.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Service Management",
+      "item": [
+        {
+          "name": "Create Service (Multi-Window & slotDuration)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Luxury Spa & Massage Session\",\n  \"category\": \"{{CATEGORY_ID}}\",\n  \"price\": 150,\n  \"priceType\": \"flat\",\n  \"maxPersons\": 2,\n  \"description\": \"Premium full-body massage therapy.\",\n  \"slotDuration\": 60,\n  \"schedule\": [\n    {\n      \"day\": \"Monday\",\n      \"enabled\": true,\n      \"slots\": [\n        { \"start\": \"09:00\", \"end\": \"12:00\" },\n        { \"start\": \"14:00\", \"end\": \"17:00\" }\n      ]\n    },\n    {\n      \"day\": \"Wednesday\",\n      \"enabled\": true,\n      \"slots\": [\n        { \"start\": \"10:00\", \"end\": \"13:00\" }\n      ]\n    }\n  ],\n  \"lat\": 24.7136,\n  \"lng\": 46.6753,\n  \"city\": \"Riyadh\",\n  \"state\": \"Riyadh\",\n  \"country\": \"Saudi Arabia\",\n  \"cancellationPolicy\": \"{{POLICY_ID}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/service/createService",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "service",
+                "createService"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Service Schedule & Detect Conflict",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schedule\": [\n    {\n      \"day\": \"Monday\",\n      \"enabled\": true,\n      \"slots\": [\n        { \"start\": \"09:00\", \"end\": \"12:00\" }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/service/updateService/{{SERVICE_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "service",
+                "updateService",
+                "{{SERVICE_ID}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Service Availability Slots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/service/{{SERVICE_ID}}/availability?date=2026-08-24",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "service",
+                "{{SERVICE_ID}}",
+                "availability"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-08-24"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Standalone PROPERTY Booking",
+      "item": [
+        {
+          "name": "Check Property Availability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PROPERTY\",\n  \"hotelId\": \"{{PROPERTY_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/check-availability",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "check-availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Property Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PROPERTY\",\n  \"propertyId\": \"{{PROPERTY_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\",\n  \"adults\": 2,\n  \"children\": 0,\n  \"priceDetails\": {\n    \"finalAmount\": 1500\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/create",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "create"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancel Property Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"CHANGED_MY_MIND\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/cancel/{{BOOKING_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "cancel",
+                "{{BOOKING_ID}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Standalone SERVICE Booking",
+      "item": [
+        {
+          "name": "Check Service Availability & Price",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"SERVICE\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_ID}}\",\n      \"serviceDate\": \"2026-08-24\",\n      \"serviceStartTime\": \"09:00\",\n      \"serviceEndTime\": \"10:00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/check-availability",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "check-availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Service Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"SERVICE\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_ID}}\",\n      \"price\": 150,\n      \"serviceDate\": \"2026-08-24\",\n      \"serviceStartTime\": \"09:00\",\n      \"serviceEndTime\": \"10:00\"\n    }\n  ],\n  \"adults\": 1,\n  \"children\": 0,\n  \"priceDetails\": {\n    \"finalAmount\": 150\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/create",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "create"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancel Service Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"CHANGED_MY_MIND\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/cancel/{{BOOKING_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "cancel",
+                "{{BOOKING_ID}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. PROPERTY_SERVICE Booking Flow",
+      "item": [
+        {
+          "name": "Check Property_Service Availability & Price",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PROPERTY_SERVICE\",\n  \"hotelId\": \"{{PROPERTY_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_ID}}\",\n      \"serviceDate\": \"2026-08-25\",\n      \"serviceStartTime\": \"14:00\",\n      \"serviceEndTime\": \"15:00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/check-availability",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "check-availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Property_Service Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PROPERTY_SERVICE\",\n  \"propertyId\": \"{{PROPERTY_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_ID}}\",\n      \"price\": 150,\n      \"serviceDate\": \"2026-08-25\",\n      \"serviceStartTime\": \"14:00\",\n      \"serviceEndTime\": \"15:00\"\n    }\n  ],\n  \"adults\": 2,\n  \"children\": 0,\n  \"priceDetails\": {\n    \"finalAmount\": 1650\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/create",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "create"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancel Property_Service Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"CHANGED_MY_MIND\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/cancel/{{BOOKING_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "cancel",
+                "{{BOOKING_ID}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. PACKAGE Booking Flow",
+      "item": [
+        {
+          "name": "Check Package Availability & Price",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PACKAGE\",\n  \"packageId\": \"{{PACKAGE_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_1_ID}}\",\n      \"serviceDate\": \"2026-08-24\",\n      \"serviceStartTime\": \"09:00\",\n      \"serviceEndTime\": \"10:00\"\n    },\n    {\n      \"service\": \"{{SERVICE_2_ID}}\",\n      \"serviceDate\": \"2026-08-25\",\n      \"serviceStartTime\": \"14:00\",\n      \"serviceEndTime\": \"15:00\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/check-availability",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "check-availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Package Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookingType\": \"PACKAGE\",\n  \"packageId\": \"{{PACKAGE_ID}}\",\n  \"checkIn\": \"2026-08-24\",\n  \"checkOut\": \"2026-08-27\",\n  \"services\": [\n    {\n      \"service\": \"{{SERVICE_1_ID}}\",\n      \"price\": 100,\n      \"serviceDate\": \"2026-08-24\",\n      \"serviceStartTime\": \"09:00\",\n      \"serviceEndTime\": \"10:00\"\n    },\n    {\n      \"service\": \"{{SERVICE_2_ID}}\",\n      \"price\": 80,\n      \"serviceDate\": \"2026-08-25\",\n      \"serviceStartTime\": \"14:00\",\n      \"serviceEndTime\": \"15:00\"\n    }\n  ],\n  \"adults\": 2,\n  \"children\": 0,\n  \"priceDetails\": {\n    \"finalAmount\": 1980\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/create",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "create"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Cancel Package Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"CHANGED_MY_MIND\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/booking/cancel/{{BOOKING_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "booking",
+                "cancel",
+                "{{BOOKING_ID}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

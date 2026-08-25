@@ -52,7 +52,11 @@ const {
   getAllCommissionsForServiceUser,
   userLoginByServiceProviderToken,
   deleteServiceUserAccount,
-  toggleInstantBooking
+  toggleInstantBooking,
+  updatePropertyInstruction,
+  createPropertyInstruction,
+  createServiceInstruction,
+  updateServiceInstruction
 } = require("../controller/serviceController");
 const { uploads } = require("../functions/upload");
 const validateServiceToken = require("../middleware/validateSericeToken");
@@ -230,5 +234,14 @@ router.delete("/deleteServiceUserAccount", validateServiceToken, deleteServiceUs
 
 router.get("/getUserReviews", validateServiceToken, getUserReviews);
 
-router.patch("/toggleInstantBooking", validateServiceToken, toggleInstantBooking)
+router.patch("/toggleInstantBooking", validateServiceToken, toggleInstantBooking);
+
+router.patch("/updatePropertyInstruction/:propertyId/:instructionId", validateServiceToken, updatePropertyInstruction);
+
+router.post("/createPropertyInstruction/:propertyId", validateServiceToken, createPropertyInstruction);
+
+router.post("/createServiceInstruction/:serviceId", validateServiceToken, createServiceInstruction);
+
+router.patch("/updateServiceInstruction/:serviceId/:instructionId", validateServiceToken, updateServiceInstruction);
+
 module.exports = router;

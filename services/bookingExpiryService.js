@@ -58,7 +58,10 @@ async function autoCancelExpiredBookings() {
             pendingReason: "expired",
             cancellationReason: "PROVIDER_ACCEPTANCE_TIMEOUT",
             cancellationDate: now,
-            autoCancelledAt: now
+            autoCancelledAt: now,
+            refundAmount: booking.totalAmount || 0,
+            refundPercentage: 100,
+            refundStatus: "pending"
           }
         },
         { new: true }
@@ -89,7 +92,8 @@ async function autoCancelExpiredBookings() {
               headers: {
                 Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
                 "Content-Type": "application/json"
-              }
+              },
+              timeout: 10000 // 10 seconds timeout to prevent hanging forever
             }
           );
           tapRefundId = response.data?.id || "REFUNDED_ON_TAP";
@@ -102,11 +106,56 @@ async function autoCancelExpiredBookings() {
         }
       }
 
+      // Clear provider hold balance immediately on auto-cancellation (100% refund)
+      if (updatedBooking.providerBreakdown?.length > 0) {
+        const Wallet = require("../models/Wallet");
+        const WalletTransaction = require("../models/WalletTransaction");
+
+        for (const provider of updatedBooking.providerBreakdown) {
+          const wallet = await Wallet.findOne({ user: provider.user });
+          if (!wallet) continue;
+
+          const holdDeduction = Math.min(wallet.holdBalance, provider.amount);
+          if (holdDeduction > 0) {
+            wallet.holdBalance = Number((wallet.holdBalance - holdDeduction).toFixed(2));
+            await wallet.save();
+
+            await WalletTransaction.create({
+              wallet: wallet._id,
+              user: provider.user,
+              type: "debit",
+              amount: holdDeduction,
+              bookingId: updatedBooking._id,
+              referenceId: provider.referenceId,
+              description: "Pending booking cancellation refund deducted from hold balance",
+              transactionType: "refund",
+            });
+          }
+
+          provider.refundAmount = provider.amount;
+          provider.retainedAmount = 0;
+          provider.payoutReleaseStatus = "RELEASED";
+          provider.payoutReleasedAt = new Date();
+        }
+      }
+
+      // Update refund details in database
+      await Booking.updateOne(
+        { _id: updatedBooking._id },
+        {
+          $set: {
+            refundStatus: refundStatus,
+            refundTransactionId: tapRefundId,
+            providerBreakdown: updatedBooking.providerBreakdown
+          }
+        }
+      );
+
+      // Update properties on the local object for notification payloads
       updatedBooking.refundAmount = refundAmount;
       updatedBooking.refundPercentage = 100;
       updatedBooking.refundStatus = refundStatus;
       updatedBooking.refundTransactionId = tapRefundId;
-      await updatedBooking.save();
 
       // Release availability if blocked
       if (updatedBooking.property) {

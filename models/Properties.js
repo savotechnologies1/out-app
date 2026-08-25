@@ -29,6 +29,36 @@ const generateUniqueShareCode = async (Model) => {
   return code;
 };
 
+const instructionSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    icon: {
+      type: String,
+      enum: ["KEY", "LOCATION", "PARKING", "WIFI", "RULES"],
+      required: true,
+    },
+    sortOrder: {
+      type: Number,
+      default: 0,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { _id: true }
+);
+
+
 const propertiesSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId },
@@ -121,6 +151,10 @@ const propertiesSchema = new mongoose.Schema(
     status: { type: String },
     isDeleted: { type: Boolean, default: false },
     is_completed: { type: Boolean, default: false },
+    instructions: {
+      type: [instructionSchema],
+      default: [],
+    },
   },
   { timestamps: true }
 );

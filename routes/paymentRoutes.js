@@ -10,6 +10,8 @@ const router = app.Router();
 
 router.post("/booking/check-availability", validateToken, bookingController.checkAvailability)
 
+router.get("/service/:serviceId/availability", validateToken, bookingController.getServiceAvailability);
+
 router.post("/booking/create", validateToken, bookingController.createBooking);
 
 router.get("/booking/status/:orderId", validateToken, bookingController.getBookingStatus);
