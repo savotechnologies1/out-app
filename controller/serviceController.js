@@ -627,6 +627,9 @@ const getPropertyById = catchAsyncError(async (req, res) => {
             $group: {
               _id: null,
               avgRating: { $avg: "$rating" },
+              comment: {
+                $push: "$comment"
+              },
               totalReviews: { $sum: 1 }
             }
           }
@@ -703,6 +706,7 @@ const getPropertyById = catchAsyncError(async (req, res) => {
 
         avgRating: 1,
         totalReviews: 1,
+        isActive: 1,
 
         address: {
           fullAddress: "$address.fullAddress",
@@ -4489,6 +4493,41 @@ const updateServiceInstruction = async (req, res) => {
 };
 
 
+const togglePropertyStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const property = await Properties.findOne({
+      _id: id,
+      user: req.user._id,
+      isDeleted: false
+    });
+
+    if (!property) {
+      return res.status(404).json({
+        success: false,
+        message: "Property not found"
+      });
+    }
+
+    property.isActive = property.isActive === undefined ? false : !property.isActive;
+    await property.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Property status updated",
+      data: property
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
 module.exports = {
   serviceLogin,
   serviceSignUp,
@@ -4497,6 +4536,7 @@ module.exports = {
   propertyDetail,
   getServiceUser,
   editServiceUser,
+  togglePropertyStatus,
   deleteProperties,
   serviceVerifyOTP,
   getPropertyById,

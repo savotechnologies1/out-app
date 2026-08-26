@@ -151,6 +151,7 @@ const propertiesSchema = new mongoose.Schema(
     status: { type: String },
     isDeleted: { type: Boolean, default: false },
     is_completed: { type: Boolean, default: false },
+    isActive: { type: Boolean, default: true, index: true },
     instructions: {
       type: [instructionSchema],
       default: [],

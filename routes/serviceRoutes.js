@@ -15,6 +15,7 @@ const {
   deleteServices,
   deleteProperties,
   editProperties,
+  togglePropertyStatus,
   propertyDetail,
   editServiceUser,
   getIncompleteProperty,
@@ -186,6 +187,8 @@ router.put(
 router.delete("/deleteService/:id", validateServiceToken, deleteService);
 
 router.patch("/toggleServiceStatus/:id", validateServiceToken, toggleServiceStatus);
+
+router.patch("/togglePropertyStatus/:id", validateServiceToken, togglePropertyStatus);
 
 router.post("/createPackage", validateServiceToken, createPackage)
 

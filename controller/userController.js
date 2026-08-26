@@ -434,10 +434,12 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
   const otp = generateRandomOTP();
 
   if (user) {
+    await authenticaOTP(otp, user.email, user.phone);
     await User.updateOne({ _id: user._id }, { $set: { OTP: otp } });
   }
 
   if (serviceUser) {
+    await authenticaOTP(otp, serviceUser.email, serviceUser.phone);
     await ServiceUser.updateOne(
       { _id: serviceUser._id },
       { $set: { OTP: otp } }
@@ -446,7 +448,6 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
 
   return res.status(200).send({
     success: true,
-    data: { otp },
     message: "Resent OTP successfully",
   });
 });
@@ -731,7 +732,8 @@ const getAllProperties = async (req, res) => {
     } = req.query;
 
     let matchStage = {
-      isDeleted: false
+      isDeleted: false,
+      isActive: { $ne: false }
     };
 
     //  Search
@@ -867,6 +869,7 @@ const getPropertiesByCategory = catchAsyncError(async (req, res) => {
   const propertyQuery = {
     category: categoryDoc._id,
     isDeleted: false,
+    isActive: { $ne: false },
     is_completed: true,
     approvalStatus: "approved"
   };
@@ -930,6 +933,7 @@ const getHomeProperties = catchAsyncError(async (req, res) => {
             $match: {
               $expr: { $eq: ["$category", "$$categoryId"] },
               isDeleted: false,
+              isActive: { $ne: false },
               is_completed: true,
             },
           },
@@ -961,6 +965,7 @@ const getDashboard = catchAsyncError(async (req, res) => {
   const matchStage = {
     is_completed: true,
     isDeleted: false,
+    isActive: { $ne: false },
     approvalStatus: "approved"
   };
 
@@ -1202,6 +1207,7 @@ const getPropertyDetail = catchAsyncError(async (req, res) => {
     {
       $match: {
         isDeleted: false,
+        isActive: { $ne: false },
         approvalStatus: "approved",
         _id: new mongoose.Types.ObjectId(req.params.id)
       }
@@ -1490,6 +1496,18 @@ const createBooking = async (req, res) => {
     const { hotelId, checkIn, checkOut } = req.body;
     const userId = req.user.id;
 
+    const property = await Properties.findOne({
+      _id: hotelId,
+      isDeleted: false,
+      isActive: { $ne: false }
+    }).session(session);
+
+    if (!property) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: "Property not found" });
+    }
+
     const start = new Date(checkIn);
     const end = new Date(checkOut);
 
@@ -1681,6 +1699,7 @@ const search = catchAsyncError(async (req, res) => {
           $match: {
             shareCode: shareCode.toUpperCase(),
             isDeleted: false,
+            isActive: { $ne: false },
             is_completed: true,
             approvalStatus: "approved",
             ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
@@ -1781,6 +1800,7 @@ const search = catchAsyncError(async (req, res) => {
           ...(searchMode !== "ANYWHERE" ? { maxDistance: radius } : {}),
           query: {
             isDeleted: false,
+            isActive: { $ne: false },
             is_completed: true,
             approvalStatus: "approved",
             ...(categoryId ? { category: new mongoose.Types.ObjectId(categoryId) } : {}),
@@ -3171,18 +3191,11 @@ const getUserFavorites = async (req, res) => {
          🏡 PROPERTY
       ======================== */
 
-      .populate(
-        "property",
-        `
-        name
-        price
-        area
-        address
-        media.mainImage
-        bedRoom
-        restRoom
-        `
-      )
+      .populate({
+        path: "property",
+        select: "name price area address media.mainImage bedRoom restRoom isActive isDeleted",
+        match: { isDeleted: false, isActive: { $ne: false } }
+      })
 
       /* ========================
          🛠️ SERVICE
@@ -3210,48 +3223,50 @@ const getUserFavorites = async (req, res) => {
        🎯 FORMAT RESPONSE
     ======================== */
 
-    const formatted = favorites.map(fav => ({
+    const formatted = favorites
+      .filter(fav => (fav.type === "PROPERTY" && fav.property) || (fav.type === "SERVICE" && fav.service))
+      .map(fav => ({
 
-      id: fav._id,
+        id: fav._id,
 
-      type: fav.type,
+        type: fav.type,
 
-      data: fav.property
-        ? {
+        data: fav.property
+          ? {
 
-          _id: fav.property._id,
+            _id: fav.property._id,
 
-          name: fav.property.name,
+            name: fav.property.name,
 
-          price: fav.property.price,
+            price: fav.property.price,
 
-          sqft: fav.property.area,
+            sqft: fav.property.area,
 
-          bedroom: fav.property?.bedRoom?.numBedroom || 0,
+            bedroom: fav.property?.bedRoom?.numBedroom || 0,
 
-          bathroom: fav.property?.restRoom?.numBathroom || 0,
+            bathroom: fav.property?.restRoom?.numBathroom || 0,
 
-          address: fav.property.address,
+            address: fav.property.address,
 
-          mainImage: fav.property?.media?.mainImage || []
+            mainImage: fav.property?.media?.mainImage || []
 
-        }
+          }
 
-        : {
+          : {
 
-          _id: fav.service._id,
+            _id: fav.service._id,
 
-          name: fav.service.name,
+            name: fav.service.name,
 
-          price: fav.service.price,
+            price: fav.service.price,
 
-          location: fav.service.location,
+            location: fav.service.location,
 
-          images: fav.service?.media?.images || []
+            images: fav.service?.media?.images || []
 
-        }
+          }
 
-    }));
+      }));
 
     const totalPages = Math.ceil(total / limitNumber);
 
@@ -3919,9 +3934,45 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
     },
 
     {
+      $lookup: {
+        from: "properties",
+        localField: "property",
+        foreignField: "_id",
+        as: "propertyData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$propertyData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    {
+      $lookup: {
+        from: "services",
+        localField: "service",
+        foreignField: "_id",
+        as: "serviceData"
+      }
+    },
+
+    {
+      $unwind: {
+        path: "$serviceData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+
+    {
       $project: {
         rating: 1,
-        review: 1,
+        comment: 1,
+        review: "$comment",
+        ratingsBreakdown: 1,
+        photos: 1,
+        reviewType: 1,
         createdAt: 1,
 
         reviewer: {
@@ -3929,10 +3980,60 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
           firstName: "$reviewerData.firstName",
           lastName: "$reviewerData.lastName",
           profile: "$reviewerData.profile"
+        },
+
+        property: {
+          $cond: {
+            if: { $ifNull: ["$propertyData", false] },
+            then: {
+              _id: "$propertyData._id",
+              name: "$propertyData.name"
+            },
+            else: null
+          }
+        },
+
+        service: {
+          $cond: {
+            if: { $ifNull: ["$serviceData", false] },
+            then: {
+              _id: "$serviceData._id",
+              name: "$serviceData.name",
+              media: "$serviceData.media"
+            },
+            else: null
+          }
         }
       }
     }
 
+  ]);
+
+  /* ========================
+     🏡 PROPERTIES & SERVICES
+  ======================== */
+
+  const [properties, services] = await Promise.all([
+    Properties.find({
+      user: userId,
+      isDeleted: false,
+      isActive: { $ne: false },
+      is_completed: true,
+      approvalStatus: "approved"
+    })
+      .populate("category", "category image")
+      .select("name price media.mainImage address.city maxGuests category createdAt isActive")
+      .lean(),
+
+    Service.find({
+      user: userId,
+      isDeleted: false,
+      isActive: true,
+      approvalStatus: "approved"
+    })
+      .populate("category", "category image")
+      .select("name price media.images location.city category createdAt isActive")
+      .lean()
   ]);
 
   /* ========================
@@ -3952,7 +4053,9 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
         months: months < 0 ? 0 : months
       },
 
-      reviewList
+      reviewList,
+      properties,
+      services
     }
   });
 });
@@ -4080,6 +4183,7 @@ const getRecentlyViewedProperties = catchAsyncError(async (req, res) => {
 
   const matchPropertyStage = {
     "propertyData.isDeleted": false,
+    "propertyData.isActive": { $ne: false },
     "propertyData.is_completed": true,
     "propertyData.approvalStatus": "approved"
   };
@@ -4482,6 +4586,7 @@ const getTopRatedProperties = catchAsyncError(async (req, res) => {
 
   const geoNearQuery = {
     isDeleted: false,
+    isActive: { $ne: false },
     is_completed: true,
     approvalStatus: "approved",
     "address.location.coordinates": {
@@ -4897,6 +5002,7 @@ const getRecommendedProperties = catchAsyncError(async (req, res) => {
   const geoNearQuery = {
     isRecommended: true,
     isDeleted: false,
+    isActive: { $ne: false },
     is_completed: true,
     approvalStatus: "approved",
     "address.location.coordinates": {
@@ -5053,6 +5159,7 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
   const geoNearQuery = {
     isDeleted: false,
+    isActive: { $ne: false },
     is_completed: true,
     approvalStatus: "approved",
     "address.location.coordinates": {
@@ -5379,6 +5486,7 @@ const shareItem = catchAsyncError(async (req, res) => {
     data = await Properties.findOne({
       _id: id,
       isDeleted: false,
+      isActive: { $ne: false },
       approvalStatus: "approved",
     }).select("name shareCode");
 

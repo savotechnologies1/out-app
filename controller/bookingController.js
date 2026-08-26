@@ -233,8 +233,11 @@ exports.checkAvailability = async (req, res) => {
 
     if (bookingType === "PROPERTY") {
 
-      const hotel = await Properties.findById(hotelId)
-        .select("price name");
+      const hotel = await Properties.findOne({
+        _id: hotelId,
+        isDeleted: false,
+        isActive: { $ne: false }
+      }).select("price name");
 
       if (!hotel) {
         return res.send({
@@ -362,8 +365,11 @@ exports.checkAvailability = async (req, res) => {
 
       /* -------- PROPERTY CHECK -------- */
 
-      const hotel = await Properties.findById(hotelId)
-        .select("price name");
+      const hotel = await Properties.findOne({
+        _id: hotelId,
+        isDeleted: false,
+        isActive: { $ne: false }
+      }).select("price name");
 
       if (!hotel) {
         return res.send({
@@ -864,7 +870,11 @@ exports.createBooking = async (req, res) => {
         .includes(bookingType)
     ) {
 
-      property = await Properties.findById(propertyId)
+      property = await Properties.findOne({
+        _id: propertyId,
+        isDeleted: false,
+        isActive: { $ne: false }
+      })
         .populate("cancellationPolicy")
         .select(
           "maxGuests category user cancellationPolicy"
