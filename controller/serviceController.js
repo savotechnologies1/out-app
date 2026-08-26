@@ -3794,6 +3794,33 @@ const getServiceProviderDashboard = async (req, res) => {
     }
 
     /* ========================
+       ⏳ LATEST PENDING BOOKINGS
+    ======================== */
+    const latestPendingBookings = await Booking.find({
+      "providerBreakdown.user": userId,
+      paymentStatus: "paid",
+      bookingStatus: "pending",
+      isCancelled: false
+    })
+      .select(
+        "bookingType bookingStatus pendingReason paymentStatus totalAmount checkIn checkOut createdAt providerBreakdown property services user"
+      )
+      .populate(
+        "user",
+        "firstName lastName profile phone"
+      )
+      .populate(
+        "property",
+        "name media address"
+      )
+      .populate(
+        "services.service",
+        "name media"
+      )
+      .sort({ createdAt: -1 })
+      .limit(4);
+
+    /* ========================
        📦 RESPONSE
     ======================== */
     res.status(200).json({
@@ -3815,7 +3842,8 @@ const getServiceProviderDashboard = async (req, res) => {
           pendingServiceBookings
         },
         transactions,
-        reviews
+        reviews,
+        latestPendingBookings
       }
     });
 

@@ -318,6 +318,15 @@ exports.paymentWebhook = async (req, res) => {
       }
 
       /* ===============================================
+         AUTO-CANCEL CONFLICTING PENDING BOOKINGS
+      =============================================== */
+
+      if (booking.bookingStatus === "confirmed") {
+        const { autoCancelConflictingBookings } = require("./bookingController");
+        await autoCancelConflictingBookings(booking);
+      }
+
+      /* ===============================================
          COUPON USAGE
       =============================================== */
 

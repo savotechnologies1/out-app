@@ -37,13 +37,13 @@ async function runTests() {
 
   // Clean DB before starting
   const cleanDb = async () => {
-    const testBookings = await Booking.find({ 
-      $or: [{ user: mockUserId }, { orderId: "ORD_TEST_WEBHOOK" }] 
+    const testBookings = await Booking.find({
+      $or: [{ user: mockUserId }, { orderId: "ORD_TEST_WEBHOOK" }]
     }).select("_id");
     const testBookingIds = testBookings.map(b => b._id);
 
-    await Booking.deleteMany({ 
-      $or: [{ user: mockUserId }, { orderId: "ORD_TEST_WEBHOOK" }] 
+    await Booking.deleteMany({
+      $or: [{ user: mockUserId }, { orderId: "ORD_TEST_WEBHOOK" }]
     });
     await Properties.deleteMany({ name: { $in: ["Luxury Villa", "Villa"] } });
     await Service.deleteMany({ name: { $in: ["Spa Massage", "Haircut", "Massage"] } });
@@ -55,6 +55,32 @@ async function runTests() {
 
   try {
     await cleanDb();
+
+    const getNextDayOfWeek = (dayName) => {
+      const days = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+      const targetDay = days[dayName.toLowerCase()];
+      const resultDate = new Date();
+      resultDate.setDate(resultDate.getDate() + ((targetDay + 7 - resultDate.getDay()) % 7 || 7));
+      resultDate.setUTCHours(0, 0, 0, 0);
+      return resultDate;
+    };
+
+    const formatDateStr = (date) => {
+      return date.toISOString().split("T")[0];
+    };
+
+    const mondayDate = getNextDayOfWeek("Monday");
+    const tuesdayDate = new Date(mondayDate);
+    tuesdayDate.setDate(mondayDate.getDate() + 1);
+    const thursdayDate = new Date(mondayDate);
+    thursdayDate.setDate(mondayDate.getDate() + 3);
+    const sundayDate = new Date(mondayDate);
+    sundayDate.setDate(mondayDate.getDate() - 1);
+
+    const mondayStr = formatDateStr(mondayDate);
+    const tuesdayStr = formatDateStr(tuesdayDate);
+    const sundayStr = formatDateStr(sundayDate);
+    const thursdayStr = formatDateStr(thursdayDate);
 
     // Create test property
     const property = await Properties.create({
@@ -109,14 +135,14 @@ async function runTests() {
     // TEST 1: Slot Generation Utility
     // ---------------------------------------------------
     {
-      const slotsS1 = generateServiceSlots(service1, "2026-08-24"); // Monday
+      const slotsS1 = generateServiceSlots(service1, mondayStr); // Monday
       assert.strictEqual(slotsS1.length, 3, "Service 1 should generate 3 slots of 60 mins each");
       assert.deepStrictEqual(slotsS1[0], { startTime: "09:00", endTime: "10:00" });
 
-      const slotsS2 = generateServiceSlots(service2, "2026-08-25"); // Tuesday - Not working day
+      const slotsS2 = generateServiceSlots(service2, tuesdayStr); // Tuesday - Not working day
       assert.strictEqual(slotsS2.length, 0, "Service 2 should generate 0 slots on a non-working day");
 
-      const slotsS2_sunday = generateServiceSlots(service2, "2026-08-23"); // Sunday
+      const slotsS2_sunday = generateServiceSlots(service2, sundayStr); // Sunday
       assert.strictEqual(slotsS2_sunday.length, 2, "Service 2 should generate 2 slots of 30 mins each on Sunday");
       assert.deepStrictEqual(slotsS2_sunday[0], { startTime: "14:00", endTime: "14:30" });
 
@@ -128,15 +154,15 @@ async function runTests() {
     // ---------------------------------------------------
     {
       // Valid slot
-      const check1 = await validateServiceSlot(service1, "2026-08-24", "09:00", "10:00");
+      const check1 = await validateServiceSlot(service1, mondayStr, "09:00", "10:00");
       assert.strictEqual(check1.valid, true);
 
       // Outside working hours
-      const check2 = await validateServiceSlot(service1, "2026-08-24", "08:00", "09:00");
+      const check2 = await validateServiceSlot(service1, mondayStr, "08:00", "09:00");
       assert.strictEqual(check2.valid, false);
 
       // Wrong day
-      const check3 = await validateServiceSlot(service2, "2026-08-25", "14:00", "14:30");
+      const check3 = await validateServiceSlot(service2, tuesdayStr, "14:00", "14:30");
       assert.strictEqual(check3.valid, false);
 
       console.log("✅ Test 2 Passed: validateServiceSlot correctly asserts working hours and working days.");
@@ -146,7 +172,7 @@ async function runTests() {
     // TEST 3: Standalone SERVICE booking slot reservation & double-booking prevention
     // ---------------------------------------------------
     {
-      // Create first booking for Service 1 on 2026-08-24 from 09:00 to 10:00
+      // Create first booking for Service 1 on Monday from 09:00 to 10:00
       const booking1 = await Booking.create({
         orderId: "ORD_TEST3_" + Math.random().toString(36).substring(7).toUpperCase(),
         bookingType: "SERVICE",
@@ -154,7 +180,7 @@ async function runTests() {
         services: [{
           service: service1Id,
           price: 150,
-          serviceDate: new Date("2026-08-24"),
+          serviceDate: mondayDate,
           serviceStartTime: "09:00",
           serviceEndTime: "10:00"
         }],
@@ -167,7 +193,7 @@ async function runTests() {
       // Simulate reservation
       await ServiceAvailability.create({
         service: service1Id,
-        date: new Date("2026-08-24"),
+        date: mondayDate,
         startTime: "09:00",
         endTime: "10:00",
         booking: booking1._id,
@@ -175,11 +201,11 @@ async function runTests() {
       });
 
       // Verify validation rejects double-booking overlapping slot
-      const checkOverlap = await validateServiceSlot(service1, "2026-08-24", "09:00", "10:00");
+      const checkOverlap = await validateServiceSlot(service1, mondayStr, "09:00", "10:00");
       assert.strictEqual(checkOverlap.valid, false, "Overlapping slot must be invalid");
 
       // Verify validation allows non-overlapping slot on same day
-      const checkNonOverlap = await validateServiceSlot(service1, "2026-08-24", "10:00", "11:00");
+      const checkNonOverlap = await validateServiceSlot(service1, mondayStr, "10:00", "11:00");
       assert.strictEqual(checkNonOverlap.valid, true, "Non-overlapping slot must be valid");
 
       console.log("✅ Test 3 Passed: Standalone SERVICE booking correctly prevents double-booking.");
@@ -212,12 +238,12 @@ async function runTests() {
         bookingType: "PROPERTY_SERVICE",
         user: mockUserId,
         property: p._id,
-        checkIn: new Date("2026-08-24"),
-        checkOut: new Date("2026-08-27"),
+        checkIn: mondayDate,
+        checkOut: thursdayDate,
         services: [{
           service: s._id,
           price: 100,
-          serviceDate: new Date("2026-08-24"),
+          serviceDate: mondayDate,
           serviceStartTime: "10:00",
           serviceEndTime: "11:00"
         }],
@@ -337,7 +363,7 @@ async function runTests() {
         location: { coordinates: { coordinates: [46.6753, 24.7136] } }
       });
 
-      const slots = generateServiceSlots(service, "2026-08-24");
+      const slots = generateServiceSlots(service, mondayStr);
       assert.strictEqual(slots.length, 4, "Should generate exactly 4 slots");
       assert.deepStrictEqual(slots, [
         { startTime: "09:00", endTime: "10:00" },
@@ -353,7 +379,7 @@ async function runTests() {
         services: [{
           service: service._id,
           price: 120,
-          serviceDate: new Date("2026-08-24"),
+          serviceDate: mondayDate,
           serviceStartTime: "13:00",
           serviceEndTime: "14:00"
         }],
@@ -398,6 +424,300 @@ async function runTests() {
 
       await updateService(mockReq, mockRes);
       console.log("✅ Test 6 Passed: Service creation, multiple windows, and update conflict detection are verified.");
+    }
+
+    // ---------------------------------------------------
+    // TEST 7: Auto-rejection of conflicting pending bookings on confirmation
+    // ---------------------------------------------------
+    {
+      await cleanDb();
+
+      // Create a service
+      const service = await Service.create({
+        user: mockProviderId,
+        name: "Test Conflict Service 7",
+        price: 100,
+        duration: 60,
+        schedule: [
+          { day: "Monday", enabled: true, slots: [{ start: "09:00", end: "10:00" }] }
+        ],
+        document: "dummy.pdf",
+        cancellationPolicy: new mongoose.Types.ObjectId(),
+        location: { coordinates: { coordinates: [46.6753, 24.7136] } }
+      });
+
+      // Create Booking 1 (will be confirmed)
+      const booking1 = await Booking.create({
+        orderId: "ORD_TEST7_1_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "09:00",
+          serviceEndTime: "10:00"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Create Booking 2 (conflicting, will be auto-cancelled)
+      const booking2 = await Booking.create({
+        orderId: "ORD_TEST7_2_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "09:00",
+          serviceEndTime: "10:00"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Approve Booking 1
+      const mockReq = {
+        params: { bookingId: booking1._id.toString() },
+        body: { status: "confirmed" },
+        user: { _id: mockProviderId }
+      };
+
+      const mockRes = {
+        statusCode: 200,
+        status: (code) => {
+          mockRes.statusCode = code;
+          return mockRes;
+        },
+        json: (data) => {
+          mockRes.jsonData = data;
+          return mockRes;
+        },
+        send: (data) => {
+          mockRes.sendData = data;
+          return mockRes;
+        }
+      };
+
+      await updateBookingApprovalStatus(mockReq, mockRes);
+
+      assert.strictEqual(mockRes.statusCode, 200, "Approve request should succeed with status 200");
+      assert.strictEqual(mockRes.jsonData?.success, true, "Response should have success: true");
+
+      // Verify booking1 is confirmed
+      const updatedBooking1 = await Booking.findById(booking1._id);
+      assert.strictEqual(updatedBooking1.bookingStatus, "confirmed", "Booking 1 should be confirmed");
+
+      // Verify service availability for booking1 is reserved
+      const serviceAvails = await ServiceAvailability.find({ booking: booking1._id });
+      assert.strictEqual(serviceAvails.length, 1, "Service availability slot should be reserved");
+
+      // Verify booking2 is automatically cancelled
+      const updatedBooking2 = await Booking.findById(booking2._id);
+      assert.strictEqual(updatedBooking2.bookingStatus, "cancelled", "Booking 2 should be automatically cancelled");
+      assert.strictEqual(updatedBooking2.pendingReason, null, "Booking 2 pending reason should be null");
+
+      console.log("✅ Test 7 Passed: Auto-rejection of conflicting pending bookings on confirmation verified successfully.");
+    }
+
+    // ---------------------------------------------------
+    // TEST 8: Consecutive slots (non-overlapping) do not trigger auto-rejection
+    // ---------------------------------------------------
+    {
+      await cleanDb();
+
+      // Create a service
+      const service = await Service.create({
+        user: mockProviderId,
+        name: "Test Conflict Service 8",
+        price: 100,
+        duration: 120, // 2 hours
+        schedule: [
+          { day: "Monday", enabled: true, slots: [{ start: "15:00", end: "20:00" }] }
+        ],
+        document: "dummy.pdf",
+        cancellationPolicy: new mongoose.Types.ObjectId(),
+        location: { coordinates: { coordinates: [46.6753, 24.7136] } }
+      });
+
+      // Create Booking 1 (will be confirmed: 17:01 - 19:01)
+      const booking1 = await Booking.create({
+        orderId: "ORD_TEST8_1_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "17:01",
+          serviceEndTime: "19:01"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Create Booking 2 (consecutive: 15:01 - 17:01)
+      const booking2 = await Booking.create({
+        orderId: "ORD_TEST8_2_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "15:01",
+          serviceEndTime: "17:01"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Approve Booking 1 (17:01 - 19:01)
+      const mockReq = {
+        params: { bookingId: booking1._id.toString() },
+        body: { status: "confirmed" },
+        user: { _id: mockProviderId }
+      };
+
+      const mockRes = {
+        statusCode: 200,
+        status: (code) => {
+          mockRes.statusCode = code;
+          return mockRes;
+        },
+        json: (data) => {
+          mockRes.jsonData = data;
+          return mockRes;
+        }
+      };
+
+      await updateBookingApprovalStatus(mockReq, mockRes);
+
+      assert.strictEqual(mockRes.statusCode, 200, "Approve request should succeed with status 200");
+
+      // Verify booking1 is confirmed
+      const updatedBooking1 = await Booking.findById(booking1._id);
+      assert.strictEqual(updatedBooking1.bookingStatus, "confirmed", "Booking 1 should be confirmed");
+
+      // Verify booking2 remains pending (since consecutive slots do not conflict)
+      const updatedBooking2 = await Booking.findById(booking2._id);
+      assert.strictEqual(updatedBooking2.bookingStatus, "pending", "Booking 2 should remain pending");
+      assert.strictEqual(updatedBooking2.pendingReason, "approval_pending", "Booking 2 pending reason should remain approval_pending");
+
+      console.log("✅ Test 8 Passed: Consecutive slots do not trigger auto-rejection verified successfully.");
+    }
+
+    // ---------------------------------------------------
+    // TEST 9: Identical slots trigger auto-rejection and refund
+    // ---------------------------------------------------
+    {
+      await cleanDb();
+
+      // Create a service
+      const service = await Service.create({
+        user: mockProviderId,
+        name: "Test Conflict Service 9",
+        price: 100,
+        duration: 120, // 2 hours
+        schedule: [
+          { day: "Monday", enabled: true, slots: [{ start: "15:00", end: "20:00" }] }
+        ],
+        document: "dummy.pdf",
+        cancellationPolicy: new mongoose.Types.ObjectId(),
+        location: { coordinates: { coordinates: [46.6753, 24.7136] } }
+      });
+
+      // Create Booking 1 (will be confirmed: 17:01 - 19:01)
+      const booking1 = await Booking.create({
+        orderId: "ORD_TEST9_1_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "17:01",
+          serviceEndTime: "19:01"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Create Booking 2 (overlapping: 17:01 - 19:01)
+      const booking2 = await Booking.create({
+        orderId: "ORD_TEST9_2_" + Math.random().toString(36).substring(7).toUpperCase(),
+        bookingType: "SERVICE",
+        user: mockUserId,
+        services: [{
+          service: service._id,
+          price: 100,
+          serviceDate: mondayDate,
+          serviceStartTime: "17:01",
+          serviceEndTime: "19:01"
+        }],
+        totalAmount: 100,
+        paymentStatus: "paid",
+        webhookProcessed: true,
+        bookingStatus: "pending",
+        pendingReason: "approval_pending",
+        providerBreakdown: [{ user: mockProviderId, amount: 90, type: "service", referenceId: service._id }]
+      });
+
+      // Approve Booking 1 (17:01 - 19:01)
+      const mockReq = {
+        params: { bookingId: booking1._id.toString() },
+        body: { status: "confirmed" },
+        user: { _id: mockProviderId }
+      };
+
+      const mockRes = {
+        statusCode: 200,
+        status: (code) => {
+          mockRes.statusCode = code;
+          return mockRes;
+        },
+        json: (data) => {
+          mockRes.jsonData = data;
+          return mockRes;
+        }
+      };
+
+      await updateBookingApprovalStatus(mockReq, mockRes);
+
+      assert.strictEqual(mockRes.statusCode, 200, "Approve request should succeed with status 200");
+
+      // Verify booking1 is confirmed
+      const updatedBooking1 = await Booking.findById(booking1._id);
+      assert.strictEqual(updatedBooking1.bookingStatus, "confirmed", "Booking 1 should be confirmed");
+
+      // Verify booking2 is auto-cancelled/rejected (since they have identical slots)
+      const updatedBooking2 = await Booking.findById(booking2._id);
+      assert.strictEqual(updatedBooking2.bookingStatus, "cancelled", "Booking 2 should be automatically cancelled");
+      assert.strictEqual(updatedBooking2.pendingReason, null, "Booking 2 pending reason should be null");
+
+      console.log("✅ Test 9 Passed: Identical slots trigger auto-rejection verified successfully.");
     }
 
     // Clean up & Disconnect

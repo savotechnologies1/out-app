@@ -18,7 +18,7 @@ const PaymentTransaction = require("../models/PaymentTransaction");
 const Notification = require("../models/Notification");
 const Review = require("../models/Review");
 const { calculateAcceptanceDeadline } = require("../services/bookingExpiryService");
-const { validateServiceSlot, getAvailableSlots, reserveServiceSlots } = require("../utils/serviceAvailabilityUtils");
+const { validateServiceSlot, getAvailableSlots, reserveServiceSlots, timeToMinutes } = require("../utils/serviceAvailabilityUtils");
 
 
 function getDatesBetween(startDate, endDate) {
@@ -42,6 +42,132 @@ const getZeroTimeDate = (d) => {
   nd.setUTCHours(0, 0, 0, 0);
   return nd;
 };
+
+const checkBookingsConflict = (bookingA, bookingB) => {
+  if (
+    bookingA.property &&
+    bookingB.property &&
+    bookingA.property.toString() === bookingB.property.toString() &&
+    bookingA.checkIn &&
+    bookingA.checkOut &&
+    bookingB.checkIn &&
+    bookingB.checkOut
+  ) {
+    const datesA = getDatesBetween(bookingA.checkIn, bookingA.checkOut).map(d => getZeroTimeDate(d).getTime());
+    const datesB = getDatesBetween(bookingB.checkIn, bookingB.checkOut).map(d => getZeroTimeDate(d).getTime());
+    const propertyOverlap = datesA.some(time => datesB.includes(time));
+    if (propertyOverlap) {
+      return true;
+    }
+  }
+
+  if (bookingA.services?.length > 0 && bookingB.services?.length > 0) {
+    for (const sA of bookingA.services) {
+      for (const sB of bookingB.services) {
+        const sA_id = sA.service?._id || sA.service;
+        const sB_id = sB.service?._id || sB.service;
+
+        if (sA_id && sB_id && sA_id.toString() === sB_id.toString()) {
+          const dateA = getZeroTimeDate(sA.serviceDate).getTime();
+          const dateB = getZeroTimeDate(sB.serviceDate).getTime();
+
+          if (dateA === dateB) {
+            const startA = timeToMinutes(sA.serviceStartTime);
+            const endA = timeToMinutes(sA.serviceEndTime);
+            const startB = timeToMinutes(sB.serviceStartTime);
+            const endB = timeToMinutes(sB.serviceEndTime);
+
+            if (startA < endB && endA > startB) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+};
+
+const autoCancelConflictingBookings = async (confirmedBooking) => {
+  try {
+    const pendingBookings = await Booking.find({
+      _id: { $ne: confirmedBooking._id },
+      paymentStatus: "paid",
+      bookingStatus: "pending",
+      pendingReason: "approval_pending"
+    });
+
+    const conflictingBookings = [];
+    for (const pending of pendingBookings) {
+      if (checkBookingsConflict(confirmedBooking, pending)) {
+        conflictingBookings.push(pending);
+      }
+    }
+
+    for (const confBooking of conflictingBookings) {
+      confBooking.bookingStatus = "cancelled";
+      confBooking.rejectReason = "Booking auto-rejected due to too many bookings at a time, sorry for the inconvience";
+      confBooking.pendingReason = null;
+      await confBooking.save();
+
+      if (confBooking.tapChargeId && confBooking.totalAmount > 0) {
+        try {
+          const response = await axios.post(
+            "https://api.tap.company/v2/refunds",
+            {
+              charge_id: confBooking.tapChargeId,
+              amount: Number(confBooking.totalAmount),
+              currency: "SAR",
+              reason: "Booking auto-rejected due to schedule conflict",
+              reference: {
+                merchant: confBooking.orderId,
+              },
+            },
+            {
+              headers: {
+                Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+                "Content-Type": "application/json",
+              },
+            }
+          );
+
+          confBooking.refundTransactionId = response.data?.id;
+          confBooking.refundAmount = confBooking.totalAmount;
+          confBooking.refundStatus = "processed";
+          confBooking.isCancelled = true;
+          confBooking.cancellationDate = new Date();
+          await confBooking.save();
+        } catch (err) {
+          console.error(
+            `Conflict auto-refund failed for booking ${confBooking._id}:`,
+            err.response?.data || err.message
+          );
+          confBooking.refundStatus = "failed";
+          await confBooking.save();
+        }
+      }
+
+      try {
+        await sendNotification({
+          receiverId: confBooking.user,
+          receiverModel: "User",
+          title: "Booking Rejected ❌",
+          body: "Your booking has been rejected because the requested slot is no longer available, and a full refund has been initiated.",
+          type: "BOOKING",
+          referenceId: confBooking._id,
+          referenceType: "Booking",
+        });
+      } catch (notifErr) {
+        console.error(`Failed to send notification for auto-cancelled booking ${confBooking._id}:`, notifErr);
+      }
+    }
+  } catch (conflictErr) {
+    console.error("Error auto-cancelling conflicting bookings:", conflictErr);
+  }
+};
+
+exports.autoCancelConflictingBookings = autoCancelConflictingBookings;
 
 exports.checkAvailability = async (req, res) => {
   try {
@@ -2624,6 +2750,47 @@ exports.updateBookingApprovalStatus = async (req, res) => {
     }
 
     /* =========================================
+       CHECK IF ALREADY BOOKED (PREVENT 500)
+    ========================================= */
+
+    if (status === "confirmed") {
+      if (booking.property) {
+        const dates = getDatesBetween(booking.checkIn, booking.checkOut);
+        const conflictingAvail = await HotelAvailability.findOne({
+          hotel: booking.property,
+          date: { $in: dates }
+        });
+        if (conflictingAvail) {
+          return res.status(400).send({
+            message: "Property is already booked for these dates"
+          });
+        }
+      }
+
+      if (booking.services?.length > 0) {
+        for (const item of booking.services) {
+          const serviceId = item.service._id || item.service;
+          const date = new Date(item.serviceDate);
+          date.setUTCHours(0, 0, 0, 0);
+
+          const conflictingAvail = await ServiceAvailability.findOne({
+            service: serviceId,
+            date,
+            startTime: item.serviceStartTime,
+            endTime: item.serviceEndTime,
+            isBooked: true
+          });
+
+          if (conflictingAvail) {
+            return res.status(400).send({
+              message: "Requested slot is already booked"
+            });
+          }
+        }
+      }
+    }
+
+    /* =========================================
        UPDATE BOOKING STATUS
     ========================================= */
 
@@ -2719,6 +2886,11 @@ exports.updateBookingApprovalStatus = async (req, res) => {
           });
         }
       }
+
+      /* =========================================
+         AUTO-CANCEL CONFLICTING PENDING BOOKINGS
+      ========================================= */
+      await autoCancelConflictingBookings(booking);
     }
 
     /* =========================================
@@ -2732,7 +2904,6 @@ exports.updateBookingApprovalStatus = async (req, res) => {
     ) {
 
       try {
-
         const response =
           await axios.post(
             "https://api.tap.company/v2/refunds",

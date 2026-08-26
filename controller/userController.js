@@ -2371,6 +2371,17 @@ const getLatestServices = catchAsyncError(async (req, res) => {
 
   const { lastCategoryId, limit = 5 } = req.query;
 
+  const user = await User.findById(req.user._id, "phone").lean();
+  const phone = user?.phone;
+
+  const excludedProviderIds = [new mongoose.Types.ObjectId(req.user._id)];
+  if (phone) {
+    const serviceUsers = await ServiceUser.find({ phone }, "_id").lean();
+    serviceUsers.forEach((su) => {
+      excludedProviderIds.push(su._id);
+    });
+  }
+
   const categoryMatch = {};
 
   // Cursor pagination on categories
@@ -2411,6 +2422,7 @@ const getLatestServices = catchAsyncError(async (req, res) => {
 
           {
             $match: {
+              user: { $nin: excludedProviderIds },
               $expr: {
                 $and: [
                   { $eq: ["$category", "$$categoryId"] },
