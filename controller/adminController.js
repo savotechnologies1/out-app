@@ -45,6 +45,7 @@ const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 const Notification = require("../models/Notification");
 const { sendNotification } = require("../utils/notificationService");
 const Ticket = require("../models/Ticket");
+const ServiceAvailability = require("../models/ServiceAvailability");
 
 
 // const adminLogin = catchAsyncError(async (req, res, next) => {
@@ -3847,28 +3848,27 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
     rangeEnd.setDate(rangeEnd.getDate() + 60);
   }
 
-  // Booked dates lookup map
-  const bookedDateMap = new Map();
+  // Booked slots lookup map
+  const bookedSlotMap = new Map();
   bookedAvailability.forEach(item => {
-    if (item.date) {
+    if (item.date && item.startTime && item.endTime) {
       const dateStr = new Date(item.date).toISOString().split("T")[0];
-      bookedDateMap.set(dateStr, item);
+      const key = `${dateStr}_${item.startTime}_${item.endTime}`;
+      bookedSlotMap.set(key, item);
     }
   });
 
-  // Cancelled dates lookup map
-  const cancelledDateMap = new Map();
+  // Cancelled slots lookup map
+  const cancelledSlotMap = new Map();
   cancelledBookings.forEach(b => {
-    if (b.checkIn && b.checkOut) {
-      let d = new Date(b.checkIn);
-      const end = new Date(b.checkOut);
-      while (d < end) {
-        const dateStr = d.toISOString().split("T")[0];
-        if (!cancelledDateMap.has(dateStr)) {
-          cancelledDateMap.set(dateStr, b);
+    if (b.services) {
+      b.services.forEach(s => {
+        if (s.service && s.service.toString() === serviceId && s.serviceDate) {
+          const dateStr = new Date(s.serviceDate).toISOString().split("T")[0];
+          const key = `${dateStr}_${s.serviceStartTime}_${s.serviceEndTime}`;
+          cancelledSlotMap.set(key, b);
         }
-        d.setDate(d.getDate() + 1);
-      }
+      });
     }
   });
 
@@ -3880,28 +3880,178 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
     const activeScheduleDays = service.schedule?.filter(s => s.enabled).map(s => s.day) || [];
     const isWorkingDay = activeScheduleDays.includes(dayOfWeek);
 
-    const isBooked = bookedDateMap.has(dateStr);
-    const isCancelled = cancelledDateMap.has(dateStr);
+    let dayStatus = isWorkingDay ? "AVAILABLE" : "OFF_DAY";
+    const dayConfig = service.schedule?.find(s => s.day === dayOfWeek && s.enabled);
+    const slots = [];
 
-    let status = isWorkingDay ? "AVAILABLE" : "OFF_DAY";
-    let bookingDetails = null;
-    let cancelledBookingDetails = null;
+    let bookedCount = 0;
+    let pendingCount = 0;
 
-    if (isBooked) {
-      const avail = bookedDateMap.get(dateStr);
-      status = avail.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
-      bookingDetails = avail.booking || null;
+    if (isWorkingDay && dayConfig && dayConfig.slots) {
+      dayConfig.slots.forEach(slot => {
+        const key = `${dateStr}_${slot.start}_${slot.end}`;
+        const isBooked = bookedSlotMap.has(key);
+        const isCancelled = cancelledSlotMap.has(key);
+
+        let slotStatus = "AVAILABLE";
+        let bookingDetails = null;
+        let cancelledBookingDetails = null;
+
+        if (isBooked) {
+          const avail = bookedSlotMap.get(key);
+          slotStatus = avail.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
+          bookingDetails = avail.booking || null;
+          
+          if (slotStatus === "PENDING") {
+            pendingCount++;
+          } else {
+            bookedCount++;
+          }
+        }
+
+        if (isCancelled) {
+          cancelledBookingDetails = cancelledSlotMap.get(key);
+        }
+
+        slots.push({
+          timeSlot: `${slot.start} - ${slot.end}`,
+          startTime: slot.start,
+          endTime: slot.end,
+          status: slotStatus,
+          isFreeToBook: slotStatus === "AVAILABLE",
+          booking: bookingDetails,
+          wasCancelled: isCancelled,
+          cancelledBooking: cancelledBookingDetails
+        });
+      });
+
+      // Find any booked slots in DB for this date that aren't in the schedule slots list (custom/legacy slots)
+      bookedAvailability.forEach(item => {
+        const itemDateStr = new Date(item.date).toISOString().split("T")[0];
+        if (itemDateStr === dateStr) {
+          const inSchedule = dayConfig.slots.some(s => s.start === item.startTime && s.end === item.endTime);
+          if (!inSchedule) {
+            const slotStatus = item.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
+            if (slotStatus === "PENDING") pendingCount++;
+            else bookedCount++;
+
+            const key = `${dateStr}_${item.startTime}_${item.endTime}`;
+            const isCancelled = cancelledSlotMap.has(key);
+            const cancelledBookingDetails = isCancelled ? cancelledSlotMap.get(key) : null;
+
+            slots.push({
+              timeSlot: `${item.startTime} - ${item.endTime}`,
+              startTime: item.startTime,
+              endTime: item.endTime,
+              status: slotStatus,
+              isFreeToBook: false,
+              booking: item.booking || null,
+              wasCancelled: isCancelled,
+              cancelledBooking: cancelledBookingDetails,
+              isCustomOrLegacySlot: true
+            });
+          }
+        }
+      });
+
+      // Find any cancelled bookings for this date that aren't in slots list (custom/legacy slots)
+      cancelledBookings.forEach(b => {
+        if (b.services) {
+          b.services.forEach(s => {
+            if (s.service && s.service.toString() === serviceId && s.serviceDate) {
+              const dStr = new Date(s.serviceDate).toISOString().split("T")[0];
+              if (dStr === dateStr) {
+                const inSchedule = dayConfig.slots.some(slot => slot.start === s.serviceStartTime && slot.end === s.serviceEndTime);
+                const inAlreadyAdded = slots.some(slot => slot.startTime === s.serviceStartTime && slot.endTime === s.serviceEndTime);
+                if (!inSchedule && !inAlreadyAdded) {
+                  slots.push({
+                    timeSlot: `${s.serviceStartTime} - ${s.serviceEndTime}`,
+                    startTime: s.serviceStartTime,
+                    endTime: s.serviceEndTime,
+                    status: "AVAILABLE",
+                    isFreeToBook: true,
+                    booking: null,
+                    wasCancelled: true,
+                    cancelledBooking: b,
+                    isCustomOrLegacySlot: true
+                  });
+                }
+              }
+            }
+          });
+        }
+      });
+
+      if (dayConfig.slots.length > 0 || slots.length > 0) {
+        const totalSlotsCount = slots.length;
+        if (bookedCount + pendingCount === totalSlotsCount) {
+          dayStatus = pendingCount > 0 ? "PENDING" : "BOOKED";
+        } else if (bookedCount > 0 || pendingCount > 0) {
+          dayStatus = "PARTIALLY_BOOKED";
+        } else {
+          dayStatus = "AVAILABLE";
+        }
+      }
+
     } else {
-      status = isWorkingDay ? "AVAILABLE" : "OFF_DAY";
-    }
+      // Collect any booked slots or cancelled slots for this off day
+      bookedAvailability.forEach(item => {
+        const itemDateStr = new Date(item.date).toISOString().split("T")[0];
+        if (itemDateStr === dateStr) {
+          const slotStatus = item.booking?.bookingStatus === "pending" ? "PENDING" : "BOOKED";
+          const key = `${dateStr}_${item.startTime}_${item.endTime}`;
+          const isCancelled = cancelledSlotMap.has(key);
+          const cancelledBookingDetails = isCancelled ? cancelledSlotMap.get(key) : null;
 
-    if (isCancelled) {
-      cancelledBookingDetails = cancelledDateMap.get(dateStr);
+          slots.push({
+            timeSlot: `${item.startTime} - ${item.endTime}`,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            status: slotStatus,
+            isFreeToBook: false,
+            booking: item.booking || null,
+            wasCancelled: isCancelled,
+            cancelledBooking: cancelledBookingDetails
+          });
+        }
+      });
+
+      cancelledBookings.forEach(b => {
+        if (b.services) {
+          b.services.forEach(s => {
+            if (s.service && s.service.toString() === serviceId && s.serviceDate) {
+              const dStr = new Date(s.serviceDate).toISOString().split("T")[0];
+              if (dStr === dateStr) {
+                const inAlreadyAdded = slots.some(slot => slot.startTime === s.serviceStartTime && slot.endTime === s.serviceEndTime);
+                if (!inAlreadyAdded) {
+                  slots.push({
+                    timeSlot: `${s.serviceStartTime} - ${s.serviceEndTime}`,
+                    startTime: s.serviceStartTime,
+                    endTime: s.serviceEndTime,
+                    status: "AVAILABLE",
+                    isFreeToBook: true,
+                    booking: null,
+                    wasCancelled: true,
+                    cancelledBooking: b
+                  });
+                }
+              }
+            }
+          });
+        }
+      });
+
+      if (slots.length > 0) {
+        const hasPending = slots.some(s => s.status === "PENDING");
+        const hasBooked = slots.some(s => s.status === "BOOKED");
+        if (hasPending && !hasBooked) dayStatus = "PENDING";
+        else if (hasBooked) dayStatus = "BOOKED";
+        else dayStatus = "AVAILABLE";
+      }
     }
 
     let earliest = "09:00";
     let latest = "17:00";
-    const dayConfig = service.schedule?.find(s => s.day === dayOfWeek);
     if (dayConfig && dayConfig.slots && dayConfig.slots.length > 0) {
       earliest = dayConfig.slots[0].start;
       latest = dayConfig.slots[dayConfig.slots.length - 1].end;
@@ -3912,12 +4062,13 @@ const getAdminServiceBookingCalendar = catchAsyncError(async (req, res) => {
       date: dateStr,
       dayOfWeek,
       isWorkingDay,
-      status, // "AVAILABLE" (free to book), "BOOKED", "PENDING", or "OFF_DAY"
-      isFreeToBook: status === "AVAILABLE",
+      status: dayStatus, // "AVAILABLE", "BOOKED", "PENDING", "PARTIALLY_BOOKED", or "OFF_DAY"
+      isFreeToBook: dayStatus === "AVAILABLE",
       workingHours: isWorkingDay ? derivedWorkingHours : null,
-      booking: bookingDetails,
-      wasCancelled: isCancelled,
-      cancelledBooking: cancelledBookingDetails
+      slots,
+      booking: slots.find(s => s.status === "BOOKED" || s.status === "PENDING")?.booking || null,
+      wasCancelled: slots.some(s => s.wasCancelled),
+      cancelledBooking: slots.find(s => s.wasCancelled)?.cancelledBooking || null
     });
 
     curr.setDate(curr.getDate() + 1);
