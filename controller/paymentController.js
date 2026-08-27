@@ -461,6 +461,8 @@ exports.paymentWebhook = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      bookingStatus: booking.bookingStatus,
+      bookingPaymentStatus: booking.paymentStatus,
       message:
         "Webhook processed successfully",
     });

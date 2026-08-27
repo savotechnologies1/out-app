@@ -32,12 +32,21 @@ function generateServiceSlots(service, dateString) {
       const endMins = timeToMinutes(win.end);
 
       let current = startMins;
+      let generatedCount = 0;
       while (current + duration <= endMins) {
         slots.push({
           startTime: minutesToTime(current),
           endTime: minutesToTime(current + duration)
         });
         current += duration;
+        generatedCount++;
+      }
+
+      if (generatedCount === 0 && startMins < endMins) {
+        slots.push({
+          startTime: win.start,
+          endTime: win.end
+        });
       }
     }
   }
