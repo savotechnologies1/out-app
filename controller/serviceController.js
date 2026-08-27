@@ -3418,7 +3418,9 @@ const createServiceUserReview = async (req, res) => {
 
     // Determine completion or checkout date
     let checkOutDate;
-    if (booking.checkOut) {
+    const isPropertyOwner = booking.property && booking.property.user.toString() === req.user._id.toString();
+
+    if (isPropertyOwner && booking.checkOut) {
       checkOutDate = new Date(booking.checkOut);
     } else if (booking.services && booking.services.length > 0) {
       // Find the service item belonging to this provider
@@ -3426,17 +3428,15 @@ const createServiceUserReview = async (req, res) => {
         s.service && s.service.user && s.service.user.toString() === req.user._id.toString()
       );
       if (providerService) {
-        checkOutDate = new Date(providerService.serviceDate);
-        const [hours, minutes] = providerService.serviceEndTime.split(":").map(Number);
-        checkOutDate.setUTCHours(hours, minutes, 0, 0);
+        const datePart = new Date(providerService.serviceDate).toISOString().split("T")[0];
+        checkOutDate = new Date(`${datePart}T${providerService.serviceEndTime}`);
       } else {
         // Fallback: use the latest service date/time in the booking
         let latestDate = null;
         for (const s of booking.services) {
           if (s.serviceDate && s.serviceEndTime) {
-            const d = new Date(s.serviceDate);
-            const [h, m] = s.serviceEndTime.split(":").map(Number);
-            d.setUTCHours(h, m, 0, 0);
+            const datePart = new Date(s.serviceDate).toISOString().split("T")[0];
+            const d = new Date(`${datePart}T${s.serviceEndTime}`);
             if (!latestDate || d > latestDate) {
               latestDate = d;
             }
@@ -3452,7 +3452,7 @@ const createServiceUserReview = async (req, res) => {
 
     // Ensure review is after checkout/completion
     if (new Date() < checkOutDate) {
-      const isService = !booking.checkOut;
+      const isService = !isPropertyOwner;
       return res.status(400).json({
         message: isService ? "Review allowed only after service completion" : "Review allowed only after checkout"
       });
@@ -3462,7 +3462,7 @@ const createServiceUserReview = async (req, res) => {
     reviewLastDate.setDate(reviewLastDate.getDate() + 7);
 
     if (new Date() > reviewLastDate) {
-      const isService = !booking.checkOut;
+      const isService = !isPropertyOwner;
       return res.status(400).json({
         message: isService
           ? "Review can only be submitted within 7 days after service completion"
