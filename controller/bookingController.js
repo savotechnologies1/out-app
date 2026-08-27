@@ -1227,9 +1227,25 @@ exports.createBooking = async (req, res) => {
       "ORD_" +
       uuidv4().slice(0, 8).toUpperCase();
 
-    /* =================================================
-       CREATE BOOKING
-    ================================================= */
+    let referenceCheckIn = checkIn;
+    if (bookingType === "SERVICE" && normalizedServices.length > 0) {
+      let earliest = null;
+      for (const s of normalizedServices) {
+        if (s.serviceDate) {
+          const d = new Date(s.serviceDate);
+          if (s.serviceStartTime) {
+            const [hours, minutes] = s.serviceStartTime.split(":").map(Number);
+            d.setUTCHours(hours || 0, minutes || 0, 0, 0);
+          }
+          if (!earliest || d < earliest) {
+            earliest = d;
+          }
+        }
+      }
+      if (earliest) {
+        referenceCheckIn = earliest;
+      }
+    }
 
     const booking = await Booking.create({
 
@@ -1287,7 +1303,7 @@ exports.createBooking = async (req, res) => {
 
       providerBreakdown,
 
-      acceptanceDeadline: calculateAcceptanceDeadline(checkIn),
+      acceptanceDeadline: calculateAcceptanceDeadline(referenceCheckIn),
 
       orderId,
 

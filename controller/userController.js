@@ -4063,6 +4063,7 @@ const getServiceUser = catchAsyncError(async (req, res, next) => {
 const serviceUserLoginByUserToken = catchAsyncError(
   async (req, res, next) => {
     const { fcmToken } = req.body;
+    console.log("working")
     // ✅ Logged in normal user
     const user = await User.findOne(
       {

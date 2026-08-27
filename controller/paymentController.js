@@ -185,7 +185,26 @@ exports.paymentWebhook = async (req, res) => {
           : "approval_pending";
 
       if (!isInstantBooking && (!booking.acceptanceDeadline || isNaN(new Date(booking.acceptanceDeadline).getTime()))) {
-        booking.acceptanceDeadline = calculateAcceptanceDeadline(booking.checkIn, booking.createdAt || new Date());
+        let referenceDate = booking.checkIn;
+        if (booking.bookingType === "SERVICE" && booking.services && booking.services.length > 0) {
+          let earliest = null;
+          for (const s of booking.services) {
+            if (s.serviceDate) {
+              const d = new Date(s.serviceDate);
+              if (s.serviceStartTime) {
+                const [hours, minutes] = s.serviceStartTime.split(":").map(Number);
+                d.setUTCHours(hours || 0, minutes || 0, 0, 0);
+              }
+              if (!earliest || d < earliest) {
+                earliest = d;
+              }
+            }
+          }
+          if (earliest) {
+            referenceDate = earliest;
+          }
+        }
+        booking.acceptanceDeadline = calculateAcceptanceDeadline(referenceDate, booking.createdAt || new Date());
       }
 
       booking.tapChargeId = chargeId;
