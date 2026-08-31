@@ -5695,6 +5695,112 @@ const shareServiceUserProfile = catchAsyncError(async (req, res) => {
   });
 });
 
+const getOtherUserProfile = catchAsyncError(async (req, res, next) => {
+  const { userId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid user ID"
+    });
+  }
+
+  // 1. Search in User collection
+  let user = await User.findById(userId, {
+    firstName: 1,
+    lastName: 1,
+    profile: 1,
+    role: 1,
+    createdAt: 1
+  }).lean();
+
+  let targetModel = "User";
+
+  // 2. If not found in User, search in ServiceUser collection
+  if (!user) {
+    user = await ServiceUser.findById(userId, {
+      firstName: 1,
+      lastName: 1,
+      profile: 1,
+      role: 1,
+      createdAt: 1
+    }).lean();
+    targetModel = "ServiceUser";
+  }
+
+  // 3. If still not found, return 404
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: "User not found"
+    });
+  }
+
+  // 4. Format user details
+  const userObj = {
+    _id: user._id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    fullName: `${user.firstName || ""} ${user.lastName || ""}`.trim(),
+    profile: user.profile,
+    role: user.role || (targetModel === "ServiceUser" ? "service_user" : "user"),
+    joinedStatus: getJoinedStatus(user.createdAt),
+    createdAt: user.createdAt
+  };
+
+  // 5. Query overall reviews stats (where reviewee = userId)
+  const reviewStats = await Review.aggregate([
+    {
+      $match: {
+        reviewee: new mongoose.Types.ObjectId(userId),
+        isDeleted: false
+      }
+    },
+    {
+      $group: {
+        _id: null,
+        totalReviews: { $sum: 1 },
+        avgRating: { $avg: "$rating" }
+      }
+    }
+  ]);
+
+  const totalReviews = reviewStats[0]?.totalReviews || 0;
+  const avgRating = reviewStats[0]?.avgRating ? Number(reviewStats[0].avgRating.toFixed(1)) : 0;
+
+  // 6. Query recent reviews (last 10)
+  const reviews = await Review.find({
+    reviewee: userId,
+    isDeleted: false
+  })
+    .populate("reviewer", "firstName lastName profile createdAt")
+    .sort({ createdAt: -1 })
+    .limit(10);
+
+  // 7. Map recent reviews
+  const formattedReviews = reviews.map(review => {
+    const reviewObj = review.toObject();
+    if (reviewObj.reviewer) {
+      reviewObj.reviewer.joinedStatus = getJoinedStatus(reviewObj.reviewer.createdAt);
+      reviewObj.reviewer.fullName = `${reviewObj.reviewer.firstName || ""} ${reviewObj.reviewer.lastName || ""}`.trim();
+    }
+    reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+    return reviewObj;
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      user: userObj,
+      stats: {
+        totalReviews,
+        avgRating
+      },
+      recentReviews: formattedReviews
+    }
+  });
+});
+
 module.exports = {
   userLogin,
   userSignUp,
@@ -5739,5 +5845,6 @@ module.exports = {
   getNearYouProperties,
   deleteAccount,
   shareItem,
-  shareServiceUserProfile
+  shareServiceUserProfile,
+  getOtherUserProfile
 };
