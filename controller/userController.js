@@ -11,7 +11,7 @@ const Properties = require("../models/Properties");
 const Booking = require("../models/Booking");
 const Bookmark = require("../models/Bookmark");
 const Availability = require("../models/Availability");
-const { getDatesBetween } = require("../utils/date");
+const { getDatesBetween, getTimeAgo, getJoinedStatus } = require("../utils/date");
 const catchAsyncError = require("../functions/catchAsyncError");
 const { checkValidations } = require("../functions/checkValidation");
 const { validationResult } = require("express-validator");
@@ -2978,12 +2978,21 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
       .limit(3)
       .populate({
         path: "reviewer",
-        select: "firstName lastName name profile image"
+        select: "firstName lastName name profile image createdAt"
       })
       .select("rating comment createdAt reviewer")
       .lean();
 
-    service.latestReviews = latestReviews;
+    const formattedLatestReviews = latestReviews.map(review => {
+      if (review.reviewer) {
+        review.reviewer.joinedStatus = getJoinedStatus(review.reviewer.createdAt);
+        review.reviewer.fullName = `${review.reviewer.firstName || ""} ${review.reviewer.lastName || ""}`.trim();
+      }
+      review.timeAgo = getTimeAgo(review.createdAt);
+      return review;
+    });
+
+    service.latestReviews = formattedLatestReviews;
 
     /* =====================================
        📅 BOOKED DATES
@@ -3302,6 +3311,11 @@ const getUserFavorites = async (req, res) => {
 
 
 
+const ALLOWED_RATINGS = {
+  property: ["cleanliness", "amenities", "host", "information", "price"],
+  service: ["serviceQuality", "price", "cleanliness"]
+};
+
 const createUserReview = async (req, res) => {
   try {
     const { bookingId, reviewType, serviceId, ratingsBreakdown, comment, captions } = req.body;
@@ -3323,54 +3337,67 @@ const createUserReview = async (req, res) => {
       }));
     }
 
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ success: false, message: "Valid bookingId is required" });
+    }
+
     if (!["property", "service"].includes(reviewType)) {
-      return res.status(400).json({ message: "Invalid reviewType" });
+      return res.status(400).json({ success: false, message: "Invalid reviewType. Must be 'property' or 'service'" });
+    }
+
+    if (reviewType === "service" && !serviceId) {
+      return res.status(400).json({ success: false, message: "serviceId is required for service reviews" });
+    }
+
+    if (reviewType === "service" && !mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid serviceId" });
     }
 
     const booking = await Booking.findById(bookingId)
       .populate("property")
       .populate("services.service");
 
-    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
 
     if (booking.user.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Unauthorized" });
+      return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
     let reviewee, revieweeModel, property = null, service = null;
     let checkOutDate;
 
     if (reviewType === "property") {
-      if (!booking.property) return res.status(400).json({ message: "No property in booking" });
+      if (!booking.property) return res.status(400).json({ success: false, message: "No property in booking" });
       reviewee = booking.property.user;
       revieweeModel = "ServiceUser";
       property = booking.property._id;
 
       if (!booking.checkOut) {
-        return res.status(400).json({ message: "No checkout date available for this property booking" });
+        return res.status(400).json({ success: false, message: "No checkout date available for this property booking" });
       }
       checkOutDate = new Date(booking.checkOut);
     }
 
     if (reviewType === "service") {
-      if (!serviceId) return res.status(400).json({ message: "serviceId required" });
       const serviceItem = booking.services.find(s => s.service && s.service._id.toString() === serviceId);
-      if (!serviceItem) return res.status(400).json({ message: "Service not in booking" });
+      if (!serviceItem) return res.status(400).json({ success: false, message: "Service not in booking" });
       reviewee = serviceItem.service.user;
       revieweeModel = "ServiceUser";
-      service = serviceId;
+      service = serviceItem.service._id;
 
       if (!serviceItem.serviceDate || !serviceItem.serviceEndTime) {
-        return res.status(400).json({ message: "Service date or end time not found in booking" });
+        return res.status(400).json({ success: false, message: "Service date or end time not found in booking" });
       }
       checkOutDate = new Date(serviceItem.serviceDate);
       const [hours, minutes] = serviceItem.serviceEndTime.split(":").map(Number);
       checkOutDate.setUTCHours(hours, minutes, 0, 0);
     }
 
-    if (new Date() < checkOutDate) {
+    const now = new Date();
+    if (now < checkOutDate) {
       const isService = reviewType === "service";
       return res.status(400).json({
+        success: false,
         message: isService ? "Review allowed only after service completion" : "Review allowed only after checkout"
       });
     }
@@ -3378,9 +3405,10 @@ const createUserReview = async (req, res) => {
     const reviewLastDate = new Date(checkOutDate);
     reviewLastDate.setDate(reviewLastDate.getDate() + 7);
 
-    if (new Date() > reviewLastDate) {
+    if (now > reviewLastDate) {
       const isService = reviewType === "service";
       return res.status(400).json({
+        success: false,
         message: isService
           ? "Review can only be submitted within 7 days after service completion"
           : "Review can only be submitted within 7 days after checkout"
@@ -3390,23 +3418,52 @@ const createUserReview = async (req, res) => {
     const exists = await Review.findOne({
       booking: bookingId,
       reviewer: req.user._id,
+      reviewType,
       property: property || null,
       service: service || null
     });
 
-    if (exists) return res.status(400).json({ message: "Already reviewed" });
+    if (exists) return res.status(400).json({ success: false, message: "Already reviewed" });
 
-    if (!ratingsBreakdown || Object.keys(ratingsBreakdown).length === 0) {
-      return res.status(400).json({ message: "ratingsBreakdown is required" });
+    let parsedRatings = ratingsBreakdown;
+    if (typeof ratingsBreakdown === "string") {
+      try {
+        parsedRatings = JSON.parse(ratingsBreakdown);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: "Invalid ratingsBreakdown format" });
+      }
     }
 
-    const values = Object.values(ratingsBreakdown)
-      .map(v => Number(v))
-      .filter(v => !isNaN(v));
+    if (!parsedRatings || typeof parsedRatings !== "object" || Object.keys(parsedRatings).length === 0) {
+      return res.status(400).json({ success: false, message: "ratingsBreakdown is required" });
+    }
 
-    if (values.length === 0) return res.status(400).json({ message: "ratingsBreakdown must contain numbers" });
+    const allowedFields = ALLOWED_RATINGS[reviewType];
+    const sanitizedBreakdown = {};
+    const ratingValues = [];
 
-    const finalRating = values.reduce((a, b) => a + b, 0) / values.length;
+    for (const field of allowedFields) {
+      if (parsedRatings[field] !== undefined && parsedRatings[field] !== null) {
+        const val = Number(parsedRatings[field]);
+        if (isNaN(val) || val < 1 || val > 5) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid rating value for '${field}'. Must be between 1 and 5`
+          });
+        }
+        sanitizedBreakdown[field] = val;
+        ratingValues.push(val);
+      }
+    }
+
+    if (ratingValues.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: `ratingsBreakdown must contain at least one valid field: ${allowedFields.join(", ")}`
+      });
+    }
+
+    const finalRating = Number((ratingValues.reduce((a, b) => a + b, 0) / ratingValues.length).toFixed(1));
 
     const review = await Review.create({
       reviewer: req.user._id,
@@ -3418,11 +3475,15 @@ const createUserReview = async (req, res) => {
       service,
       reviewType,
       rating: finalRating,
-      ratingsBreakdown,
+      ratingsBreakdown: sanitizedBreakdown,
       comment,
       photos
     });
-    await Booking.findByIdAndUpdate(bookingId, { reviewGiven: true });
+    
+    if (!booking.reviewGiven) {
+      await Booking.findByIdAndUpdate(bookingId, { reviewGiven: true });
+    }
+    
     return res.status(201).json({
       success: true,
       message: "Review created successfully",
@@ -3430,8 +3491,11 @@ const createUserReview = async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ success: false, message: "Already reviewed" });
+    }
     console.error(err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -3480,7 +3544,7 @@ const getReviews = async (req, res) => {
        🔥 FETCH REVIEWS
     ======================== */
     const reviews = await Review.find(match)
-      .populate("reviewer", "firstName lastName profile")
+      .populate("reviewer", "firstName lastName profile createdAt")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
@@ -3502,9 +3566,11 @@ const getReviews = async (req, res) => {
           totalReviews: { $sum: 1 },
 
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
-          service: { $avg: "$ratingsBreakdown.service" },
-          location: { $avg: "$ratingsBreakdown.location" },
-          value: { $avg: "$ratingsBreakdown.value" },
+          amenities: { $avg: "$ratingsBreakdown.amenities" },
+          host: { $avg: "$ratingsBreakdown.host" },
+          information: { $avg: "$ratingsBreakdown.information" },
+          price: { $avg: "$ratingsBreakdown.price" },
+          serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" },
 
           ratings: { $push: "$rating" }
         }
@@ -3515,7 +3581,16 @@ const getReviews = async (req, res) => {
       avgRating: 0,
       totalReviews: 0,
       breakdown: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-      categoryAvg: {}
+      breakdownPercentage: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+      categoryAvg: {
+        cleanliness: 0,
+        accuracy: 0,
+        amenities: 0,
+        host: 0,
+        information: 0,
+        price: 0,
+        serviceQuality: 0
+      }
     };
 
     if (summaryAgg.length) {
@@ -3526,21 +3601,44 @@ const getReviews = async (req, res) => {
 
       data.ratings.forEach(r => {
         const rounded = Math.round(r);
-        breakdown[rounded]++;
+        if (breakdown[rounded] !== undefined) breakdown[rounded]++;
       });
+
+      const totalReviewsCount = data.totalReviews || 1;
+      const breakdownPercentage = {
+        1: Number(((breakdown[1] / totalReviewsCount) * 100).toFixed(0)),
+        2: Number(((breakdown[2] / totalReviewsCount) * 100).toFixed(0)),
+        3: Number(((breakdown[3] / totalReviewsCount) * 100).toFixed(0)),
+        4: Number(((breakdown[4] / totalReviewsCount) * 100).toFixed(0)),
+        5: Number(((breakdown[5] / totalReviewsCount) * 100).toFixed(0))
+      };
 
       summary = {
         avgRating: Number(data.avgRating.toFixed(1)),
         totalReviews: data.totalReviews,
         breakdown,
+        breakdownPercentage,
         categoryAvg: {
-          cleanliness: data.cleanliness || 0,
-          service: data.service || 0,
-          location: data.location || 0,
-          value: data.value || 0
+          cleanliness: data.cleanliness ? Number(data.cleanliness.toFixed(1)) : 0,
+          accuracy: data.information ? Number(data.information.toFixed(1)) : 0,
+          amenities: data.amenities ? Number(data.amenities.toFixed(1)) : 0,
+          host: data.host ? Number(data.host.toFixed(1)) : 0,
+          information: data.information ? Number(data.information.toFixed(1)) : 0,
+          price: data.price ? Number(data.price.toFixed(1)) : 0,
+          serviceQuality: data.serviceQuality ? Number(data.serviceQuality.toFixed(1)) : 0
         }
       };
     }
+
+    const formattedReviews = reviews.map(review => {
+      const reviewObj = review.toObject();
+      if (reviewObj.reviewer) {
+        reviewObj.reviewer.joinedStatus = getJoinedStatus(reviewObj.reviewer.createdAt);
+        reviewObj.reviewer.fullName = `${reviewObj.reviewer.firstName || ""} ${reviewObj.reviewer.lastName || ""}`.trim();
+      }
+      reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+      return reviewObj;
+    });
 
     /* ========================
        🚀 RESPONSE
@@ -3555,7 +3653,7 @@ const getReviews = async (req, res) => {
 
       ...summary,
 
-      data: reviews
+      data: formattedReviews
     });
 
   } catch (err) {
@@ -3591,7 +3689,7 @@ const getUserReviews = async (req, res) => {
     };
 
     const reviews = await Review.find(match)
-      .populate("reviewer", "firstName lastName profile email phone")
+      .populate("reviewer", "firstName lastName profile email phone createdAt")
       .populate({
         path: "booking",
         select: "orderId checkIn checkOut bookingType property services",
@@ -3614,9 +3712,11 @@ const getUserReviews = async (req, res) => {
           averageRating: { $avg: "$rating" },
           totalRatings: { $sum: 1 },
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
-          service: { $avg: "$ratingsBreakdown.service" },
-          location: { $avg: "$ratingsBreakdown.location" },
-          value: { $avg: "$ratingsBreakdown.value" }
+          amenities: { $avg: "$ratingsBreakdown.amenities" },
+          host: { $avg: "$ratingsBreakdown.host" },
+          information: { $avg: "$ratingsBreakdown.information" },
+          price: { $avg: "$ratingsBreakdown.price" },
+          serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" }
         }
       }
     ]);
@@ -3630,9 +3730,12 @@ const getUserReviews = async (req, res) => {
       totalRatings,
       breakdown: {
         cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
-        service: stats.service ? Number(stats.service.toFixed(1)) : 0,
-        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
-        value: stats.value ? Number(stats.value.toFixed(1)) : 0
+        accuracy: stats.information ? Number(stats.information.toFixed(1)) : 0,
+        amenities: stats.amenities ? Number(stats.amenities.toFixed(1)) : 0,
+        host: stats.host ? Number(stats.host.toFixed(1)) : 0,
+        information: stats.information ? Number(stats.information.toFixed(1)) : 0,
+        price: stats.price ? Number(stats.price.toFixed(1)) : 0,
+        serviceQuality: stats.serviceQuality ? Number(stats.serviceQuality.toFixed(1)) : 0
       }
     };
 
@@ -3654,10 +3757,18 @@ const getUserReviews = async (req, res) => {
             totalPages
           }
         },
-        ...reviews.map(review => ({
-          type: "review",
-          data: review
-        }))
+        ...reviews.map(review => {
+          const reviewObj = review.toObject();
+          if (reviewObj.reviewer) {
+            reviewObj.reviewer.joinedStatus = getJoinedStatus(reviewObj.reviewer.createdAt);
+            reviewObj.reviewer.fullName = `${reviewObj.reviewer.firstName || ""} ${reviewObj.reviewer.lastName || ""}`.trim();
+          }
+          reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+          return {
+            type: "review",
+            data: reviewObj
+          };
+        })
       ]
     });
   } catch (error) {
@@ -3699,7 +3810,7 @@ const getGivenReviews = async (req, res) => {
     }
 
     const reviews = await Review.find(match)
-      .populate("reviewee", "firstName lastName profile email phone")
+      .populate("reviewee", "firstName lastName profile email phone createdAt")
       .populate("property", "name title images address")
       .populate("service", "name images price")
       .populate({
@@ -3720,9 +3831,11 @@ const getGivenReviews = async (req, res) => {
           averageRating: { $avg: "$rating" },
           totalRatings: { $sum: 1 },
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
-          service: { $avg: "$ratingsBreakdown.service" },
-          location: { $avg: "$ratingsBreakdown.location" },
-          value: { $avg: "$ratingsBreakdown.value" }
+          amenities: { $avg: "$ratingsBreakdown.amenities" },
+          host: { $avg: "$ratingsBreakdown.host" },
+          information: { $avg: "$ratingsBreakdown.information" },
+          price: { $avg: "$ratingsBreakdown.price" },
+          serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" }
         }
       }
     ]);
@@ -3736,9 +3849,12 @@ const getGivenReviews = async (req, res) => {
       totalRatings,
       breakdown: {
         cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
-        service: stats.service ? Number(stats.service.toFixed(1)) : 0,
-        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
-        value: stats.value ? Number(stats.value.toFixed(1)) : 0
+        accuracy: stats.information ? Number(stats.information.toFixed(1)) : 0,
+        amenities: stats.amenities ? Number(stats.amenities.toFixed(1)) : 0,
+        host: stats.host ? Number(stats.host.toFixed(1)) : 0,
+        information: stats.information ? Number(stats.information.toFixed(1)) : 0,
+        price: stats.price ? Number(stats.price.toFixed(1)) : 0,
+        serviceQuality: stats.serviceQuality ? Number(stats.serviceQuality.toFixed(1)) : 0
       }
     };
 
@@ -3760,10 +3876,18 @@ const getGivenReviews = async (req, res) => {
             totalPages
           }
         },
-        ...reviews.map(review => ({
-          type: "review",
-          data: review
-        }))
+        ...reviews.map(review => {
+          const reviewObj = review.toObject();
+          if (reviewObj.reviewee) {
+            reviewObj.reviewee.joinedStatus = getJoinedStatus(reviewObj.reviewee.createdAt);
+            reviewObj.reviewee.fullName = `${reviewObj.reviewee.firstName || ""} ${reviewObj.reviewee.lastName || ""}`.trim();
+          }
+          reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+          return {
+            type: "review",
+            data: reviewObj
+          };
+        })
       ]
     });
   } catch (error) {

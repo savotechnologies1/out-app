@@ -67,9 +67,11 @@ const reviewSchema = new mongoose.Schema(
         },
         ratingsBreakdown: {
             cleanliness: { type: Number, min: 1, max: 5 },
-            service: { type: Number, min: 1, max: 5 },
-            location: { type: Number, min: 1, max: 5 },
-            value: { type: Number, min: 1, max: 5 }
+            amenities: { type: Number, min: 1, max: 5 },
+            host: { type: Number, min: 1, max: 5 },
+            information: { type: Number, min: 1, max: 5 },
+            price: { type: Number, min: 1, max: 5 },
+            serviceQuality: { type: Number, min: 1, max: 5 }
         },
 
         comment: {
@@ -99,9 +101,10 @@ const reviewSchema = new mongoose.Schema(
    🚀 INDEXES
 ======================== */
 
-// Prevent duplicate review per booking per user
+// Prevent duplicate reviews — includes reviewType so property/service/user
+// reviews are correctly distinguished in the uniqueness constraint
 reviewSchema.index(
-    { booking: 1, reviewer: 1, property: 1, service: 1 },
+    { booking: 1, reviewer: 1, reviewType: 1, property: 1, service: 1 },
     { unique: true }
 );
 

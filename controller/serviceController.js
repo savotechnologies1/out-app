@@ -35,6 +35,7 @@ const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
 const { authenticaOTP } = require("../functions/authentica");
 const { timeToMinutes } = require("../utils/serviceAvailabilityUtils");
+const { getTimeAgo, getJoinedStatus } = require("../utils/date");
 const User = require("../models/User");
 
 function isSlotInNewSchedule(schedule, date, startTime, endTime) {
@@ -3388,85 +3389,84 @@ const getAllservicesForUser = async (req, res) => {
 };
 
 
+const ALLOWED_USER_RATINGS = ["cleanliness", "host", "information"];
+
 const createServiceUserReview = async (req, res) => {
   try {
     const { bookingId, ratingsBreakdown, comment, captions } = req.body;
 
+    if (!bookingId || !mongoose.Types.ObjectId.isValid(bookingId)) {
+      return res.status(400).json({ success: false, message: "Valid bookingId is required" });
+    }
+
     // Fetch booking and populate property, services & user
     const booking = await Booking.findById(bookingId).populate("user property services.service");
-    if (!booking) return res.status(404).json({ message: "Booking not found" });
+    if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
 
     // Ensure reviewer is either the property owner or the service provider
-    let isAuthorized = false;
+    const userId = req.user._id.toString();
+    let isPropertyOwner = false;
+    let isServiceProvider = false;
 
-    if (booking.property && booking.property.user.toString() === req.user._id.toString()) {
-      isAuthorized = true;
+    if (booking.property && booking.property.user && booking.property.user.toString() === userId) {
+      isPropertyOwner = true;
     }
 
-    if (!isAuthorized && booking.services && booking.services.length > 0) {
-      const isServiceProvider = booking.services.some(s =>
-        s.service && s.service.user && s.service.user.toString() === req.user._id.toString()
+    if (!isPropertyOwner && booking.services && booking.services.length > 0) {
+      isServiceProvider = booking.services.some(s =>
+        s.service && s.service.user && s.service.user.toString() === userId
       );
-      if (isServiceProvider) {
-        isAuthorized = true;
-      }
     }
 
-    if (!isAuthorized) {
-      return res.status(403).json({ message: "You are not authorized to review the guest for this booking" });
+    if (!isPropertyOwner && !isServiceProvider) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to review the guest for this booking"
+      });
     }
 
     // Determine completion or checkout date
     let checkOutDate;
-    const isPropertyOwner = booking.property && booking.property.user.toString() === req.user._id.toString();
 
-    if (isPropertyOwner && booking.checkOut) {
+    if (isPropertyOwner) {
+      if (!booking.checkOut) {
+        return res.status(400).json({ success: false, message: "No checkout date available for this booking" });
+      }
       checkOutDate = new Date(booking.checkOut);
-    } else if (booking.services && booking.services.length > 0) {
+    } else {
       // Find the service item belonging to this provider
       const providerService = booking.services.find(s =>
-        s.service && s.service.user && s.service.user.toString() === req.user._id.toString()
+        s.service && s.service.user && s.service.user.toString() === userId
       );
-      if (providerService) {
-        const datePart = new Date(providerService.serviceDate).toISOString().split("T")[0];
-        checkOutDate = new Date(`${datePart}T${providerService.serviceEndTime}`);
-      } else {
-        // Fallback: use the latest service date/time in the booking
-        let latestDate = null;
-        for (const s of booking.services) {
-          if (s.serviceDate && s.serviceEndTime) {
-            const datePart = new Date(s.serviceDate).toISOString().split("T")[0];
-            const d = new Date(`${datePart}T${s.serviceEndTime}`);
-            if (!latestDate || d > latestDate) {
-              latestDate = d;
-            }
-          }
-        }
-        checkOutDate = latestDate;
+      if (!providerService) {
+        return res.status(400).json({ success: false, message: "Your service was not found in this booking" });
       }
+      if (!providerService.serviceDate || !providerService.serviceEndTime) {
+        return res.status(400).json({ success: false, message: "Service date or end time not found in booking" });
+      }
+      checkOutDate = new Date(providerService.serviceDate);
+      const [hours, minutes] = providerService.serviceEndTime.split(":").map(Number);
+      checkOutDate.setUTCHours(hours, minutes, 0, 0);
     }
 
-    if (!checkOutDate) {
-      return res.status(400).json({ message: "No completion or checkout date available for this booking" });
-    }
-
+    const now = new Date();
     // Ensure review is after checkout/completion
-    if (new Date() < checkOutDate) {
-      const isService = !isPropertyOwner;
+    if (now < checkOutDate) {
       return res.status(400).json({
-        message: isService ? "Review allowed only after service completion" : "Review allowed only after checkout"
+        success: false,
+        message: isPropertyOwner ? "Review allowed only after checkout" : "Review allowed only after service completion"
       });
     }
 
     const reviewLastDate = new Date(checkOutDate);
     reviewLastDate.setDate(reviewLastDate.getDate() + 7);
 
-    if (new Date() > reviewLastDate) {
-      const isService = !isPropertyOwner;
+    if (now > reviewLastDate) {
       return res.status(400).json({
-        message: isService
-          ? "Review can only be submitted within 7 days after service completion"
-          : "Review can only be submitted within 7 days after checkout"
+        success: false,
+        message: isPropertyOwner
+          ? "Review can only be submitted within 7 days after checkout"
+          : "Review can only be submitted within 7 days after service completion"
       });
     }
 
@@ -3476,7 +3476,7 @@ const createServiceUserReview = async (req, res) => {
       reviewer: req.user._id,
       reviewType: "user",
     });
-    if (exists) return res.status(400).json({ message: "Already reviewed this user" });
+    if (exists) return res.status(400).json({ success: false, message: "Already reviewed this user" });
 
     // Handle photos + captions
     let photos = [];
@@ -3500,19 +3500,44 @@ const createServiceUserReview = async (req, res) => {
     }
 
     // Calculate average rating from ratingsBreakdown
-    if (!ratingsBreakdown || Object.keys(ratingsBreakdown).length === 0) {
-      return res.status(400).json({ message: "ratingsBreakdown is required" });
+    let parsedRatings = ratingsBreakdown;
+    if (typeof ratingsBreakdown === "string") {
+      try {
+        parsedRatings = JSON.parse(ratingsBreakdown);
+      } catch (err) {
+        return res.status(400).json({ success: false, message: "Invalid ratingsBreakdown format" });
+      }
     }
 
-    const values = Object.values(ratingsBreakdown)
-      .map(v => Number(v))
-      .filter(v => !isNaN(v));
-
-    if (values.length === 0) {
-      return res.status(400).json({ message: "ratingsBreakdown must contain numbers" });
+    if (!parsedRatings || typeof parsedRatings !== "object" || Object.keys(parsedRatings).length === 0) {
+      return res.status(400).json({ success: false, message: "ratingsBreakdown is required" });
     }
 
-    const finalRating = values.reduce((a, b) => a + b, 0) / values.length;
+    const sanitizedBreakdown = {};
+    const ratingValues = [];
+
+    for (const field of ALLOWED_USER_RATINGS) {
+      if (parsedRatings[field] !== undefined && parsedRatings[field] !== null) {
+        const val = Number(parsedRatings[field]);
+        if (isNaN(val) || val < 1 || val > 5) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid rating value for '${field}'. Must be between 1 and 5`
+          });
+        }
+        sanitizedBreakdown[field] = val;
+        ratingValues.push(val);
+      }
+    }
+
+    if (ratingValues.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: `ratingsBreakdown must contain at least one valid field: ${ALLOWED_USER_RATINGS.join(", ")}`
+      });
+    }
+
+    const finalRating = Number((ratingValues.reduce((a, b) => a + b, 0) / ratingValues.length).toFixed(1));
 
     // Create review
     const review = await Review.create({
@@ -3521,9 +3546,11 @@ const createServiceUserReview = async (req, res) => {
       reviewee: booking.user?._id || booking.user,
       revieweeModel: "User",
       booking: bookingId,
+      property: null,
+      service: null,
       reviewType: "user",
       rating: finalRating,
-      ratingsBreakdown,
+      ratingsBreakdown: sanitizedBreakdown,
       comment,
       photos,
     });
@@ -3534,8 +3561,11 @@ const createServiceUserReview = async (req, res) => {
       data: review,
     });
   } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).json({ success: false, message: "Already reviewed this user" });
+    }
     console.error(err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -3572,7 +3602,7 @@ const getMyReviews = async (req, res) => {
     }
 
     const reviews = await Review.find(match)
-      .populate("reviewer", "firstName lastName profile")
+      .populate("reviewer", "firstName lastName profile createdAt")
       .populate("service", "name")
       .populate("property", "name")
       .sort({ createdAt: -1 })
@@ -3603,6 +3633,16 @@ const getMyReviews = async (req, res) => {
       totalReviews: 0
     };
 
+    const formattedReviews = reviews.map(review => {
+      const reviewObj = review.toObject();
+      if (reviewObj.reviewer) {
+        reviewObj.reviewer.joinedStatus = getJoinedStatus(reviewObj.reviewer.createdAt);
+        reviewObj.reviewer.fullName = `${reviewObj.reviewer.firstName || ""} ${reviewObj.reviewer.lastName || ""}`.trim();
+      }
+      reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+      return reviewObj;
+    });
+
     /* ========================
        🚀 RESPONSE
     ======================== */
@@ -3620,9 +3660,8 @@ const getMyReviews = async (req, res) => {
       totalReviews: summary.totalReviews,
 
       // data
-      data: reviews
+      data: formattedReviews
     });
-
   } catch (err) {
     res.status(500).json({
       success: false,
@@ -3759,9 +3798,19 @@ const getServiceProviderDashboard = async (req, res) => {
       revieweeModel: "ServiceUser",
       isDeleted: false
     })
-      .populate("reviewer", "firstName lastName profile")
+      .populate("reviewer", "firstName lastName profile createdAt")
       .sort({ createdAt: -1 })
       .limit(5);
+
+    const formattedReviews = reviews.map(review => {
+      const reviewObj = review.toObject();
+      if (reviewObj.reviewer) {
+        reviewObj.reviewer.joinedStatus = getJoinedStatus(reviewObj.reviewer.createdAt);
+        reviewObj.reviewer.fullName = `${reviewObj.reviewer.firstName || ""} ${reviewObj.reviewer.lastName || ""}`.trim();
+      }
+      reviewObj.timeAgo = getTimeAgo(reviewObj.createdAt);
+      return reviewObj;
+    });
 
     /* ========================
        👤 EXPERIENCE (FIXED)
@@ -3846,7 +3895,7 @@ const getServiceProviderDashboard = async (req, res) => {
           pendingServiceBookings
         },
         transactions,
-        reviews,
+        reviews: formattedReviews,
         latestPendingBookings
       }
     });
