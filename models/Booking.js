@@ -296,6 +296,9 @@ const bookingSchema = new mongoose.Schema({
 
   invoiceUrl: {
     type: String
+  },
+  invoiceUrlAr: {
+    type: String
   }
 
 }, { timestamps: true });

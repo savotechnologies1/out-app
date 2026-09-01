@@ -3312,8 +3312,8 @@ const getUserFavorites = async (req, res) => {
 
 
 const ALLOWED_RATINGS = {
-  property: ["cleanliness", "amenities", "host", "information", "price"],
-  service: ["serviceQuality", "price", "cleanliness"]
+  property: ["cleanliness", "host", "price", "location"],
+  service: ["cleanliness", "host", "price", "quality", "serviceQuality"]
 };
 
 const createUserReview = async (req, res) => {
@@ -3443,23 +3443,29 @@ const createUserReview = async (req, res) => {
     const ratingValues = [];
 
     for (const field of allowedFields) {
-      if (parsedRatings[field] !== undefined && parsedRatings[field] !== null) {
-        const val = Number(parsedRatings[field]);
+      let rawVal = parsedRatings[field];
+      if (field === "quality" && rawVal === undefined) {
+        rawVal = parsedRatings["serviceQuality"];
+      }
+      if (rawVal !== undefined && rawVal !== null) {
+        const val = Number(rawVal);
         if (isNaN(val) || val < 1 || val > 5) {
           return res.status(400).json({
             success: false,
             message: `Invalid rating value for '${field}'. Must be between 1 and 5`
           });
         }
-        sanitizedBreakdown[field] = val;
+        const storeKey = field === "serviceQuality" ? "quality" : field;
+        sanitizedBreakdown[storeKey] = val;
         ratingValues.push(val);
       }
     }
 
     if (ratingValues.length === 0) {
+      const displayFields = allowedFields.filter(f => f !== "serviceQuality");
       return res.status(400).json({
         success: false,
-        message: `ratingsBreakdown must contain at least one valid field: ${allowedFields.join(", ")}`
+        message: `ratingsBreakdown must contain at least one valid field: ${displayFields.join(", ")}`
       });
     }
 
@@ -3566,10 +3572,14 @@ const getReviews = async (req, res) => {
           totalReviews: { $sum: 1 },
 
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          communication: { $avg: "$ratingsBreakdown.communication" },
+          behavior: { $avg: "$ratingsBreakdown.behavior" },
           amenities: { $avg: "$ratingsBreakdown.amenities" },
           host: { $avg: "$ratingsBreakdown.host" },
           information: { $avg: "$ratingsBreakdown.information" },
           price: { $avg: "$ratingsBreakdown.price" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          quality: { $avg: "$ratingsBreakdown.quality" },
           serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" },
 
           ratings: { $push: "$rating" }
@@ -3584,11 +3594,15 @@ const getReviews = async (req, res) => {
       breakdownPercentage: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
       categoryAvg: {
         cleanliness: 0,
+        communication: 0,
+        behavior: 0,
         accuracy: 0,
         amenities: 0,
         host: 0,
         information: 0,
         price: 0,
+        location: 0,
+        quality: 0,
         serviceQuality: 0
       }
     };
@@ -3620,11 +3634,15 @@ const getReviews = async (req, res) => {
         breakdownPercentage,
         categoryAvg: {
           cleanliness: data.cleanliness ? Number(data.cleanliness.toFixed(1)) : 0,
+          communication: data.communication ? Number(data.communication.toFixed(1)) : 0,
+          behavior: data.behavior ? Number(data.behavior.toFixed(1)) : 0,
           accuracy: data.information ? Number(data.information.toFixed(1)) : 0,
           amenities: data.amenities ? Number(data.amenities.toFixed(1)) : 0,
           host: data.host ? Number(data.host.toFixed(1)) : 0,
           information: data.information ? Number(data.information.toFixed(1)) : 0,
           price: data.price ? Number(data.price.toFixed(1)) : 0,
+          location: data.location ? Number(data.location.toFixed(1)) : 0,
+          quality: (data.quality || data.serviceQuality) ? Number((data.quality || data.serviceQuality).toFixed(1)) : 0,
           serviceQuality: data.serviceQuality ? Number(data.serviceQuality.toFixed(1)) : 0
         }
       };
@@ -3712,10 +3730,14 @@ const getUserReviews = async (req, res) => {
           averageRating: { $avg: "$rating" },
           totalRatings: { $sum: 1 },
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          communication: { $avg: "$ratingsBreakdown.communication" },
+          behavior: { $avg: "$ratingsBreakdown.behavior" },
           amenities: { $avg: "$ratingsBreakdown.amenities" },
           host: { $avg: "$ratingsBreakdown.host" },
           information: { $avg: "$ratingsBreakdown.information" },
           price: { $avg: "$ratingsBreakdown.price" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          quality: { $avg: "$ratingsBreakdown.quality" },
           serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" }
         }
       }
@@ -3730,11 +3752,15 @@ const getUserReviews = async (req, res) => {
       totalRatings,
       breakdown: {
         cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
+        communication: stats.communication ? Number(stats.communication.toFixed(1)) : 0,
+        behavior: stats.behavior ? Number(stats.behavior.toFixed(1)) : 0,
         accuracy: stats.information ? Number(stats.information.toFixed(1)) : 0,
         amenities: stats.amenities ? Number(stats.amenities.toFixed(1)) : 0,
         host: stats.host ? Number(stats.host.toFixed(1)) : 0,
         information: stats.information ? Number(stats.information.toFixed(1)) : 0,
         price: stats.price ? Number(stats.price.toFixed(1)) : 0,
+        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
+        quality: (stats.quality || stats.serviceQuality) ? Number((stats.quality || stats.serviceQuality).toFixed(1)) : 0,
         serviceQuality: stats.serviceQuality ? Number(stats.serviceQuality.toFixed(1)) : 0
       }
     };
@@ -3831,10 +3857,14 @@ const getGivenReviews = async (req, res) => {
           averageRating: { $avg: "$rating" },
           totalRatings: { $sum: 1 },
           cleanliness: { $avg: "$ratingsBreakdown.cleanliness" },
+          communication: { $avg: "$ratingsBreakdown.communication" },
+          behavior: { $avg: "$ratingsBreakdown.behavior" },
           amenities: { $avg: "$ratingsBreakdown.amenities" },
           host: { $avg: "$ratingsBreakdown.host" },
           information: { $avg: "$ratingsBreakdown.information" },
           price: { $avg: "$ratingsBreakdown.price" },
+          location: { $avg: "$ratingsBreakdown.location" },
+          quality: { $avg: "$ratingsBreakdown.quality" },
           serviceQuality: { $avg: "$ratingsBreakdown.serviceQuality" }
         }
       }
@@ -3849,11 +3879,15 @@ const getGivenReviews = async (req, res) => {
       totalRatings,
       breakdown: {
         cleanliness: stats.cleanliness ? Number(stats.cleanliness.toFixed(1)) : 0,
+        communication: stats.communication ? Number(stats.communication.toFixed(1)) : 0,
+        behavior: stats.behavior ? Number(stats.behavior.toFixed(1)) : 0,
         accuracy: stats.information ? Number(stats.information.toFixed(1)) : 0,
         amenities: stats.amenities ? Number(stats.amenities.toFixed(1)) : 0,
         host: stats.host ? Number(stats.host.toFixed(1)) : 0,
         information: stats.information ? Number(stats.information.toFixed(1)) : 0,
         price: stats.price ? Number(stats.price.toFixed(1)) : 0,
+        location: stats.location ? Number(stats.location.toFixed(1)) : 0,
+        quality: (stats.quality || stats.serviceQuality) ? Number((stats.quality || stats.serviceQuality).toFixed(1)) : 0,
         serviceQuality: stats.serviceQuality ? Number(stats.serviceQuality.toFixed(1)) : 0
       }
     };

@@ -67,10 +67,14 @@ const reviewSchema = new mongoose.Schema(
         },
         ratingsBreakdown: {
             cleanliness: { type: Number, min: 1, max: 5 },
+            communication: { type: Number, min: 1, max: 5 },
+            behavior: { type: Number, min: 1, max: 5 },
             amenities: { type: Number, min: 1, max: 5 },
             host: { type: Number, min: 1, max: 5 },
             information: { type: Number, min: 1, max: 5 },
             price: { type: Number, min: 1, max: 5 },
+            location: { type: Number, min: 1, max: 5 },
+            quality: { type: Number, min: 1, max: 5 },
             serviceQuality: { type: Number, min: 1, max: 5 }
         },
 

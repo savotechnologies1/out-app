@@ -9,8 +9,6 @@ const { sendNotification } = require("../utils/notificationService");
 exports.createConversation = async (req, res) => {
   try {
     const { chatType, userId, serviceUserId, subject, description, bookingId } = req.body;
-    // console.log("req.file", req.file)
-    // console.log("safasfsa", req.body);
     let conversation;
 
     /* =====================================================

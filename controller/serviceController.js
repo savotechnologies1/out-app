@@ -3389,7 +3389,7 @@ const getAllservicesForUser = async (req, res) => {
 };
 
 
-const ALLOWED_USER_RATINGS = ["cleanliness", "host", "information"];
+const ALLOWED_USER_RATINGS = ["cleanliness", "communication", "behavior"];
 
 const createServiceUserReview = async (req, res) => {
   try {
@@ -3517,8 +3517,12 @@ const createServiceUserReview = async (req, res) => {
     const ratingValues = [];
 
     for (const field of ALLOWED_USER_RATINGS) {
-      if (parsedRatings[field] !== undefined && parsedRatings[field] !== null) {
-        const val = Number(parsedRatings[field]);
+      let rawVal = parsedRatings[field];
+      if (field === "behavior" && rawVal === undefined) {
+        rawVal = parsedRatings["behaviour"];
+      }
+      if (rawVal !== undefined && rawVal !== null) {
+        const val = Number(rawVal);
         if (isNaN(val) || val < 1 || val > 5) {
           return res.status(400).json({
             success: false,
