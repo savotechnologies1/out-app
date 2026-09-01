@@ -8,9 +8,9 @@ const { sendNotification } = require("../utils/notificationService");
 
 exports.createConversation = async (req, res) => {
   try {
-    const { chatType, userId, serviceUserId, subject, description } = req.body;
-    console.log("req.file", req.file)
-    console.log("safasfsa", req.body);
+    const { chatType, userId, serviceUserId, subject, description, bookingId } = req.body;
+    // console.log("req.file", req.file)
+    // console.log("safasfsa", req.body);
     let conversation;
 
     /* =====================================================
@@ -111,7 +111,38 @@ exports.createConversation = async (req, res) => {
           existingTicket.conversationId = existingConversation._id;
         }
 
+        const requestedLang = getLangFromReq(req, existingTicket.lang || "en");
+        existingTicket.lang = requestedLang;
+
+        // Check if bookingId is provided and different from current linked booking
+        let triggerBot = false;
+        if (bookingId) {
+          const currentBookingIdStr = existingTicket.bookingId ? existingTicket.bookingId.toString() : null;
+          if (currentBookingIdStr !== bookingId.toString()) {
+            existingTicket.bookingId = bookingId;
+            existingTicket.botState = "AWAITING_INITIAL_OPTION";
+            triggerBot = true;
+          }
+        }
+
         await existingTicket.save();
+
+        if (triggerBot && bookingId) {
+          const Booking = require("../models/Booking");
+          const booking = await Booking.findById(bookingId).populate("property");
+          const msgs = BOT_MESSAGES[requestedLang] || BOT_MESSAGES.en;
+          let bookingName = msgs.defaultBookingName;
+          if (booking) {
+            if (booking.property) {
+              bookingName = booking.property.name;
+            } else if (booking.services && booking.services.length > 0) {
+              bookingName = msgs.servicesBookingName;
+            }
+          }
+          const initialText = msgs.greeting(bookingName);
+          
+          await exports.sendBotMessage(req.app, existingConversation, initialText);
+        }
 
         return res.json({
           success: true,
@@ -122,6 +153,8 @@ exports.createConversation = async (req, res) => {
         });
       }
 
+      const requestedLang = getLangFromReq(req, "en");
+
       // ✅ Create new ticket if none exists
       const ticket = await Ticket.create({
         userId,
@@ -129,6 +162,9 @@ exports.createConversation = async (req, res) => {
         subject,
         Image: ticketImage,
         description,
+        bookingId: bookingId || null,
+        botState: bookingId ? "AWAITING_INITIAL_OPTION" : null,
+        lang: requestedLang,
       });
 
       // 💬 Find or Create Conversation
@@ -199,6 +235,24 @@ exports.createConversation = async (req, res) => {
           newMessage
         );
       }
+
+      if (bookingId) {
+        const Booking = require("../models/Booking");
+        const booking = await Booking.findById(bookingId).populate("property");
+        const msgs = BOT_MESSAGES[requestedLang] || BOT_MESSAGES.en;
+        let bookingName = msgs.defaultBookingName;
+        if (booking) {
+          if (booking.property) {
+            bookingName = booking.property.name;
+          } else if (booking.services && booking.services.length > 0) {
+            bookingName = msgs.servicesBookingName;
+          }
+        }
+        const initialText = msgs.greeting(bookingName);
+        
+        await exports.sendBotMessage(req.app, conversation, initialText);
+      }
+
       return res.status(201).json({
         success: true,
         data: {
@@ -751,6 +805,30 @@ exports.sendMessage = async (req, res) => {
           messageId: newMessage._id,
         },
       });
+    }
+
+    /* =====================================================
+       🎫 CHATBOT CHECK
+    ===================================================== */
+    if (conversation.chatType === "USER_SUPPORT" && senderId?.toString() !== conversation.adminId?.toString()) {
+      const ticket = await Ticket.findOne({
+        conversationId,
+        status: { $ne: "CLOSED" }
+      });
+      if (ticket && ticket.bookingId && ticket.botState && ticket.botState !== "BOT_COMPLETED") {
+        const requestedLang = getLangFromReq(req, ticket.lang || "en");
+        if (ticket.lang !== requestedLang) {
+          ticket.lang = requestedLang;
+          await ticket.save();
+        }
+        setTimeout(async () => {
+          try {
+            await exports.handleChatbotMessage(req.app, conversation, ticket, message, senderId);
+          } catch (err) {
+            console.error("Chatbot logic error:", err);
+          }
+        }, 500);
+      }
     }
 
     /* =====================================================
@@ -1434,5 +1512,246 @@ exports.reopenTicket = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ success: false });
+  }
+};
+
+/* =====================================================
+   🤖 CHATBOT UTILITY FUNCTIONS & EXPORTS (EN / AR)
+===================================================== */
+
+const BOT_MESSAGES = {
+  en: {
+    greeting: (bookingName) => `Hello! I am your support assistant. I see you are facing issues with your booking for "${bookingName}". Please select or type one of the options below to proceed:\n1. Issue with the owner\n2. Issue with the property/service\n3. I want to cancel`,
+    issueOwner: "We are sorry to hear that you have an issue with the owner. Please describe your issue in detail. A support agent has been notified and will join the chat shortly.",
+    issueProperty: "We are sorry to hear that you have an issue with the property/service. Please describe what is wrong in detail (feel free to attach images). A support agent has been notified and will join the chat shortly.",
+    cancelPrompt: "You have requested to cancel your booking. Please select a reason for cancellation:\nA. Owner taking too long to accept/respond\nB. Changed my mind\nC. Other",
+    initialOptionsRetry: "Please select or type one of the options below to proceed:\n1. Issue with the owner\n2. Issue with the property/service\n3. I want to cancel",
+    cancelReasonRetry: "Please select one of the valid reasons:\nA. Owner taking too long to accept/respond\nB. Changed my mind\nC. Other",
+    customReasonPrompt: "Please type the custom reason for cancelling your booking:",
+    bookingNotFound: "We couldn't find your booking in our database. An agent will join the chat to help you shortly.",
+    alreadyCancelled: "This booking is already cancelled. An agent will join the chat shortly if you have other concerns.",
+    cancelSuccess: (refundMsg) => `Your booking has been successfully cancelled.${refundMsg} An agent will join the chat shortly if you have further questions.`,
+    refundText: (amount, pct) => ` A refund of ${amount} SAR (Percentage: ${pct || 100}%) has been initiated.`,
+    cancelFailed: (msg) => `Cancellation failed: ${msg} An agent has been notified and will assist you shortly.`,
+    cancelError: (msg) => `An error occurred while processing your cancellation: ${msg}. A support agent will assist you shortly.`,
+    defaultBookingName: "your booking",
+    servicesBookingName: "services booking"
+  },
+  ar: {
+    greeting: (bookingName) => `مرحباً بك! أنا مساعد الدعم الآلي. أرى أنك تواجه مشكلة في حجزك لـ "${bookingName}". يرجى اختيار أو كتابة أحد الخيارات التالية للمتابعة:\n1. مشكلة مع المالك\n2. مشكلة في العقار/الخدمة\n3. أريد الإلغاء`,
+    issueOwner: "نأسف لسماع أنك تواجه مشكلة مع المالك. يرجى توضيح مشكلتك بالتفصيل. تم إخطار فريق الدعم وسينضم موظف الدعم للدردشة قريباً.",
+    issueProperty: "نأسف لسماع أنك تواجه مشكلة في العقار/الخدمة. يرجى توضيح المشكلة بالتفصيل (يمكنك إرفاق صور إن أردت). تم إخطار فريق الدعم وسينضم موظف الدعم للدردشة قريباً.",
+    cancelPrompt: "لقد طلبت إلغاء حجزك. يرجى تحديد سبب الإلغاء:\nA. استغرق المالك وقتاً طويلاً للقبول/الرد\nB. غيرت رأيي\nC. سبب آخر",
+    initialOptionsRetry: "يرجى اختيار أو كتابة أحد الخيارات التالية للمتابعة:\n1. مشكلة مع المالك\n2. مشكلة في العقار/الخدمة\n3. أريد الإلغاء",
+    cancelReasonRetry: "يرجى اختيار أحد الأسباب الصحيحة:\nA. استغرق المالك وقتاً طويلاً للقبول/الرد\nB. غيرت رأيي\nC. سبب آخر",
+    customReasonPrompt: "يرجى كتابة السبب الخاص لإلغاء حجزك:",
+    bookingNotFound: "لم نتمكن من العثور على حجزك في قاعدة البيانات. سينضم موظف الدعم للمساعدة قريباً.",
+    alreadyCancelled: "هذا الحجز ملغى بالفعل. سينضم موظف الدعم للدردشة قريباً إذا كانت لديك استفسارات أخرى.",
+    cancelSuccess: (refundMsg) => `تم إلغاء حجزك بنجاح.${refundMsg} سينضم موظف الدعم للدردشة قريباً إذا كانت لديك أسئلة أخرى.`,
+    refundText: (amount, pct) => ` تم بدء استرداد مبلغ ${amount} ريال سعودي (النسبة: ${pct || 100}%).`,
+    cancelFailed: (msg) => `فشل الإلغاء: ${msg} تم إخطار الدعم وسيقوم بمساعدتك قريباً.`,
+    cancelError: (msg) => `حدث خطأ أثناء معالجة الإلغاء: ${msg}. سينضم موظف الدعم لمساعدتك قريباً.`,
+    defaultBookingName: "حجزك",
+    servicesBookingName: "حجز الخدمات"
+  }
+};
+
+exports.BOT_MESSAGES = BOT_MESSAGES;
+
+const getLangFromReq = (req, fallback = "en") => {
+  if (!req) return fallback;
+  const q = req.query || {};
+  const b = req.body || {};
+  
+  if (q.lang === "ar" || q.ar !== undefined || b.lang === "ar") return "ar";
+  if (q.lang === "en" || q.en !== undefined || b.lang === "en") return "en";
+  return fallback;
+};
+
+exports.getLangFromReq = getLangFromReq;
+
+exports.getUserBookingsForSupport = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const Booking = require("../models/Booking");
+    
+    // Find bookings where user matches userId
+    const bookings = await Booking.find({ user: userId })
+      .populate({
+        path: "property",
+        select: "name address.city price"
+      })
+      .populate("services.service", "name price")
+      .populate("package", "name")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      data: bookings
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.sendBotMessage = async (ioOrApp, conversation, messageText) => {
+  const Message = require("../models/Message");
+  
+  const botMessage = await Message.create({
+    conversationId: conversation._id,
+    senderId: conversation.adminId, // send as Admin/Bot
+    messageType: "TEXT",
+    message: messageText,
+  });
+
+  // Update conversation last message
+  conversation.lastMessage = messageText;
+  conversation.lastMessageAt = new Date();
+  conversation.lastMessageSenderId = conversation.adminId;
+  conversation.userUnreadCount++; // increment user's unread count
+  await conversation.save();
+
+  // Get WebSocket instance
+  let io = null;
+  if (ioOrApp && typeof ioOrApp.to === 'function') {
+    io = ioOrApp;
+  } else if (ioOrApp && typeof ioOrApp.get === 'function') {
+    io = ioOrApp.get("io");
+  }
+
+  if (io) {
+    io.to(conversation._id.toString()).emit("receiveMessage", botMessage);
+  }
+  return botMessage;
+};
+
+exports.executeCancellation = async (ioOrApp, conversation, ticket, reason, customReason = "") => {
+  const bookingController = require("./bookingController");
+  const Booking = require("../models/Booking");
+  const lang = ticket.lang === "ar" ? "ar" : "en";
+  const msgs = BOT_MESSAGES[lang];
+
+  const booking = await Booking.findById(ticket.bookingId);
+  if (!booking) {
+    ticket.botState = "BOT_COMPLETED";
+    await ticket.save();
+    await exports.sendBotMessage(ioOrApp, conversation, msgs.bookingNotFound);
+    return;
+  }
+
+  if (booking.isCancelled) {
+    ticket.botState = "BOT_COMPLETED";
+    await ticket.save();
+    await exports.sendBotMessage(ioOrApp, conversation, msgs.alreadyCancelled);
+    return;
+  }
+
+  // Mock request and response for bookingController.cancelBooking
+  let appInstance = null;
+  if (ioOrApp && typeof ioOrApp.get === 'function') {
+    appInstance = ioOrApp;
+  } else if (ioOrApp && ioOrApp.app) {
+    appInstance = ioOrApp.app;
+  }
+
+  const fakeReq = {
+    params: { bookingId: booking._id.toString() },
+    body: {
+      reason,
+      cancellationReason: reason,
+      customReason,
+      customCancellationReason: customReason
+    },
+    app: appInstance
+  };
+
+  let sentData = null;
+  let statusCode = 200;
+
+  const fakeRes = {
+    status: function(code) {
+      statusCode = code;
+      return this;
+    },
+    send: function(data) {
+      sentData = data;
+      return this;
+    },
+    json: function(data) {
+      sentData = data;
+      return this;
+    }
+  };
+
+  try {
+    await bookingController.cancelBooking(fakeReq, fakeRes);
+    
+    // Verify cancellation status
+    const updatedBooking = await Booking.findById(booking._id);
+    if (updatedBooking && updatedBooking.bookingStatus === "cancelled") {
+      let refundMsg = "";
+      if (updatedBooking.refundAmount > 0) {
+        refundMsg = msgs.refundText(updatedBooking.refundAmount, updatedBooking.refundPercentage);
+      }
+      const reply = msgs.cancelSuccess(refundMsg);
+      ticket.botState = "BOT_COMPLETED";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, reply);
+    } else {
+      const errorMsg = (sentData && sentData.message) || "Cancellation error";
+      const reply = msgs.cancelFailed(errorMsg);
+      ticket.botState = "BOT_COMPLETED";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, reply);
+    }
+  } catch (err) {
+    console.error("Chatbot cancellation error:", err);
+    const reply = msgs.cancelError(err.message);
+    ticket.botState = "BOT_COMPLETED";
+    await ticket.save();
+    await exports.sendBotMessage(ioOrApp, conversation, reply);
+  }
+};
+
+exports.handleChatbotMessage = async (ioOrApp, conversation, ticket, messageText, senderId) => {
+  const text = messageText.trim().toLowerCase();
+  const lang = ticket.lang === "ar" ? "ar" : "en";
+  const msgs = BOT_MESSAGES[lang];
+
+  if (ticket.botState === "AWAITING_INITIAL_OPTION") {
+    if (text === "1" || text.includes("owner") || text.includes("مالك")) {
+      ticket.botState = "BOT_COMPLETED";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.issueOwner);
+    } else if (text === "2" || text.includes("property") || text.includes("service") || text.includes("عقار") || text.includes("خدمة") || text.includes("خدمه")) {
+      ticket.botState = "BOT_COMPLETED";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.issueProperty);
+    } else if (text === "3" || text.includes("cancel") || text.includes("إلغاء") || text.includes("الغاء")) {
+      ticket.botState = "AWAITING_CANCEL_REASON";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.cancelPrompt);
+    } else {
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.initialOptionsRetry);
+    }
+  }
+  else if (ticket.botState === "AWAITING_CANCEL_REASON") {
+    if (text === "a" || text.includes("owner") || text.includes("long") || text.includes("مالك") || text.includes("طويل")) {
+      await exports.executeCancellation(ioOrApp, conversation, ticket, "OWNER_TAKING_TOO_LONG");
+    } else if (text === "b" || text.includes("mind") || text.includes("changed") || text.includes("غيرت") || text.includes("رأيي") || text.includes("رايي")) {
+      await exports.executeCancellation(ioOrApp, conversation, ticket, "CHANGED_MY_MIND");
+    } else if (text === "c" || text.includes("other") || text.includes("آخر") || text.includes("اخر")) {
+      ticket.botState = "AWAITING_CANCEL_CUSTOM_REASON";
+      await ticket.save();
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.customReasonPrompt);
+    } else {
+      await exports.sendBotMessage(ioOrApp, conversation, msgs.cancelReasonRetry);
+    }
+  }
+  else if (ticket.botState === "AWAITING_CANCEL_CUSTOM_REASON") {
+    await exports.executeCancellation(ioOrApp, conversation, ticket, "OTHER", messageText);
   }
 };

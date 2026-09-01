@@ -25,6 +25,22 @@ const ticketSchema = new mongoose.Schema(
             ref: "Conversation",
             default: null,
         },
+        bookingId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Booking",
+            default: null,
+            index: true,
+        },
+        botState: {
+            type: String,
+            enum: ["AWAITING_INITIAL_OPTION", "AWAITING_CANCEL_REASON", "AWAITING_CANCEL_CUSTOM_REASON", "BOT_COMPLETED"],
+            default: null,
+        },
+        lang: {
+            type: String,
+            enum: ["en", "ar"],
+            default: "en",
+        },
 
         subject: {
             type: String,

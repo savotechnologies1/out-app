@@ -18,6 +18,7 @@ router.post(
   chat.sendMessage
 );
 router.get("/list/:userId", chat.getConversations);
+router.get("/user-bookings/:userId", chat.getUserBookingsForSupport);
 router.get("/messages/:conversationId", chat.getMessages);
 // router.put("/close/:conversationId", chat.closeChat);
 router.put("/read/:conversationId", chat.markAsRead);

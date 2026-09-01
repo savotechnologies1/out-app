@@ -187,6 +187,141 @@ module.exports = function (server) {
     );
 
     /* =====================================================
+       💬 SEND MESSAGE
+    ===================================================== */
+
+    socket.on("sendMessage", async (data) => {
+      try {
+        const Conversation = require("./models/Conversation");
+        const Message = require("./models/Message");
+        const Ticket = require("./models/Ticket");
+        const { sendNotification } = require("./utils/notificationService");
+
+        const { conversationId, senderId, message, messageType = "TEXT" } = data;
+
+        if (!conversationId || !senderId) return;
+
+        const conversation = await Conversation.findById(conversationId);
+
+        if (!conversation) {
+          socket.emit("errorMessage", "Conversation not found");
+          return;
+        }
+
+        if (conversation.isClosed) {
+          socket.emit("errorMessage", "Chat is closed");
+          return;
+        }
+
+        /* ===== TICKET CHECK ===== */
+        if (
+          conversation.chatType === "USER_SUPPORT" ||
+          conversation.chatType === "SERVICE_SUPPORT"
+        ) {
+          const ticket = await Ticket.findOne({ conversationId });
+
+          if (!ticket) return socket.emit("errorMessage", "Ticket not found");
+          if (ticket.status === "CLOSED") return socket.emit("errorMessage", "Ticket is closed");
+
+          if (
+            conversation.adminId?.toString() === senderId &&
+            ticket.status === "OPEN"
+          ) {
+            ticket.status = "IN_PROGRESS";
+            await ticket.save();
+          }
+        }
+
+        /* ===== SAVE MESSAGE ===== */
+        const newMessage = await Message.create({
+          conversationId,
+          senderId,
+          message,
+          messageType,
+        });
+
+        /* ===== UPDATE CONVERSATION ===== */
+        conversation.lastMessage = message;
+        conversation.lastMessageAt = new Date();
+        conversation.lastMessageSenderId = senderId;
+
+        if (conversation.userId?.toString() === senderId) {
+          conversation.serviceUserUnreadCount =
+            (conversation.serviceUserUnreadCount || 0) + 1;
+        } else if (conversation.serviceUserId?.toString() === senderId) {
+          conversation.userUnreadCount =
+            (conversation.userUnreadCount || 0) + 1;
+        } else if (conversation.adminId?.toString() === senderId) {
+          if (conversation.userId) conversation.userUnreadCount = (conversation.userUnreadCount || 0) + 1;
+          if (conversation.serviceUserId) conversation.serviceUserUnreadCount = (conversation.serviceUserUnreadCount || 0) + 1;
+        }
+
+        await conversation.save();
+
+        /* ===== EMIT TO ROOM ===== */
+        io.to(conversationId).emit("receiveMessage", newMessage);
+
+        /* ===== OFFLINE NOTIFICATIONS ===== */
+        const participants = [
+          conversation.userId?.toString(),
+          conversation.serviceUserId?.toString(),
+          conversation.adminId?.toString(),
+        ].filter(Boolean);
+
+        for (const participantId of participants) {
+          if (participantId === senderId) continue;
+
+          const userSockets = onlineUsers.get(participantId);
+          const isOnline = userSockets && userSockets.size > 0;
+
+          if (!isOnline) {
+            let receiverModel = "User";
+            if (participantId === conversation.adminId?.toString()) receiverModel = "Admin";
+            else if (participantId === conversation.serviceUserId?.toString()) receiverModel = "ServiceUser";
+
+            await sendNotification({
+              receiverId: participantId,
+              receiverModel,
+              senderId,
+              senderModel: senderId === conversation.adminId?.toString() ? "Admin" : "User",
+              title: "New Message 💬",
+              body: message,
+              type: "CHAT",
+              referenceId: conversationId,
+              referenceType: "Conversation",
+            });
+          }
+        }
+
+        /* ===== CHATBOT CHECK ===== */
+        if (conversation.chatType === "USER_SUPPORT" && senderId?.toString() !== conversation.adminId?.toString()) {
+          const ticket = await Ticket.findOne({
+            conversationId,
+            status: { $ne: "CLOSED" }
+          });
+          if (ticket && ticket.bookingId && ticket.botState && ticket.botState !== "BOT_COMPLETED") {
+            const requestedLang = data.lang || data.query?.lang || (data.ar !== undefined ? "ar" : (data.en !== undefined ? "en" : ticket.lang || "en"));
+            if (requestedLang && (requestedLang === "en" || requestedLang === "ar") && ticket.lang !== requestedLang) {
+              ticket.lang = requestedLang;
+              await ticket.save();
+            }
+            const chatController = require("./controller/chatController");
+            setTimeout(async () => {
+              try {
+                await chatController.handleChatbotMessage(io, conversation, ticket, message, senderId);
+              } catch (err) {
+                console.error("Chatbot socket logic error:", err);
+              }
+            }, 500);
+          }
+        }
+
+      } catch (err) {
+        console.log("❌ SendMessage Error:", err.message);
+      }
+    });
+
+    /* =====================================================
        👀 MESSAGE SEEN
     ===================================================== */
 
