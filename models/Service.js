@@ -179,6 +179,11 @@ const serviceSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    isRecommended: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
     instructions: {
       type: [instructionSchema],
       default: [],

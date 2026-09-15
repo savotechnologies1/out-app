@@ -4670,7 +4670,7 @@ const getAllServicesAdmin = catchAsyncError(async (req, res, next) => {
         location: 1,
         isActive: 1,
         createdAt: 1,
-
+        isRecommended:1,
         avgRating: 1,
         totalReviews: 1,
 
@@ -4884,6 +4884,7 @@ const getSingleServiceAdmin = async (req, res) => {
           approvalStatus: 1,
           approvedAt: 1,
           rejectionReason: 1,
+          isRecommended:1,
           schedule: 1,
           media: 1,
           location: 1,
@@ -7127,6 +7128,49 @@ const toggleRecommendedProperty = catchAsyncError(async (req, res) => {
 
 });
 
+const toggleRecommendedService = catchAsyncError(async (req, res) => {
+
+  const { serviceId } = req.params;
+
+  if (!serviceId || !mongoose.Types.ObjectId.isValid(serviceId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Valid serviceId is required"
+    });
+  }
+
+  const service = await Service.findOne({
+    _id: serviceId,
+    isDeleted: false,
+    approvalStatus: "approved"
+  });
+
+  if (!service) {
+    return res.status(404).json({
+      success: false,
+      message: "Service not found"
+    });
+  }
+
+  // 🔥 Toggle recommendation
+  service.isRecommended = !service.isRecommended;
+
+  await service.save();
+
+  return res.status(200).json({
+    success: true,
+    message: service.isRecommended
+      ? "Service added to recommendations"
+      : "Service removed from recommendations",
+
+    data: {
+      _id: service._id,
+      isRecommended: service.isRecommended
+    }
+  });
+
+});
+
 const getAllServicesForCommission = catchAsyncError(async (req, res, next) => {
 
   const services = await Service.find({
@@ -7370,6 +7414,7 @@ module.exports = {
   getBookingsByServiceId,
   toggleRecommendedProperty,
   getAllServiceCategoriesForCommission,
-  getAllServicesForCommission
+  getAllServicesForCommission,
+  toggleRecommendedService
 };
 

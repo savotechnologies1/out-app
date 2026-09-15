@@ -21,7 +21,18 @@ const recentlyViewedSchema = new mongoose.Schema(
     property: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Properties",
-      required: true,
+      default: null,
+      index: true
+    },
+
+    /* =========================
+       SERVICE
+    ========================= */
+
+    service: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Service",
+      default: null,
       index: true
     },
 
@@ -55,7 +66,13 @@ const recentlyViewedSchema = new mongoose.Schema(
 // One property per user
 recentlyViewedSchema.index(
   { user: 1, property: 1 },
-  { unique: true }
+  { unique: true, partialFilterExpression: { property: { $exists: true, $ne: null } } }
+);
+
+// One service per user
+recentlyViewedSchema.index(
+  { user: 1, service: 1 },
+  { unique: true, partialFilterExpression: { service: { $exists: true, $ne: null } } }
 );
 
 // Fast recent fetch

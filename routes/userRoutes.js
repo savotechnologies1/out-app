@@ -41,6 +41,10 @@ const {
   getTopRatedProperties,
   getRecommendedProperties,
   getNearYouProperties,
+  getRecentlyViewedServices,
+  getTopRatedServices,
+  getRecommendedServices,
+  getNearYouServices,
   deleteAccount,
   shareItem,
   shareServiceUserProfile,
@@ -158,6 +162,14 @@ router.get("/getTopRatedProperties", validateToken, getTopRatedProperties);
 router.get("/getRecommendedProperties", validateToken, getRecommendedProperties);
 
 router.get("/getNearYouProperties", validateToken, getNearYouProperties);
+
+router.get("/getRecentlyViewedServices", validateToken, getRecentlyViewedServices);
+
+router.get("/getTopRatedServices", validateToken, getTopRatedServices);
+
+router.get("/getRecommendedServices", validateToken, getRecommendedServices);
+
+router.get("/getNearYouServices", validateToken, getNearYouServices);
 
 router.delete("/deleteAccount", validateToken, deleteAccount);
 

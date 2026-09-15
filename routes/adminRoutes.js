@@ -105,7 +105,8 @@ const {
   getBookingsByServiceId,
   toggleRecommendedProperty,
   getAllServiceCategoriesForCommission,
-  getAllServicesForCommission
+  getAllServicesForCommission,
+  toggleRecommendedService
 } = require("../controller/adminController");
 const validateAdminToken = require("../middleware/adminValidateToken");
 const { uploads } = require("../functions/upload");
@@ -338,6 +339,8 @@ router.delete("/deleteService/:serviceId", validateAdminToken, softDeleteService
 router.delete("/deletePendingBooking/:bookingId", validateAdminToken, deletePendingBooking)
 
 router.patch("/toggleRecommendedProperty/:propertyId", validateAdminToken, toggleRecommendedProperty)
+
+router.patch("/toggleRecommendedService/:serviceId", validateAdminToken, toggleRecommendedService)
 
 /* =====================================================
    Identity Verification — Admin Routes

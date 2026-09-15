@@ -30,6 +30,7 @@ const Review = require("../models/Review");
 const path = require("path");
 const ServiceCategory = require("../models/ServiceCategory");
 const RecentlyViewed = require("../models/RecentlyViewed");
+const CancellationPolicy = require("../models/CancellationPolicy");
 
 
 const userLogin = catchAsyncError(async (req, res, next) => {
@@ -3035,6 +3036,25 @@ const getServiceDetail = catchAsyncError(async (req, res) => {
 
     service.bookedDates = Array.from(bookedDatesSet).sort();
 
+    await RecentlyViewed.findOneAndUpdate(
+      {
+        user: req.user._id,
+        service: service._id
+      },
+      {
+        $inc: {
+          viewCount: 1
+        },
+        $set: {
+          lastViewedAt: new Date()
+        }
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+
     return res.status(200).json({
       success: true,
       data: service
@@ -5603,6 +5623,1000 @@ const getNearYouProperties = catchAsyncError(async (req, res) => {
 
 });
 
+// ======================================================
+// 1. RECENTLY VIEWED SERVICES
+// ======================================================
+
+const getRecentlyViewedServices = catchAsyncError(async (req, res) => {
+  const { lastId, limit = 10 } = req.query;
+
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const matchStage = {
+    user: new mongoose.Types.ObjectId(req.user._id),
+    service: { $exists: true, $ne: null }
+  };
+
+  if (lastId && mongoose.Types.ObjectId.isValid(lastId)) {
+    matchStage._id = {
+      $lt: new mongoose.Types.ObjectId(lastId)
+    };
+  }
+
+  const matchServiceStage = {
+    "serviceData.isDeleted": false,
+    "serviceData.isActive": { $ne: false },
+    "serviceData.approvalStatus": "approved"
+  };
+
+  if (serviceUserIds.length > 0) {
+    matchServiceStage["serviceData.user"] = { $nin: serviceUserIds };
+  }
+
+  const data = await RecentlyViewed.aggregate([
+    {
+      $match: matchStage
+    },
+    {
+      $sort: {
+        lastViewedAt: -1
+      }
+    },
+    {
+      $limit: Number(limit)
+    },
+    {
+      $lookup: {
+        from: "services",
+        localField: "service",
+        foreignField: "_id",
+        as: "serviceData"
+      }
+    },
+    {
+      $unwind: "$serviceData"
+    },
+    {
+      $match: matchServiceStage
+    },
+    // Category Lookup
+    {
+      $lookup: {
+        from: "servicecategories",
+        localField: "serviceData.category",
+        foreignField: "_id",
+        as: "categoryData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$categoryData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$serviceData.user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              email: 1,
+              phone: 1,
+              profile: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Bookmark Lookup
+    {
+      $lookup: {
+        from: "bookmarks",
+        let: { serviceId: "$serviceData._id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        as: "bookmarkData"
+      }
+    },
+    // Ratings Lookup
+    {
+      $lookup: {
+        from: "reviews",
+        let: {
+          serviceId: "$serviceData._id"
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: {
+                $avg: "$rating"
+              },
+              totalReviews: {
+                $sum: 1
+              }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+    {
+      $addFields: {
+        "serviceData.categoryData": "$categoryData",
+        "serviceData.serviceUserData": "$serviceUserData",
+        "serviceData.isFavorite": {
+          $gt: [{ $size: "$bookmarkData" }, 0]
+        },
+        "serviceData.averageRating": {
+          $ifNull: [
+            {
+              $round: [
+                {
+                  $arrayElemAt: ["$ratingData.averageRating", 0]
+                },
+                1
+              ]
+            },
+            0
+          ]
+        },
+        "serviceData.totalReviews": {
+          $ifNull: [
+            {
+              $arrayElemAt: ["$ratingData.totalReviews", 0]
+            },
+            0
+          ]
+        }
+      }
+    },
+    {
+      $replaceRoot: {
+        newRoot: "$serviceData"
+      }
+    }
+  ]);
+
+  let nextCursor = null;
+  if (data.length > 0) {
+    nextCursor = data[data.length - 1]._id;
+  }
+
+  return res.status(200).json({
+    success: true,
+    nextCursor,
+    data
+  });
+});
+
+// ======================================================
+// 2. TOP RATED SERVICES
+// ======================================================
+
+const getTopRatedServices = catchAsyncError(async (req, res) => {
+  const {
+    lat,
+    lng,
+    limit = 10,
+    page = 1
+  } = req.query;
+
+  // ✅ VALIDATION
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+
+  // ✅ LIMIT
+  const parsedLimit = Math.min(Number(limit) || 10, 50);
+
+  // ✅ PAGE
+  const parsedPage = Math.max(Number(page) || 1, 1);
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isDeleted: false,
+    isActive: { $ne: false },
+    approvalStatus: "approved",
+    "location.coordinates.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
+  // ✅ PIPELINE
+  const pipeline = [
+    // ✅ GEO SEARCH
+    {
+      $geoNear: {
+        key: "location.coordinates",
+        near: {
+          type: "Point",
+          coordinates: [Number(lng), Number(lat)]
+        },
+        distanceField: "distance",
+        spherical: true,
+        includeLocs: "location.coordinates",
+        query: geoNearQuery
+      }
+    },
+    // Category Lookup
+    {
+      $lookup: {
+        from: "servicecategories",
+        localField: "category",
+        foreignField: "_id",
+        as: "categoryData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$categoryData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              email: 1,
+              phone: 1,
+              profile: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Bookmark Lookup
+    {
+      $lookup: {
+        from: "bookmarks",
+        let: { serviceId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        as: "bookmarkData"
+      }
+    },
+    // ✅ REVIEWS LOOKUP
+    {
+      $lookup: {
+        from: "reviews",
+        let: {
+          serviceId: "$_id"
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: {
+                $avg: "$rating"
+              },
+              totalReviews: {
+                $sum: 1
+              }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+    // ✅ ADD FIELDS
+    {
+      $addFields: {
+        distance: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        distanceInKm: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        isFavorite: {
+          $gt: [{ $size: "$bookmarkData" }, 0]
+        },
+        averageRating: {
+          $ifNull: [
+            {
+              $round: [
+                {
+                  $arrayElemAt: ["$ratingData.averageRating", 0]
+                },
+                1
+              ]
+            },
+            0
+          ]
+        },
+        totalReviews: {
+          $ifNull: [
+            {
+              $arrayElemAt: ["$ratingData.totalReviews", 0]
+            },
+            0
+          ]
+        }
+      }
+    },
+    // ✅ SORT
+    {
+      $sort: {
+        distance: 1,
+        averageRating: -1,
+        totalReviews: -1
+      }
+    },
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+    {
+      $limit: parsedLimit
+    },
+    // ✅ REMOVE UNWANTED FIELDS
+    {
+      $project: {
+        ratingData: 0,
+        bookmarkData: 0
+      }
+    }
+  ];
+
+  // ✅ EXECUTE
+  const data = await Service.aggregate(pipeline);
+
+  // ✅ TOTAL COUNT
+  const total = await Service.countDocuments(geoNearQuery);
+
+  // ✅ RESPONSE
+  return res.status(200).json({
+    success: true,
+    page: parsedPage,
+    limit: parsedLimit,
+    total,
+    totalPages: Math.ceil(total / parsedLimit),
+    count: data.length,
+    data
+  });
+});
+
+// ======================================================
+// 3. RECOMMENDED SERVICES
+// ======================================================
+
+const getRecommendedServices = catchAsyncError(async (req, res) => {
+  const {
+    lat,
+    lng,
+    limit = 10,
+    page = 1
+  } = req.query;
+
+  // ✅ VALIDATE COORDINATES
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+
+  // ✅ PAGINATION
+  const parsedLimit = Math.min(Number(limit) || 10, 50);
+  const parsedPage = Math.max(Number(page) || 1, 1);
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isRecommended: true,
+    isDeleted: false,
+    isActive: { $ne: false },
+    approvalStatus: "approved",
+    "location.coordinates.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
+  // ✅ PIPELINE
+  const pipeline = [
+    // ✅ GEO SEARCH
+    {
+      $geoNear: {
+        key: "location.coordinates",
+        near: {
+          type: "Point",
+          coordinates: [Number(lng), Number(lat)]
+        },
+        distanceField: "distance",
+        spherical: true,
+        query: geoNearQuery
+      }
+    },
+    // Category Lookup
+    {
+      $lookup: {
+        from: "servicecategories",
+        localField: "category",
+        foreignField: "_id",
+        as: "categoryData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$categoryData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              email: 1,
+              phone: 1,
+              profile: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Bookmark Lookup
+    {
+      $lookup: {
+        from: "bookmarks",
+        let: { serviceId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        as: "bookmarkData"
+      }
+    },
+    // Review Lookup
+    {
+      $lookup: {
+        from: "reviews",
+        let: {
+          serviceId: "$_id"
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: {
+                $avg: "$rating"
+              },
+              totalReviews: {
+                $sum: 1
+              }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+    // ✅ DISTANCE IN KM & FIELDS
+    {
+      $addFields: {
+        distance: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        distanceInKm: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        isFavorite: {
+          $gt: [{ $size: "$bookmarkData" }, 0]
+        },
+        averageRating: {
+          $ifNull: [
+            {
+              $round: [
+                {
+                  $arrayElemAt: ["$ratingData.averageRating", 0]
+                },
+                1
+              ]
+            },
+            0
+          ]
+        },
+        totalReviews: {
+          $ifNull: [
+            {
+              $arrayElemAt: ["$ratingData.totalReviews", 0]
+            },
+            0
+          ]
+        }
+      }
+    },
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+    {
+      $limit: parsedLimit
+    },
+    // ✅ REMOVE RAW FIELDS
+    {
+      $project: {
+        ratingData: 0,
+        bookmarkData: 0
+      }
+    }
+  ];
+
+  // ✅ GET DATA
+  const data = await Service.aggregate(pipeline);
+
+  // ✅ TOTAL COUNT
+  const total = await Service.countDocuments(geoNearQuery);
+
+  // ✅ RESPONSE
+  return res.status(200).json({
+    success: true,
+    page: parsedPage,
+    limit: parsedLimit,
+    total,
+    totalPages: Math.ceil(total / parsedLimit),
+    count: data.length,
+    data
+  });
+});
+
+// ======================================================
+// 4. NEAR YOU SERVICES
+// ======================================================
+
+const getNearYouServices = catchAsyncError(async (req, res) => {
+  const {
+    lat,
+    lng,
+    limit = 10,
+    page = 1
+  } = req.query;
+
+  // ✅ VALIDATION
+  if (!lat || !lng) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required"
+    });
+  }
+
+  const parsedLimit = Math.min(Number(limit) || 10, 50);
+  const parsedPage = Math.max(Number(page) || 1, 1);
+  const skip = (parsedPage - 1) * parsedLimit;
+
+  const user = await User.findById(req.user._id, { phone: 1 }).lean();
+  let serviceUserIds = [];
+
+  if (user && user.phone) {
+    const serviceUsers = await ServiceUser.find({ phone: user.phone }, "_id").lean();
+    serviceUserIds = serviceUsers.map((su) => su._id);
+  }
+
+  const geoNearQuery = {
+    isDeleted: false,
+    isActive: { $ne: false },
+    approvalStatus: "approved",
+    "location.coordinates.coordinates": {
+      $exists: true,
+      $ne: []
+    }
+  };
+
+  if (serviceUserIds.length > 0) {
+    geoNearQuery.user = { $nin: serviceUserIds };
+  }
+
+  // ✅ PIPELINE
+  const pipeline = [
+    // ✅ GEO SEARCH
+    // automatically nearest → farthest
+    {
+      $geoNear: {
+        key: "location.coordinates",
+        near: {
+          type: "Point",
+          coordinates: [Number(lng), Number(lat)]
+        },
+        distanceField: "distance",
+        spherical: true,
+        includeLocs: "location.coordinates",
+        query: geoNearQuery
+      }
+    },
+    // Category Lookup
+    {
+      $lookup: {
+        from: "servicecategories",
+        localField: "category",
+        foreignField: "_id",
+        as: "categoryData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$categoryData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // Service User Lookup
+    {
+      $lookup: {
+        from: "serviceusers",
+        let: { userId: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $eq: ["$_id", "$$userId"]
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 1,
+              firstName: 1,
+              lastName: 1,
+              email: 1,
+              phone: 1,
+              profile: 1
+            }
+          }
+        ],
+        as: "serviceUserData"
+      }
+    },
+    {
+      $unwind: {
+        path: "$serviceUserData",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    // ✅ BOOKMARK LOOKUP
+    {
+      $lookup: {
+        from: "bookmarks",
+        let: { serviceId: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$user", new mongoose.Types.ObjectId(req.user._id)]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        as: "bookmarkData"
+      }
+    },
+    // ✅ REVIEW LOOKUP
+    {
+      $lookup: {
+        from: "reviews",
+        let: {
+          serviceId: "$_id"
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  {
+                    $eq: ["$service", "$$serviceId"]
+                  },
+                  {
+                    $eq: ["$isDeleted", false]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: {
+                $avg: "$rating"
+              },
+              totalReviews: {
+                $sum: 1
+              }
+            }
+          }
+        ],
+        as: "ratingData"
+      }
+    },
+    // ✅ EXTRA FIELDS
+    {
+      $addFields: {
+        distance: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        distanceInKm: {
+          $round: [
+            {
+              $divide: ["$distance", 1000]
+            },
+            2
+          ]
+        },
+        isFavorite: {
+          $gt: [{ $size: "$bookmarkData" }, 0]
+        },
+        averageRating: {
+          $ifNull: [
+            {
+              $round: [
+                {
+                  $arrayElemAt: ["$ratingData.averageRating", 0]
+                },
+                1
+              ]
+            },
+            0
+          ]
+        },
+        totalReviews: {
+          $ifNull: [
+            {
+              $arrayElemAt: ["$ratingData.totalReviews", 0]
+            },
+            0
+          ]
+        }
+      }
+    },
+    // ✅ PAGINATION
+    {
+      $skip: skip
+    },
+    {
+      $limit: parsedLimit
+    },
+    // ✅ REMOVE FIELDS
+    {
+      $project: {
+        ratingData: 0,
+        bookmarkData: 0
+      }
+    }
+  ];
+
+  // ✅ EXECUTE
+  const data = await Service.aggregate(pipeline);
+
+  // ✅ TOTAL COUNT
+  const total = await Service.countDocuments(geoNearQuery);
+
+  // ✅ RESPONSE
+  return res.status(200).json({
+    success: true,
+    page: parsedPage,
+    limit: parsedLimit,
+    total,
+    totalPages: Math.ceil(total / parsedLimit),
+    count: data.length,
+    data
+  });
+});
 
 const deleteAccount = catchAsyncError(async (req, res) => {
   const userId = req.user._id;
@@ -5877,6 +6891,10 @@ module.exports = {
   getTopRatedProperties,
   getRecommendedProperties,
   getNearYouProperties,
+  getRecentlyViewedServices,
+  getTopRatedServices,
+  getRecommendedServices,
+  getNearYouServices,
   deleteAccount,
   shareItem,
   shareServiceUserProfile,
