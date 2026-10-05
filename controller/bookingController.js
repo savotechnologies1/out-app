@@ -1356,15 +1356,48 @@ exports.getBookingStatus = async (req, res) => {
 exports.getUserBookings = async (req, res) => {
   try {
 
-    let { page = 1, limit = 10 } = req.query;
+    let { page = 1, limit = 10, status } = req.query;
 
     const pageNumber = parseInt(page);
     const limitNumber = parseInt(limit);
     const skip = (pageNumber - 1) * limitNumber;
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
     const filter = {
       user: req.user._id
     };
+
+    if (status === "all") {
+      // return all user bookings if explicitly requested
+    } else if (status === "upcoming") {
+      filter.bookingStatus = { $in: ["confirmed", "pending"] };
+      filter.isCancelled = { $ne: true };
+      filter.paymentStatus = "paid";
+      filter.$or = [
+        { checkOut: { $gte: today } },
+        { "services.serviceDate": { $gte: today } }
+      ];
+    } else {
+      // Default: only checked out or cancelled bookings
+      filter.$or = [
+        { bookingStatus: "cancelled" },
+        { isCancelled: true },
+        {
+          bookingStatus: "confirmed",
+          $or: [
+            { checkOut: { $lt: today } },
+            {
+              $and: [
+                { $or: [{ checkOut: null }, { checkOut: { $exists: false } }] },
+                { "services.serviceDate": { $lt: today } }
+              ]
+            }
+          ]
+        }
+      ];
+    }
 
     const total = await Booking.countDocuments(filter);
 
@@ -1528,14 +1561,18 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 
   const bookings = await Booking.find({
     user: userId,
-    checkOut: { $gte: today },
     bookingStatus: { $in: ["confirmed", "pending"] },
-    paymentStatus: "paid"
+    isCancelled: { $ne: true },
+    paymentStatus: "paid",
+    $or: [
+      { checkOut: { $gte: today } },
+      { "services.serviceDate": { $gte: today } }
+    ]
   })
     .populate("property", "name address price media")
     .populate("services.service", "name price media policies maxPersons")
     .populate("package", "name price")
-    .sort({ checkIn: 1 })
+    .sort({ checkIn: 1, createdAt: -1 })
     .lean();
 
   for (let i = 0; i < bookings.length; i++) {

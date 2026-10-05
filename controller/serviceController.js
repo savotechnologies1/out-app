@@ -1574,6 +1574,7 @@ const getUpcomingBookings = catchAsyncError(async (req, res) => {
 
   let filter = {
     bookingStatus: { $in: ["confirmed", "pending"] },
+    isCancelled: { $ne: true },
     paymentStatus: "paid"
   };
 
@@ -1592,7 +1593,10 @@ const getUpcomingBookings = catchAsyncError(async (req, res) => {
     const serviceIds = services.map(s => s._id);
 
     filter["services.service"] = { $in: serviceIds };
-    filter["services.serviceDate"] = { $gte: today };
+    filter.$or = [
+      { checkOut: { $gte: today } },
+      { "services.serviceDate": { $gte: today } }
+    ];
   }
 
   const bookings = await Booking.find(filter)
@@ -1615,6 +1619,9 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
 
   const userId = req.user._id;
 
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
   const properties = await Properties.find({ user: userId })
     .select("_id")
     .lean();
@@ -1634,7 +1641,26 @@ const getBookingHistory = catchAsyncError(async (req, res) => {
       { "services.service": { $in: serviceIds } }
     ],
 
-    bookingStatus: { $in: ["confirmed", "cancelled"] }
+    $and: [
+      {
+        $or: [
+          { bookingStatus: "cancelled" },
+          { isCancelled: true },
+          {
+            bookingStatus: "confirmed",
+            $or: [
+              { checkOut: { $lt: today } },
+              {
+                $and: [
+                  { $or: [{ checkOut: null }, { checkOut: { $exists: false } }] },
+                  { "services.serviceDate": { $lt: today } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
 
   })
     .populate("user", "firstName lastName phone profile identityNumber identityDocuments dateOfBirth verificationService legalFullNameEn legalFullNameEr")
