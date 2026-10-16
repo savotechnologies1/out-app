@@ -130,6 +130,27 @@ const bookingSchema = new mongoose.Schema({
     required: true
   },
 
+  walletAmountApplied: {
+    type: Number,
+    default: 0
+  },
+
+  onlinePayableAmount: {
+    type: Number,
+    default: 0
+  },
+
+  paymentMethod: {
+    type: String,
+    enum: ["ONLINE", "WALLET", "MIXED"],
+    default: "ONLINE"
+  },
+
+  walletRefunded: {
+    type: Boolean,
+    default: false
+  },
+
   commissionAmount: Number,
   providerAmount: Number,
   platformFee: Number,

@@ -23,6 +23,10 @@ const {
   createBooking,
   createToken,
   getAvailableCoupons,
+  getUserWallet,
+  getUserWalletTransactions,
+  redeemGiftCard,
+  getAvailableGiftCards,
   getPlatformCharges,
   search,
   getLatestServices,
@@ -104,7 +108,12 @@ router.post('/create-payment', createPayment);
 
 router.post('/create-booking', validateToken, createBooking);
 
-router.get("/getAvailableCoupons", validateToken, getAvailableCoupons)
+router.get("/getAvailableCoupons", validateToken, getAvailableCoupons);
+
+router.get("/getWallet", validateToken, getUserWallet);
+router.get("/getWalletTransactions", validateToken, getUserWalletTransactions);
+router.post("/redeemGiftCard", validateToken, redeemGiftCard);
+router.get("/getGiftCards", validateToken, getAvailableGiftCards);
 
 router.get("/getPlatformCharges", validateToken, getPlatformCharges)
 

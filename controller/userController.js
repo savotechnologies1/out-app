@@ -31,6 +31,12 @@ const path = require("path");
 const ServiceCategory = require("../models/ServiceCategory");
 const RecentlyViewed = require("../models/RecentlyViewed");
 const CancellationPolicy = require("../models/CancellationPolicy");
+const {
+  getUserWallet,
+  getUserWalletTransactions,
+  redeemGiftCard,
+  getAvailableGiftCards,
+} = require("./userWalletController");
 
 
 const userLogin = catchAsyncError(async (req, res, next) => {
@@ -6898,5 +6904,9 @@ module.exports = {
   deleteAccount,
   shareItem,
   shareServiceUserProfile,
-  getOtherUserProfile
+  getOtherUserProfile,
+  getUserWallet,
+  getUserWalletTransactions,
+  redeemGiftCard,
+  getAvailableGiftCards,
 };

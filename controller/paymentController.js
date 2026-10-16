@@ -7,6 +7,8 @@ const Properties = require("../models/Properties");
 const WalletTransaction = require("../models/WalletTransaction");
 const ServiceAvailability = require("../models/ServiceAvailability");
 const Service = require("../models/Service");
+const UserWallet = require("../models/UserWallet");
+const UserWalletTransaction = require("../models/UserWalletTransaction");
 const { sendNotification } = require("../utils/notificationService");
 const { calculateAcceptanceDeadline } = require("../services/bookingExpiryService");
 const { reserveServiceSlots } = require("../utils/serviceAvailabilityUtils");
@@ -70,7 +72,10 @@ exports.paymentWebhook = async (req, res) => {
       booking: booking._id,
       orderId,
       tapChargeId: chargeId,
-      totalAmount: booking.totalAmount,
+      totalAmount:
+        booking.onlinePayableAmount !== undefined && booking.onlinePayableAmount !== null
+          ? booking.onlinePayableAmount
+          : booking.totalAmount,
       commissionAmount: booking.commissionAmount,
       providerAmount: booking.providerAmount,
       platformFee: booking.platformFee,
@@ -427,15 +432,34 @@ exports.paymentWebhook = async (req, res) => {
 
     else {
 
+      // Refund user wallet amount if any portion was paid using wallet
+      if (booking.walletAmountApplied > 0 && !booking.walletRefunded) {
+        let userWallet = await UserWallet.findOne({ user: booking.user });
+        if (userWallet) {
+          const newBal = Number((userWallet.balance + booking.walletAmountApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: booking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: booking.walletAmountApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to failed online payment for booking ${orderId}`
+          });
+
+          booking.walletRefunded = true;
+        }
+      }
+
       booking.bookingStatus = "pending";
-
       booking.paymentStatus = "failed";
-
-      booking.pendingReason =
-        "payment_failed";
-
+      booking.pendingReason = "payment_failed";
       booking.webhookProcessed = true;
-
       await booking.save();
 
       /* ===============================================

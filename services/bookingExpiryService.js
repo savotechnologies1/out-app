@@ -1,6 +1,8 @@
 const Booking = require("../models/Booking");
 const HotelAvailability = require("../models/Availability");
 const ServiceAvailability = require("../models/ServiceAvailability");
+const UserWallet = require("../models/UserWallet");
+const UserWalletTransaction = require("../models/UserWalletTransaction");
 const { sendNotification } = require("../utils/notificationService");
 const axios = require("axios");
 
@@ -71,29 +73,74 @@ async function autoCancelExpiredBookings() {
       if (!updatedBooking) continue;
 
       let tapRefundId = null;
-      let refundAmount = updatedBooking.totalAmount || 0;
+      let totalRefundAmount = updatedBooking.totalAmount || 0;
       let refundStatus = "processed";
 
-      // Trigger refund if charge ID exists
-      if (updatedBooking.tapChargeId && refundAmount > 0) {
+      // 1. REFUND USER WALLET IF APPLIED
+      let walletRefundSuccess = false;
+      if (updatedBooking.walletAmountApplied > 0 && !updatedBooking.walletRefunded) {
+        try {
+          let userWallet = await UserWallet.findOne({ user: updatedBooking.user });
+          if (!userWallet) {
+            userWallet = await UserWallet.create({
+              user: updatedBooking.user,
+              balance: 0,
+              currency: "SAR",
+              isActive: true,
+            });
+          }
+
+          const newBal = Number((userWallet.balance + updatedBooking.walletAmountApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: updatedBooking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: updatedBooking.walletAmountApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to provider acceptance timeout for booking ${updatedBooking.orderId}`,
+          });
+
+          updatedBooking.walletRefunded = true;
+          walletRefundSuccess = true;
+        } catch (walletErr) {
+          console.error(
+            `Auto-cancel wallet refund failed for booking ${updatedBooking._id}:`,
+            walletErr.message
+          );
+          refundStatus = "failed";
+        }
+      }
+
+      // 2. REFUND ONLINE PAYMENT (TAP) IF ONLINE AMOUNT WAS CHARGED
+      const onlineRefundAmount = updatedBooking.onlinePayableAmount !== undefined
+        ? Number(updatedBooking.onlinePayableAmount)
+        : Math.max(0, Number((totalRefundAmount - (updatedBooking.walletAmountApplied || 0)).toFixed(2)));
+
+      if (updatedBooking.tapChargeId && onlineRefundAmount > 0) {
         try {
           const response = await axios.post(
             "https://api.tap.company/v2/refunds",
             {
               charge_id: updatedBooking.tapChargeId,
-              amount: Number(refundAmount),
+              amount: Number(onlineRefundAmount.toFixed(2)),
               currency: "SAR",
               reason: "Provider acceptance timeout",
               reference: {
-                merchant: updatedBooking.orderId
-              }
+                merchant: updatedBooking.orderId,
+              },
             },
             {
               headers: {
                 Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
               },
-              timeout: 10000 // 10 seconds timeout to prevent hanging forever
+              timeout: 10000, // 10 seconds timeout to prevent hanging forever
             }
           );
           tapRefundId = response.data?.id || "REFUNDED_ON_TAP";
@@ -103,6 +150,14 @@ async function autoCancelExpiredBookings() {
             err.response?.data || err.message
           );
           refundStatus = "failed";
+        }
+      } else if (
+        updatedBooking.paymentMethod === "WALLET" ||
+        (updatedBooking.walletAmountApplied > 0 && !updatedBooking.tapChargeId)
+      ) {
+        tapRefundId = walletRefundSuccess ? `WALLET_REFUND_${Date.now()}` : null;
+        if (walletRefundSuccess && refundStatus !== "failed") {
+          refundStatus = "processed";
         }
       }
 
@@ -123,13 +178,14 @@ async function autoCancelExpiredBookings() {
           $set: {
             refundStatus: refundStatus,
             refundTransactionId: tapRefundId,
-            providerBreakdown: updatedBooking.providerBreakdown
-          }
+            walletRefunded: updatedBooking.walletRefunded || false,
+            providerBreakdown: updatedBooking.providerBreakdown,
+          },
         }
       );
 
       // Update properties on the local object for notification payloads
-      updatedBooking.refundAmount = refundAmount;
+      updatedBooking.refundAmount = totalRefundAmount;
       updatedBooking.refundPercentage = 100;
       updatedBooking.refundStatus = refundStatus;
       updatedBooking.refundTransactionId = tapRefundId;
@@ -138,7 +194,7 @@ async function autoCancelExpiredBookings() {
       if (updatedBooking.property) {
         await HotelAvailability.deleteMany({
           hotel: updatedBooking.property,
-          booking: updatedBooking._id
+          booking: updatedBooking._id,
         });
       }
 
@@ -146,29 +202,42 @@ async function autoCancelExpiredBookings() {
         const serviceIds = updatedBooking.services.map((s) => s.service);
         await ServiceAvailability.deleteMany({
           service: { $in: serviceIds },
-          booking: updatedBooking._id
+          booking: updatedBooking._id,
         });
       }
 
       const notificationData = {
         bookingId: updatedBooking._id.toString(),
         totalAmount: updatedBooking.totalAmount,
-        refundAmount,
+        refundAmount: totalRefundAmount,
+        walletRefundAmount: updatedBooking.walletAmountApplied || 0,
+        onlineRefundAmount,
         cancellationReason: "PROVIDER_ACCEPTANCE_TIMEOUT",
         checkIn: updatedBooking.checkIn,
-        checkOut: updatedBooking.checkOut
+        checkOut: updatedBooking.checkOut,
       };
+
+      const refundBreakdownNotes = [];
+      if (updatedBooking.walletAmountApplied > 0) {
+        refundBreakdownNotes.push(`${updatedBooking.walletAmountApplied} SAR refunded to your wallet`);
+      }
+      if (onlineRefundAmount > 0) {
+        refundBreakdownNotes.push(`${onlineRefundAmount} SAR refunded to your card`);
+      }
+      const refundNoteText = refundBreakdownNotes.length > 0
+        ? ` (${refundBreakdownNotes.join(", ")})`
+        : "";
 
       // Notify Customer
       await sendNotification({
         receiverId: updatedBooking.user,
         receiverModel: "User",
         title: "Booking Request Cancelled ❌",
-        body: "Your booking request was automatically cancelled because the service provider did not accept it within the required time. Your held payment has been released/refunded.",
+        body: `Your booking request was automatically cancelled because the service provider did not accept it within the required time. Your held payment has been refunded${refundNoteText}.`,
         type: "REFUND",
         referenceId: updatedBooking._id,
         referenceType: "Booking",
-        data: notificationData
+        data: notificationData,
       });
 
       // Notify Service Provider(s)

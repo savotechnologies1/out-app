@@ -45,6 +45,12 @@ const {
   updateCoupon,
   getAllCoupons,
   deleteCoupon,
+  createGiftCard,
+  getAllGiftCards,
+  getGiftCardById,
+  updateGiftCard,
+  deleteGiftCard,
+  getUserWalletByAdmin,
   getAllCommissions,
   createCommission,
   updateCommission,
@@ -202,6 +208,13 @@ router.patch("/updateCoupon/:couponId", validateAdminToken, updateCoupon)
 router.get("/getAllCoupons", validateAdminToken, getAllCoupons)
 
 router.delete("/deleteCoupon/:couponId", validateAdminToken, deleteCoupon);
+
+router.post("/createGiftCard", validateAdminToken, createGiftCard);
+router.get("/getAllGiftCards", validateAdminToken, getAllGiftCards);
+router.get("/getGiftCardById/:id", validateAdminToken, getGiftCardById);
+router.patch("/updateGiftCard/:id", validateAdminToken, updateGiftCard);
+router.delete("/deleteGiftCard/:id", validateAdminToken, deleteGiftCard);
+router.get("/getUserWallet/:userId", validateAdminToken, getUserWalletByAdmin);
 
 router.get("/getAllCommissions", validateAdminToken, getAllCommissions);
 router.post("/createCommission", validateAdminToken, createCommission);

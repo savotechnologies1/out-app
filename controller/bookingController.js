@@ -12,6 +12,8 @@ const Service = require("../models/Service");
 const catchAsyncError = require("../functions/catchAsyncError");
 const Wallet = require("../models/Wallet");
 const WalletTransaction = require("../models/WalletTransaction");
+const UserWallet = require("../models/UserWallet");
+const UserWalletTransaction = require("../models/UserWalletTransaction");
 const axios = require("axios");
 const { sendNotification } = require("../utils/notificationService");
 const PaymentTransaction = require("../models/PaymentTransaction");
@@ -109,15 +111,55 @@ const autoCancelConflictingBookings = async (confirmedBooking) => {
       confBooking.bookingStatus = "cancelled";
       confBooking.rejectReason = "Booking auto-rejected due to too many bookings at a time, sorry for the inconvience";
       confBooking.pendingReason = null;
-      await confBooking.save();
 
-      if (confBooking.tapChargeId && confBooking.totalAmount > 0) {
+      // 1. Refund wallet amount if applied
+      let walletRefundDone = false;
+      if (confBooking.walletAmountApplied > 0 && !confBooking.walletRefunded) {
+        try {
+          let userWallet = await UserWallet.findOne({ user: confBooking.user });
+          if (!userWallet) {
+            userWallet = await UserWallet.create({
+              user: confBooking.user,
+              balance: 0,
+              currency: "SAR",
+              isActive: true,
+            });
+          }
+          const newBal = Number((userWallet.balance + confBooking.walletAmountApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: confBooking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: confBooking.walletAmountApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to conflict auto-rejection for order ${confBooking.orderId}`,
+          });
+
+          confBooking.walletRefunded = true;
+          walletRefundDone = true;
+        } catch (wErr) {
+          console.error("Wallet refund failed on conflict auto-reject:", wErr.message);
+        }
+      }
+
+      // 2. Refund online portion if charged
+      const onlineAmountToRefund = confBooking.onlinePayableAmount !== undefined
+        ? Number(confBooking.onlinePayableAmount)
+        : Math.max(0, Number(((confBooking.totalAmount || 0) - (confBooking.walletAmountApplied || 0)).toFixed(2)));
+
+      if (confBooking.tapChargeId && onlineAmountToRefund > 0) {
         try {
           const response = await axios.post(
             "https://api.tap.company/v2/refunds",
             {
               charge_id: confBooking.tapChargeId,
-              amount: Number(confBooking.totalAmount),
+              amount: onlineAmountToRefund,
               currency: "SAR",
               reason: "Booking auto-rejected due to schedule conflict",
               reference: {
@@ -137,16 +179,22 @@ const autoCancelConflictingBookings = async (confirmedBooking) => {
           confBooking.refundStatus = "processed";
           confBooking.isCancelled = true;
           confBooking.cancellationDate = new Date();
-          await confBooking.save();
         } catch (err) {
           console.error(
             `Conflict auto-refund failed for booking ${confBooking._id}:`,
             err.response?.data || err.message
           );
           confBooking.refundStatus = "failed";
-          await confBooking.save();
         }
+      } else if (confBooking.paymentMethod === "WALLET" || (confBooking.walletAmountApplied > 0 && !confBooking.tapChargeId)) {
+        confBooking.refundTransactionId = walletRefundDone ? `WALLET_REFUND_${Date.now()}` : null;
+        confBooking.refundAmount = confBooking.totalAmount;
+        confBooking.refundStatus = walletRefundDone ? "processed" : "failed";
+        confBooking.isCancelled = true;
+        confBooking.cancellationDate = new Date();
       }
+
+      await confBooking.save();
 
       try {
         await sendNotification({
@@ -650,6 +698,25 @@ exports.checkAvailability = async (req, res) => {
       finalAmount + platformFee + tax;
 
     /* =================================================
+       USER WALLET INTEGRATION
+    ================================================= */
+    let walletBalance = 0;
+    let walletAmountApplied = 0;
+    let remainingAmount = grandTotal;
+
+    if (userId) {
+      const userWallet = await UserWallet.findOne({
+        user: userId,
+        isActive: true
+      });
+      if (userWallet && userWallet.balance > 0) {
+        walletBalance = userWallet.balance;
+        walletAmountApplied = Math.min(walletBalance, grandTotal);
+        remainingAmount = Number((grandTotal - walletAmountApplied).toFixed(2));
+      }
+    }
+
+    /* =================================================
        RESPONSE
     ================================================= */
 
@@ -677,7 +744,15 @@ exports.checkAvailability = async (req, res) => {
 
         tax,
 
-        grandTotal
+        grandTotal,
+
+        walletBalance,
+
+        walletAmountApplied,
+
+        remainingAmount,
+
+        onlinePayableAmount: remainingAmount
       },
 
       couponId
@@ -725,7 +800,8 @@ exports.createBooking = async (req, res) => {
       adults = 1,
       children = 0,
       priceDetails,
-      couponId = null
+      couponId = null,
+      useWallet = true
     } = req.body;
 
     const normalizedServices = (services || []).map(item => {
@@ -877,7 +953,7 @@ exports.createBooking = async (req, res) => {
       })
         .populate("cancellationPolicy")
         .select(
-          "maxGuests category user cancellationPolicy"
+          "maxGuests category user cancellationPolicy instantBooking"
         );
 
       if (!property) {
@@ -1022,8 +1098,9 @@ exports.createBooking = async (req, res) => {
     ================================================= */
 
     let baseAmount = Number(
-      priceDetails.finalAmount
+      priceDetails?.finalAmount ?? priceDetails?.baseAmount ?? priceDetails?.basePrice ?? 0
     );
+    if (isNaN(baseAmount)) baseAmount = 0;
 
     const platformFeeRule =
       await PlatformFee.findOne({
@@ -1247,6 +1324,56 @@ exports.createBooking = async (req, res) => {
       }
     }
 
+    /* =================================================
+       USER WALLET INTEGRATION
+    ================================================= */
+    let walletAmountApplied = 0;
+    let onlinePayableAmount = totalAmount;
+    let paymentMethod = "ONLINE";
+
+    if (useWallet !== false) {
+      const userWallet = await UserWallet.findOne({
+        user: req.user._id,
+        isActive: true
+      });
+
+      if (userWallet && userWallet.balance > 0) {
+        walletAmountApplied = Math.min(userWallet.balance, totalAmount);
+        onlinePayableAmount = Number((totalAmount - walletAmountApplied).toFixed(2));
+        paymentMethod = onlinePayableAmount === 0 ? "WALLET" : "MIXED";
+
+        // Deduct from UserWallet balance
+        const newBalance = Number((userWallet.balance - walletAmountApplied).toFixed(2));
+        userWallet.balance = newBalance;
+        await userWallet.save();
+
+        // Create transaction log
+        await UserWalletTransaction.create({
+          wallet: userWallet._id,
+          user: req.user._id,
+          type: "debit",
+          transactionType: "wallet_payment",
+          amount: walletAmountApplied,
+          balanceAfter: newBalance,
+          currency: userWallet.currency || "SAR",
+          status: "completed",
+          description: `Wallet payment for booking ${orderId}`
+        });
+      }
+    }
+
+    const isFullyPaidByWallet = onlinePayableAmount === 0;
+
+    let isInstantBooking = false;
+    if (bookingType === "PROPERTY" && property) {
+      isInstantBooking = property.instantBooking || false;
+    } else if (bookingType === "SERVICE" && servicesData.length > 0) {
+      isInstantBooking = servicesData.every(s => s.instantBooking === true);
+    } else if (bookingType === "PROPERTY_SERVICE") {
+      const allServicesInstant = servicesData.every(s => s.instantBooking === true);
+      isInstantBooking = (property?.instantBooking || false) && allServicesInstant;
+    }
+
     const booking = await Booking.create({
 
       bookingType,
@@ -1288,6 +1415,12 @@ exports.createBooking = async (req, res) => {
 
       totalAmount,
 
+      walletAmountApplied,
+
+      onlinePayableAmount,
+
+      paymentMethod,
+
       commissionAmount,
 
       providerAmount,
@@ -1307,19 +1440,176 @@ exports.createBooking = async (req, res) => {
 
       orderId,
 
-      paymentStatus: "pending",
+      paymentStatus: isFullyPaidByWallet ? "paid" : "pending",
 
-      bookingStatus: "pending",
+      bookingStatus: isFullyPaidByWallet
+        ? (isInstantBooking ? "confirmed" : "pending")
+        : "pending",
 
-      pendingReason: "payment_pending"
+      pendingReason: isFullyPaidByWallet
+        ? (isInstantBooking ? null : "approval_pending")
+        : "payment_pending",
+
+      pendingExpiredAt: isFullyPaidByWallet ? null : undefined,
+
+      webhookProcessed: isFullyPaidByWallet ? true : false,
     });
 
+    /* =================================================
+       IF FULLY PAID BY WALLET (No online payment required)
+    ================================================= */
+    if (isFullyPaidByWallet) {
+      if (booking.bookingStatus === "confirmed") {
+        try {
+          const { generateInvoicePDF } = require("../utils/invoiceGenerator");
+          await generateInvoicePDF(booking._id);
+        } catch (e) {
+          console.error("Invoice generation error:", e.message);
+        }
+
+        const dates = getDatesBetween(booking.checkIn, booking.checkOut);
+        if (booking.property) {
+          const availabilityDocs = dates.map((date) => ({
+            hotel: booking.property,
+            date,
+            booking: booking._id,
+            isBooked: true,
+          }));
+          await HotelAvailability.insertMany(availabilityDocs);
+        }
+
+        if (booking.services?.length > 0) {
+          await reserveServiceSlots(booking._id, booking.services);
+        }
+
+        await autoCancelConflictingBookings(booking);
+
+        if (booking.providerBreakdown?.length > 0) {
+          for (const provider of booking.providerBreakdown) {
+            let wallet = await Wallet.findOne({ user: provider.user });
+            if (!wallet) {
+              wallet = await Wallet.create({
+                user: provider.user,
+                balance: 0,
+                holdBalance: 0,
+              });
+            }
+            wallet.holdBalance += provider.amount;
+            await wallet.save();
+
+            await WalletTransaction.create({
+              wallet: wallet._id,
+              user: provider.user,
+              type: "credit",
+              amount: provider.amount,
+              bookingId: booking._id,
+              referenceId: provider.referenceId,
+              description: "Booking amount added to hold balance",
+              transactionType: "booking_hold",
+            });
+          }
+        }
+      }
+
+      if (booking.couponId) {
+        await Coupon.findByIdAndUpdate(booking.couponId, {
+          $inc: { usedCount: 1 },
+          $push: {
+            usedBy: {
+              user: booking.user,
+              usedAt: new Date(),
+            },
+          },
+        });
+      }
+
+      const bookingData = {
+        bookingId: booking._id.toString(),
+        userId: booking.user?.toString(),
+        totalAmount: booking.totalAmount,
+        bookingStatus: booking.bookingStatus,
+        paymentStatus: booking.paymentStatus,
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+      };
+
+      await sendNotification({
+        receiverId: booking.user,
+        receiverModel: "User",
+        title: isInstantBooking
+          ? "Booking Confirmed ✅"
+          : "Booking Pending Approval ⏳",
+        body: isInstantBooking
+          ? "Your booking has been successfully confirmed and paid with wallet"
+          : "Your booking is waiting for provider approval",
+        type: "BOOKING",
+        referenceId: booking._id,
+        referenceType: "Booking",
+        data: bookingData,
+      });
+
+      if (booking.providerBreakdown?.length > 0) {
+        for (const provider of booking.providerBreakdown) {
+          const providerData = {
+            bookingId: booking._id.toString(),
+            amount: provider.amount,
+            checkIn: booking.checkIn,
+            checkOut: booking.checkOut,
+            type: "BOOKING",
+          };
+
+          await sendNotification({
+            receiverId: provider.user,
+            receiverModel: "ServiceUser",
+            title: isInstantBooking
+              ? "New Confirmed Booking 📦"
+              : "New Booking Request 📦",
+            body: isInstantBooking
+              ? "You received a confirmed booking"
+              : "You received a new booking request",
+            type: "BOOKING",
+            referenceId: booking._id,
+            referenceType: "Booking",
+            data: providerData,
+          });
+        }
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: isInstantBooking
+          ? "Booking confirmed and fully paid with wallet balance"
+          : "Booking created and paid with wallet balance, waiting for provider approval",
+        bookingId: booking._id,
+        orderId,
+        totalAmount,
+        walletAmountApplied,
+        remainingAmount: 0,
+        onlinePayableAmount: 0,
+        paymentMethod: "WALLET",
+        paymentStatus: "paid",
+        bookingStatus: booking.bookingStatus,
+        totalGuests
+      });
+    }
+
+    /* =================================================
+       REMAINING ONLINE PAYMENT CASE
+    ================================================= */
     return res.status(201).json({
       success: true,
-      message: "Booking created successfully",
+      message: walletAmountApplied > 0
+        ? `Booking created. ${walletAmountApplied} SAR deducted from wallet. Please complete online payment for remaining ${onlinePayableAmount} SAR.`
+        : "Booking created successfully",
       bookingId: booking._id,
       orderId,
       totalAmount,
+      walletAmountApplied,
+      remainingAmount: onlinePayableAmount,
+      onlinePayableAmount,
+      paymentMethod,
+      paymentStatus: "pending",
+      bookingStatus: "pending",
       totalGuests
     });
 
@@ -1597,9 +1887,7 @@ exports.getUserUpcomingBookings = catchAsyncError(async (req, res) => {
 
 exports.adminOverrideRefund = async (req, res) => {
   try {
-
     const { bookingId } = req.params;
-
     const { refundAmount, reason } = req.body;
 
     const booking = await Booking.findById(bookingId);
@@ -1642,31 +1930,68 @@ exports.adminOverrideRefund = async (req, res) => {
       });
     }
 
-    if (
-      Number(refundAmount) >
-      booking.totalAmount
-    ) {
+    const totalBookingAmount = Number(booking.totalAmount) || 0;
+    const numericRefundAmount = Number(refundAmount);
+
+    if (numericRefundAmount > totalBookingAmount) {
       return res.status(400).send({
         message: "Refund exceeds total amount",
       });
     }
 
     /* =============================
-       SAVE ADMIN OVERRIDE
+       CALCULATE WALLET & ONLINE BREAKDOWN
     ============================== */
+    const walletApplied = Number(booking.walletAmountApplied) || 0;
+    const onlinePaid = booking.onlinePayableAmount !== undefined
+      ? Number(booking.onlinePayableAmount)
+      : Math.max(0, Number((totalBookingAmount - walletApplied).toFixed(2)));
 
+    let walletRefundAmount = 0;
+    let onlineRefundAmount = 0;
+
+    if (numericRefundAmount >= totalBookingAmount) {
+      // Full refund
+      walletRefundAmount = walletApplied;
+      onlineRefundAmount = onlinePaid;
+    } else if (onlinePaid === 0) {
+      // 100% wallet booking
+      walletRefundAmount = numericRefundAmount;
+      onlineRefundAmount = 0;
+    } else if (walletApplied === 0) {
+      // 100% online booking
+      walletRefundAmount = 0;
+      onlineRefundAmount = numericRefundAmount;
+    } else {
+      // Mixed payment partial refund: proportional split
+      const walletRatio = totalBookingAmount > 0 ? walletApplied / totalBookingAmount : 0;
+      walletRefundAmount = Number((numericRefundAmount * walletRatio).toFixed(2));
+      onlineRefundAmount = Number((numericRefundAmount - walletRefundAmount).toFixed(2));
+
+      // Guard bounds
+      if (onlineRefundAmount > onlinePaid) {
+        onlineRefundAmount = onlinePaid;
+        walletRefundAmount = Number((numericRefundAmount - onlineRefundAmount).toFixed(2));
+      }
+      if (walletRefundAmount > walletApplied) {
+        walletRefundAmount = walletApplied;
+        onlineRefundAmount = Number((numericRefundAmount - walletRefundAmount).toFixed(2));
+      }
+    }
+
+    /* =============================
+       SAVE ADMIN OVERRIDE METADATA
+    ============================== */
     booking.adminOverride = {
       isOverridden: true,
-      refundAmount: Number(refundAmount),
+      refundAmount: numericRefundAmount,
+      walletRefundAmount,
+      onlineRefundAmount,
       reason,
     };
 
     /* =============================
-       💰 WALLET HOLD DEDUCTION
-    ============================== */
-
-    /* =============================
-       🔥 RELEASE AVAILABILITY (Freed immediately on cancellation)
+       🔥 RELEASE AVAILABILITY
     ============================== */
     if (booking.property) {
       await HotelAvailability.deleteMany({
@@ -1684,14 +2009,14 @@ exports.adminOverrideRefund = async (req, res) => {
     }
 
     /* =============================
-       💰 WALLET HOLD DEDUCTION (Cleared on cancellation, earnings deferred to cron)
+       💰 PROVIDER HOLD DEDUCTION
     ============================== */
     if (booking.providerBreakdown?.length > 0) {
       const totalProviderAmount = booking.providerBreakdown.reduce((sum, p) => sum + p.amount, 0);
 
       for (const provider of booking.providerBreakdown) {
         const ratio = totalProviderAmount > 0 ? provider.amount / totalProviderAmount : 0;
-        const providerRefund = Number((Number(refundAmount) * ratio).toFixed(2));
+        const providerRefund = Number((numericRefundAmount * ratio).toFixed(2));
         const providerKeptAmount = Number((provider.amount - providerRefund).toFixed(2));
 
         const wallet = await Wallet.findOne({ user: provider.user });
@@ -1729,17 +2054,18 @@ exports.adminOverrideRefund = async (req, res) => {
     }
 
     /* =============================
-       💳 TAP REFUND
+       💳 TAP REFUND (ONLINE PORTION)
     ============================== */
-    try {
-      if (Number(refundAmount) > 0 && booking.tapChargeId) {
+    let tapRefundId = null;
+    if (onlineRefundAmount > 0 && booking.tapChargeId) {
+      try {
         const response = await axios.post(
           "https://api.tap.company/v2/refunds",
           {
             charge_id: booking.tapChargeId,
-            amount: Number(refundAmount),
+            amount: onlineRefundAmount,
             currency: "SAR",
-            reason: "Admin override refund",
+            reason: reason || "Admin override refund",
             reference: {
               merchant: booking.orderId,
             },
@@ -1752,156 +2078,154 @@ exports.adminOverrideRefund = async (req, res) => {
           }
         );
 
-        booking.refundTransactionId = response.data?.id;
+        tapRefundId = response.data?.id || "REFUNDED_ON_TAP";
+        booking.refundTransactionId = tapRefundId;
+      } catch (err) {
+        console.error(
+          "TAP refund failed in adminOverrideRefund:",
+          err.response?.data || err.message
+        );
+
+        booking.refundStatus = "failed";
+        await booking.save();
+
+        return res.status(500).send({
+          message: "Online refund via TAP failed",
+          error: err.response?.data || err.message,
+        });
       }
-    } catch (err) {
-      console.error(
-        "Refund failed:",
-        err.response?.data || err.message
-      );
-
-      booking.refundStatus = "failed";
-      await booking.save();
-
-      return res.status(500).send({
-        message: "Refund failed",
-        error: err.response?.data || err.message,
-      });
     }
 
     /* =============================
-       UPDATE BOOKING
+       💰 USER WALLET REFUND (WALLET PORTION)
     ============================== */
+    let walletRefundDone = false;
+    if (walletRefundAmount > 0 && !booking.walletRefunded) {
+      try {
+        let userWallet = await UserWallet.findOne({ user: booking.user });
+        if (!userWallet) {
+          userWallet = await UserWallet.create({
+            user: booking.user,
+            balance: 0,
+            currency: "SAR",
+            isActive: true,
+          });
+        }
 
-    booking.bookingStatus =
-      "cancelled";
+        const newBal = Number((userWallet.balance + walletRefundAmount).toFixed(2));
+        userWallet.balance = newBal;
+        await userWallet.save();
 
+        await UserWalletTransaction.create({
+          wallet: userWallet._id,
+          user: booking.user,
+          type: "credit",
+          transactionType: "refund",
+          amount: walletRefundAmount,
+          balanceAfter: newBal,
+          currency: userWallet.currency || "SAR",
+          status: "completed",
+          description: `Admin override refund for booking ${booking.orderId}${reason ? `: ${reason}` : ""}`,
+        });
+
+        booking.walletRefunded = true;
+        walletRefundDone = true;
+
+        if (!tapRefundId) {
+          tapRefundId = `WALLET_REFUND_${Date.now()}`;
+          booking.refundTransactionId = tapRefundId;
+        }
+      } catch (walletErr) {
+        console.error("UserWallet refund failed in adminOverrideRefund:", walletErr.message);
+      }
+    }
+
+    /* =============================
+       UPDATE BOOKING STATUS
+    ============================== */
+    booking.bookingStatus = "cancelled";
     booking.isCancelled = true;
-
-    booking.cancellationDate =
-      new Date();
-
-    booking.refundAmount =
-      Number(refundAmount);
-
-    booking.refundPercentage =
-      null;
-
-    booking.refundStatus =
-      "processed";
-
+    booking.cancellationDate = new Date();
+    booking.refundAmount = numericRefundAmount;
+    booking.refundPercentage = null;
+    booking.refundStatus = "processed";
+    if (walletRefundDone) {
+      booking.walletRefunded = true;
+    }
     await booking.save();
 
     /* =============================
        🔔 NOTIFICATIONS
     ============================== */
-
     const refundData = {
-
-      bookingId:
-        booking._id.toString(),
-
-      totalAmount:
-        booking.totalAmount,
-
-      refundAmount:
-        Number(refundAmount),
-
+      bookingId: booking._id.toString(),
+      totalAmount: booking.totalAmount,
+      refundAmount: numericRefundAmount,
+      walletRefundAmount,
+      onlineRefundAmount,
       reason,
-
-      bookingStatus:
-        booking.bookingStatus,
-
-      checkIn:
-        booking.checkIn,
-
-      checkOut:
-        booking.checkOut,
-
-      bookingType:
-        booking.bookingType,
-
+      bookingStatus: booking.bookingStatus,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      bookingType: booking.bookingType,
       type: "ADMIN_REFUND",
     };
 
+    const refundBreakdownNotes = [];
+    if (walletRefundAmount > 0) {
+      refundBreakdownNotes.push(`${walletRefundAmount} SAR refunded to your wallet`);
+    }
+    if (onlineRefundAmount > 0) {
+      refundBreakdownNotes.push(`${onlineRefundAmount} SAR refunded to your card`);
+    }
+    const refundNoteText = refundBreakdownNotes.length > 0
+      ? ` (${refundBreakdownNotes.join(", ")})`
+      : "";
+
     /* 👤 USER */
-
     await sendNotification({
-
       receiverId: booking.user,
-
       receiverModel: "User",
-
       title: "Refund Processed 💸",
-
-      body:
-        `Admin approved refund of ${refundAmount}`,
-
+      body: `Admin approved refund of ${numericRefundAmount} SAR${refundNoteText}`,
       type: "REFUND",
-
       referenceId: booking._id,
-
       referenceType: "Booking",
-
       data: refundData,
     });
 
     /* 🧑‍🔧 PROVIDERS */
-
-    if (
-      booking.providerBreakdown?.length > 0
-    ) {
-
+    if (booking.providerBreakdown?.length > 0) {
       for (const provider of booking.providerBreakdown) {
-
         await sendNotification({
-
           receiverId: provider.user,
-
           receiverModel: "ServiceUser",
-
           title: "Booking Cancelled ❌",
-
           body: provider.retainedAmount > 0
             ? `Booking cancelled. Your payout of ${provider.retainedAmount} SAR will be released to your available wallet balance after 48 hours.`
             : `Booking cancelled with refund for ${provider.type}`,
-
           type: "BOOKING",
-
           referenceId: booking._id,
-
           referenceType: "Booking",
-
           data: {
-            bookingId:
-              booking._id.toString(),
-
-            refundAmount:
-              Number(refundAmount),
-
+            bookingId: booking._id.toString(),
+            refundAmount: numericRefundAmount,
             reason,
-
-            providerType:
-              provider.type,
+            providerType: provider.type,
           },
         });
       }
     }
 
     return res.send({
-
-      message:
-        "Admin override refund processed successfully",
-
-      refundAmount:
-        Number(refundAmount),
-
-      refundTransactionId:
-        booking.refundTransactionId,
+      message: "Admin override refund processed successfully",
+      refundAmount: numericRefundAmount,
+      walletRefundAmount,
+      onlineRefundAmount,
+      refundTransactionId: booking.refundTransactionId,
     });
 
   } catch (err) {
-
     return res.status(500).send({
       message: err.message
     });
@@ -1985,6 +2309,29 @@ exports.cancelBooking = async (req, res) => {
        ❌ NO PAYMENT CASE
     ============================== */
     if (booking.paymentStatus !== "paid") {
+      // Refund wallet amount if partially paid with wallet and not refunded yet
+      if (booking.walletAmountApplied > 0 && !booking.walletRefunded) {
+        const userWallet = await UserWallet.findOne({ user: booking.user });
+        if (userWallet) {
+          const newBal = Number((userWallet.balance + booking.walletAmountApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: booking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: booking.walletAmountApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to booking cancellation for order ${booking.orderId}`
+          });
+          booking.walletRefunded = true;
+        }
+      }
+
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
       booking.cancellationReason = reason;
@@ -2018,6 +2365,49 @@ exports.cancelBooking = async (req, res) => {
       const refundAmount = booking.totalAmount;
       const refundPercentage = 100;
       let tapRefundId = null;
+
+      const totalBookingAmount = Number(booking.totalAmount) || 0;
+      const walletApplied = Number(booking.walletAmountApplied) || 0;
+      const onlinePaid = booking.onlinePayableAmount !== undefined
+        ? Number(booking.onlinePayableAmount)
+        : Math.max(0, Number((totalBookingAmount - walletApplied).toFixed(2)));
+
+      // 1. REFUND USER WALLET IF APPLIED
+      let walletRefundSuccess = false;
+      if (walletApplied > 0 && !booking.walletRefunded) {
+        try {
+          let userWallet = await UserWallet.findOne({ user: booking.user });
+          if (!userWallet) {
+            userWallet = await UserWallet.create({
+              user: booking.user,
+              balance: 0,
+              currency: "SAR",
+              isActive: true,
+            });
+          }
+
+          const newBal = Number((userWallet.balance + walletApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: booking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: walletApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to customer cancellation of pending booking ${booking.orderId}`,
+          });
+
+          booking.walletRefunded = true;
+          walletRefundSuccess = true;
+        } catch (walletErr) {
+          console.error("Wallet refund error in pending cancelBooking:", walletErr.message);
+        }
+      }
 
       /* 🔓 RELEASE AVAILABILITY (Freed immediately on cancellation) */
       if (booking.property) {
@@ -2067,10 +2457,10 @@ exports.cancelBooking = async (req, res) => {
         }
       }
 
-      /* 💳 PROCESS TAP REFUND */
+      /* 💳 PROCESS TAP REFUND (ONLINE PORTION ONLY) */
       try {
-        if (refundAmount > 0 && booking.tapChargeId) {
-          let actualRefundAmount = Number(refundAmount.toFixed(2));
+        if (onlinePaid > 0 && booking.tapChargeId) {
+          let actualRefundAmount = Number(onlinePaid.toFixed(2));
           let refundCurrency = "SAR";
 
           try {
@@ -2124,6 +2514,8 @@ exports.cancelBooking = async (req, res) => {
           } else {
             tapRefundId = "REFUNDED_ON_TAP";
           }
+        } else if (walletRefundSuccess) {
+          tapRefundId = `WALLET_REFUND_${Date.now()}`;
         }
       } catch (err) {
         console.error(
@@ -2160,6 +2552,8 @@ exports.cancelBooking = async (req, res) => {
         bookingId: booking._id.toString(),
         totalAmount: booking.totalAmount,
         refundAmount,
+        walletRefundAmount: walletApplied,
+        onlineRefundAmount: onlinePaid,
         refundPercentage,
         cancellationReason: reason,
         customCancellationReason:
@@ -2170,12 +2564,17 @@ exports.cancelBooking = async (req, res) => {
         bookingType: booking.bookingType,
       };
 
+      const refundNotes = [];
+      if (walletApplied > 0) refundNotes.push(`${walletApplied} SAR refunded to your wallet`);
+      if (onlinePaid > 0) refundNotes.push(`${onlinePaid} SAR refunded to your card`);
+      const refundSuffix = refundNotes.length > 0 ? ` (${refundNotes.join(", ")})` : "";
+
       /* Customer Notification */
       await sendNotification({
         receiverId: booking.user,
         receiverModel: "User",
         title: "Booking Cancelled",
-        body: "Your booking was cancelled successfully. Since it had not yet been accepted, a full refund has been processed.",
+        body: `Your booking was cancelled successfully. Since it had not yet been accepted, a full refund has been processed${refundSuffix}.`,
         type: "REFUND",
         referenceId: booking._id,
         referenceType: "Booking",
@@ -2208,6 +2607,8 @@ exports.cancelBooking = async (req, res) => {
         success: true,
         message: "Booking cancelled successfully",
         refundAmount,
+        walletRefundAmount: walletApplied,
+        onlineRefundAmount: onlinePaid,
         refundPercentage,
         cancellationReason: reason,
       });
@@ -2435,11 +2836,92 @@ exports.cancelBooking = async (req, res) => {
     }
 
     /* =============================
-       💳 TAP REFUND
+       CALCULATE WALLET & ONLINE BREAKDOWN FOR POLICY REFUND
     ============================== */
+    const totalBookingAmount = Number(booking.totalAmount) || 0;
+    const numericRefundAmount = Number(refundAmount) || 0;
+    const walletApplied = Number(booking.walletAmountApplied) || 0;
+    const onlinePaid = booking.onlinePayableAmount !== undefined
+      ? Number(booking.onlinePayableAmount)
+      : Math.max(0, Number((totalBookingAmount - walletApplied).toFixed(2)));
+
+    let walletRefundAmount = 0;
+    let onlineRefundAmount = 0;
+
+    if (numericRefundAmount >= totalBookingAmount) {
+      // 100% full refund
+      walletRefundAmount = walletApplied;
+      onlineRefundAmount = onlinePaid;
+    } else if (onlinePaid === 0) {
+      // 100% wallet booking
+      walletRefundAmount = numericRefundAmount;
+      onlineRefundAmount = 0;
+    } else if (walletApplied === 0) {
+      // 100% online booking
+      walletRefundAmount = 0;
+      onlineRefundAmount = numericRefundAmount;
+    } else {
+      // Proportional split for mixed booking
+      const walletRatio = totalBookingAmount > 0 ? walletApplied / totalBookingAmount : 0;
+      walletRefundAmount = Number((numericRefundAmount * walletRatio).toFixed(2));
+      onlineRefundAmount = Number((numericRefundAmount - walletRefundAmount).toFixed(2));
+
+      if (onlineRefundAmount > onlinePaid) {
+        onlineRefundAmount = onlinePaid;
+        walletRefundAmount = Number((numericRefundAmount - onlineRefundAmount).toFixed(2));
+      }
+      if (walletRefundAmount > walletApplied) {
+        walletRefundAmount = walletApplied;
+        onlineRefundAmount = Number((numericRefundAmount - walletRefundAmount).toFixed(2));
+      }
+    }
+
+    /* =============================
+       💰 USER WALLET REFUND (WALLET PORTION)
+    ============================== */
+    let walletRefundDone = false;
+    if (walletRefundAmount > 0 && !booking.walletRefunded) {
+      try {
+        let userWallet = await UserWallet.findOne({ user: booking.user });
+        if (!userWallet) {
+          userWallet = await UserWallet.create({
+            user: booking.user,
+            balance: 0,
+            currency: "SAR",
+            isActive: true,
+          });
+        }
+
+        const newBal = Number((userWallet.balance + walletRefundAmount).toFixed(2));
+        userWallet.balance = newBal;
+        await userWallet.save();
+
+        await UserWalletTransaction.create({
+          wallet: userWallet._id,
+          user: booking.user,
+          type: "credit",
+          transactionType: "refund",
+          amount: walletRefundAmount,
+          balanceAfter: newBal,
+          currency: userWallet.currency || "SAR",
+          status: "completed",
+          description: `Refund of wallet amount due to booking cancellation for order ${booking.orderId}`,
+        });
+
+        booking.walletRefunded = true;
+        walletRefundDone = true;
+      } catch (walletErr) {
+        console.error("Wallet refund error in policy cancelBooking:", walletErr.message);
+      }
+    }
+
+    /* =============================
+       💳 TAP REFUND (ONLINE PORTION)
+    ============================== */
+    let tapRefundId = null;
     try {
-      if (refundAmount > 0 && booking.tapChargeId) {
-        let actualRefundAmount = Number(refundAmount.toFixed(2));
+      if (onlineRefundAmount > 0 && booking.tapChargeId) {
+        let actualRefundAmount = Number(onlineRefundAmount.toFixed(2));
         let refundCurrency = "SAR";
 
         try {
@@ -2489,10 +2971,15 @@ exports.cancelBooking = async (req, res) => {
             }
           );
 
-          booking.refundTransactionId = response.data?.id;
+          tapRefundId = response.data?.id || "REFUNDED_ON_TAP";
+          booking.refundTransactionId = tapRefundId;
         } else {
-          booking.refundTransactionId = "REFUNDED_ON_TAP";
+          tapRefundId = "REFUNDED_ON_TAP";
+          booking.refundTransactionId = tapRefundId;
         }
+      } else if (walletRefundDone) {
+        tapRefundId = `WALLET_REFUND_${Date.now()}`;
+        booking.refundTransactionId = tapRefundId;
       }
     } catch (err) {
       console.error(
@@ -2521,6 +3008,9 @@ exports.cancelBooking = async (req, res) => {
     booking.refundStatus = "processed";
     booking.cancellationReason = reason;
     booking.isAmountReleased = false;
+    if (walletRefundDone) {
+      booking.walletRefunded = true;
+    }
 
     if (reason === "OTHER") {
       booking.customCancellationReason = customReason;
@@ -2535,6 +3025,8 @@ exports.cancelBooking = async (req, res) => {
       bookingId: booking._id.toString(),
       totalAmount: booking.totalAmount,
       refundAmount,
+      walletRefundAmount,
+      onlineRefundAmount,
       refundPercentage,
       bookingStatus: booking.bookingStatus,
       checkIn: booking.checkIn,
@@ -2542,12 +3034,17 @@ exports.cancelBooking = async (req, res) => {
       bookingType: booking.bookingType,
     };
 
+    const policyRefundNotes = [];
+    if (walletRefundAmount > 0) policyRefundNotes.push(`${walletRefundAmount} SAR refunded to your wallet`);
+    if (onlineRefundAmount > 0) policyRefundNotes.push(`${onlineRefundAmount} SAR refunded to your card`);
+    const policyRefundText = policyRefundNotes.length > 0 ? ` (${policyRefundNotes.join(", ")})` : "";
+
     /* 👤 USER */
     await sendNotification({
       receiverId: booking.user,
       receiverModel: "User",
       title: "Booking Cancelled ❌",
-      body: `Refund Amount: ${refundAmount}`,
+      body: `Refund Amount: ${refundAmount} SAR${policyRefundText}`,
       type: "REFUND",
       referenceId: booking._id,
       referenceType: "Booking",
@@ -2585,7 +3082,10 @@ exports.cancelBooking = async (req, res) => {
       success: true,
       message: "Booking cancelled successfully",
       refundAmount,
+      walletRefundAmount,
+      onlineRefundAmount,
       refundPercentage,
+      refundTransactionId: booking.refundTransactionId,
     });
 
   } catch (error) {
@@ -2960,70 +3460,84 @@ exports.updateBookingApprovalStatus = async (req, res) => {
        IF REJECTED → PROCESS REFUND
     ========================================= */
 
-    if (
-      status === "cancelled" &&
-      booking.tapChargeId &&
-      booking.totalAmount > 0
-    ) {
+    if (status === "cancelled") {
+      let walletRefundDone = false;
+      if (booking.walletAmountApplied > 0 && !booking.walletRefunded) {
+        try {
+          let userWallet = await UserWallet.findOne({ user: booking.user });
+          if (!userWallet) {
+            userWallet = await UserWallet.create({
+              user: booking.user,
+              balance: 0,
+              currency: "SAR",
+              isActive: true,
+            });
+          }
+          const newBal = Number((userWallet.balance + booking.walletAmountApplied).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
 
-      try {
-        const response =
-          await axios.post(
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: booking.user,
+            type: "credit",
+            transactionType: "refund",
+            amount: booking.walletAmountApplied,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Refund of wallet amount due to booking rejection by provider for order ${booking.orderId}`,
+          });
+
+          booking.walletRefunded = true;
+          walletRefundDone = true;
+        } catch (wErr) {
+          console.error("Wallet refund failed on provider rejection:", wErr.message);
+        }
+      }
+
+      const onlineAmountToRefund = booking.onlinePayableAmount !== undefined
+        ? Number(booking.onlinePayableAmount)
+        : Math.max(0, Number(((booking.totalAmount || 0) - (booking.walletAmountApplied || 0)).toFixed(2)));
+
+      if (booking.tapChargeId && onlineAmountToRefund > 0) {
+        try {
+          const response = await axios.post(
             "https://api.tap.company/v2/refunds",
             {
-              charge_id:
-                booking.tapChargeId,
-
-              amount:
-                Number(booking.totalAmount),
-
+              charge_id: booking.tapChargeId,
+              amount: onlineAmountToRefund,
               currency: "SAR",
-
-              reason:
-                "Booking rejected by provider",
-
+              reason: "Booking rejected by provider",
               reference: {
-                merchant:
-                  booking.orderId,
+                merchant: booking.orderId,
               },
             },
             {
               headers: {
-                Authorization:
-                  `Bearer ${process.env.TAP_SECRET_KEY}`,
-
-                "Content-Type":
-                  "application/json",
+                Authorization: `Bearer ${process.env.TAP_SECRET_KEY}`,
+                "Content-Type": "application/json",
               },
             }
           );
 
-        booking.refundTransactionId =
-          response.data?.id;
-
-        booking.refundAmount =
-          booking.totalAmount;
-
-        booking.refundStatus =
-          "processed";
-
+          booking.refundTransactionId = response.data?.id;
+          booking.refundAmount = booking.totalAmount;
+          booking.refundStatus = "processed";
+          booking.isCancelled = true;
+          booking.cancellationDate = new Date();
+          await booking.save();
+        } catch (err) {
+          console.error("Refund failed:", err.response?.data || err.message);
+          booking.refundStatus = "failed";
+          await booking.save();
+        }
+      } else if (booking.paymentMethod === "WALLET" || (booking.walletAmountApplied > 0 && !booking.tapChargeId)) {
+        booking.refundTransactionId = walletRefundDone ? `WALLET_REFUND_${Date.now()}` : null;
+        booking.refundAmount = booking.totalAmount;
+        booking.refundStatus = walletRefundDone ? "processed" : "failed";
         booking.isCancelled = true;
-
-        booking.cancellationDate =
-          new Date();
-
-        await booking.save();
-
-      } catch (err) {
-
-        console.error(
-          "Refund failed:",
-          err.response?.data || err.message
-        );
-
-        booking.refundStatus =
-          "failed";
-
+        booking.cancellationDate = new Date();
         await booking.save();
       }
     }

@@ -43,9 +43,18 @@ const { Parser } = require("json2csv");
 const PDFDocument = require("pdfkit");
 const { ChartJSNodeCanvas } = require("chartjs-node-canvas");
 const Notification = require("../models/Notification");
+const {
+  createGiftCard,
+  getAllGiftCards,
+  getGiftCardById,
+  updateGiftCard,
+  deleteGiftCard,
+  getUserWalletByAdmin,
+} = require("./giftCardController");
 const { sendNotification } = require("../utils/notificationService");
 const Ticket = require("../models/Ticket");
 const ServiceAvailability = require("../models/ServiceAvailability");
+const UserWallet = require("../models/UserWallet");
 
 
 // const adminLogin = catchAsyncError(async (req, res, next) => {
@@ -952,7 +961,18 @@ const getUserById = catchAsyncError(async (req, res, next) => {
       legalFullName: 1,
     }
   ).lean();
-  if (!user) return res.status(400).send({ message: "Service User not found" });
+  if (!user) return res.status(400).send({ message: "User not found" });
+
+  const wallet = await UserWallet.findOne({ user: id }).lean();
+
+  user.walletAmount = wallet ? wallet.balance : 0;
+  user.walletBalance = wallet ? wallet.balance : 0;
+  user.wallet = wallet || {
+    user: id,
+    balance: 0,
+    currency: "SAR",
+    isActive: true,
+  };
 
   return res.status(200).json({ success: true, data: user });
 });
@@ -7415,6 +7435,12 @@ module.exports = {
   toggleRecommendedProperty,
   getAllServiceCategoriesForCommission,
   getAllServicesForCommission,
-  toggleRecommendedService
+  toggleRecommendedService,
+  createGiftCard,
+  getAllGiftCards,
+  getGiftCardById,
+  updateGiftCard,
+  deleteGiftCard,
+  getUserWalletByAdmin
 };
 
