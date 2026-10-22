@@ -23,7 +23,7 @@ const helmet = require("helmet");
 const errorHandler = require("./middleware/errorHandler");
 const http = require("http");
 const cron = require("node-cron");
-const { releaseOnCheckIn, notifyOnCheckIn, autoCancelExpiredBookings } = require("./cron/working");
+const { releaseOnCheckIn, notifyOnCheckIn, autoCancelExpiredBookings, processCompletedBookingCashback } = require("./cron/working");
 
 connectDb();
 const app = express();
@@ -36,6 +36,7 @@ cron.schedule("0 * * * *", async () => {
   console.log("Running release cron...");
   await releaseOnCheckIn();
   await notifyOnCheckIn();
+  await processCompletedBookingCashback();
 });
 
 // Schedule auto-cancellation worker every 5 minutes

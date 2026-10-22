@@ -1,6 +1,8 @@
 const Booking = require("../models/Booking");
 const Wallet = require("../models/Wallet");
 const WalletTransaction = require("../models/WalletTransaction");
+const UserWallet = require("../models/UserWallet");
+const UserWalletTransaction = require("../models/UserWalletTransaction");
 
 const { sendNotification } = require("../utils/notificationService");
 const { autoCancelExpiredBookings } = require("../services/bookingExpiryService");
@@ -81,6 +83,111 @@ exports.notifyOnCheckIn = async () => {
     console.log("✅ Check-in notification cron executed");
   } catch (error) {
     console.error("❌ Check-in notification cron error:", error.message);
+  }
+};
+
+/* ============================================================
+   🎁 USER CASHBACK FULFILLMENT ON CHECKOUT / COMPLETION
+   Credits cashback to UserWallet after stay/service completes
+============================================================ */
+exports.processCompletedBookingCashback = async () => {
+  try {
+    const now = new Date();
+
+    const bookings = await Booking.find({
+      couponType: "CASHBACK",
+      cashbackStatus: "PENDING",
+      cashbackAmount: { $gt: 0 },
+      bookingStatus: "confirmed",
+      paymentStatus: "paid",
+      isCancelled: false,
+      $or: [
+        { checkOut: { $lte: now } },
+        {
+          bookingType: "SERVICE",
+          "services.serviceDate": { $lte: now }
+        }
+      ]
+    });
+
+    for (const booking of bookings) {
+      // Atomic status transition lock to guarantee zero duplicate credits
+      const lockedBooking = await Booking.findOneAndUpdate(
+        {
+          _id: booking._id,
+          cashbackStatus: "PENDING",
+          couponType: "CASHBACK"
+        },
+        {
+          $set: {
+            cashbackStatus: "CREDITED",
+            cashbackCreditedAt: now
+          }
+        },
+        { new: true }
+      );
+
+      if (!lockedBooking) {
+        continue;
+      }
+
+      let userWallet = await UserWallet.findOne({ user: lockedBooking.user });
+      if (!userWallet) {
+        userWallet = await UserWallet.create({
+          user: lockedBooking.user,
+          balance: 0,
+          currency: "SAR",
+          isActive: true
+        });
+      }
+
+      const newBalance = Number((userWallet.balance + lockedBooking.cashbackAmount).toFixed(2));
+      userWallet.balance = newBalance;
+      await userWallet.save();
+
+      const tx = await UserWalletTransaction.create({
+        wallet: userWallet._id,
+        user: lockedBooking.user,
+        type: "credit",
+        transactionType: "cashback",
+        amount: lockedBooking.cashbackAmount,
+        balanceAfter: newBalance,
+        currency: userWallet.currency || "SAR",
+        status: "completed",
+        description: `Cashback of ${lockedBooking.cashbackAmount} SAR credited for booking ${lockedBooking.orderId}`,
+        bookingId: lockedBooking._id,
+        couponId: lockedBooking.couponId,
+        couponCode: lockedBooking.couponCode
+      });
+
+      lockedBooking.cashbackTransactionId = tx._id;
+      await lockedBooking.save();
+
+      try {
+        await sendNotification({
+          receiverId: lockedBooking.user,
+          receiverModel: "User",
+          title: "Cashback Credited! 🎁",
+          body: `You received ${lockedBooking.cashbackAmount} SAR cashback in your wallet for booking ${lockedBooking.orderId}.`,
+          type: "BOOKING",
+          referenceId: lockedBooking._id,
+          referenceType: "Booking",
+          data: {
+            bookingId: lockedBooking._id.toString(),
+            cashbackAmount: lockedBooking.cashbackAmount,
+            walletBalance: newBalance
+          }
+        });
+      } catch (notifErr) {
+        console.error("Cashback notification error:", notifErr.message);
+      }
+    }
+
+    if (bookings.length > 0) {
+      console.log(`✅ Processed cashback for ${bookings.length} completed booking(s)`);
+    }
+  } catch (error) {
+    console.error("❌ Cashback processing error:", error.message);
   }
 };
 

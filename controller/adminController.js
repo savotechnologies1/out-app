@@ -2047,12 +2047,15 @@ const getPropertyDetailsForAdmin = catchAsyncError(async (req, res) => {
 const createCoupon = catchAsyncError(async (req, res) => {
   let {
     code,
+    couponType = "DISCOUNT",
     discountType,
     discountValue,
     minAmount = 0,
     maxDiscount,
     usageLimit,
     firstTimeUserOnly = false,
+    userRestriction = "ALL",
+    applicableUsers = [],
     applicableCategories = [],
     applicableProperties = [],
     startDate,
@@ -2060,10 +2063,34 @@ const createCoupon = catchAsyncError(async (req, res) => {
     isActive = true,
   } = req.body;
 
-  if (!code || !discountType || !discountValue) {
+  if (!code || !discountType || discountValue === undefined || discountValue === null) {
     return res.status(400).json({
       success: false,
       message: "Code, discountType and discountValue are required",
+    });
+  }
+
+  const numericValue = Number(discountValue);
+  if (isNaN(numericValue) || numericValue <= 0) {
+    return res.status(400).json({
+      success: false,
+      message: "discountValue must be a positive number greater than 0",
+    });
+  }
+
+  const normalizedCouponType = (couponType || "DISCOUNT").toUpperCase();
+  if (!["DISCOUNT", "CASHBACK"].includes(normalizedCouponType)) {
+    return res.status(400).json({
+      success: false,
+      message: "couponType must be either DISCOUNT or CASHBACK",
+    });
+  }
+
+  const normalizedUserRestriction = (userRestriction || "ALL").toUpperCase();
+  if (!["ALL", "SPECIFIC"].includes(normalizedUserRestriction)) {
+    return res.status(400).json({
+      success: false,
+      message: "userRestriction must be either ALL or SPECIFIC",
     });
   }
 
@@ -2075,10 +2102,10 @@ const createCoupon = catchAsyncError(async (req, res) => {
   }
 
   if (discountType === "PERCENTAGE") {
-    if (discountValue > 100) {
+    if (numericValue > 100) {
       return res.status(400).json({
         success: false,
-        message: "Percentage discount cannot exceed 100",
+        message: "Percentage discount/cashback cannot exceed 100",
       });
     }
   } else if (discountType === "FLAT") {
@@ -2086,14 +2113,13 @@ const createCoupon = catchAsyncError(async (req, res) => {
   } else {
     return res.status(400).json({
       success: false,
-      message: "Invalid discount type",
+      message: "Invalid discount type (must be PERCENTAGE or FLAT)",
     });
   }
 
   const mongoose = require("mongoose");
-
   const isValidIds = (arr) =>
-    arr.every((id) => mongoose.Types.ObjectId.isValid(id));
+    Array.isArray(arr) && arr.every((id) => mongoose.Types.ObjectId.isValid(id));
 
   if (
     !isValidIds(applicableCategories) ||
@@ -2105,9 +2131,42 @@ const createCoupon = catchAsyncError(async (req, res) => {
     });
   }
 
+  // Validate applicableUsers when userRestriction is SPECIFIC
+  if (normalizedUserRestriction === "SPECIFIC") {
+    if (!Array.isArray(applicableUsers) || applicableUsers.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one user must be selected when userRestriction is SPECIFIC",
+      });
+    }
+
+    if (!isValidIds(applicableUsers)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID(s) in applicableUsers",
+      });
+    }
+
+    const uniqueUserIds = [...new Set(applicableUsers.map((id) => id.toString()))];
+    const existingUsersCount = await User.countDocuments({
+      _id: { $in: uniqueUserIds },
+      isDeleted: false,
+    });
+
+    if (existingUsersCount !== uniqueUserIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more selected users do not exist or are deleted",
+      });
+    }
+    applicableUsers = uniqueUserIds;
+  } else {
+    applicableUsers = [];
+  }
+
   const existing = await Coupon.findOne({
     code: code.toUpperCase(),
-    isDelete: false
+    isDelete: false,
   });
 
   if (existing) {
@@ -2119,12 +2178,15 @@ const createCoupon = catchAsyncError(async (req, res) => {
 
   const coupon = await Coupon.create({
     code: code.toUpperCase(),
+    couponType: normalizedCouponType,
     discountType,
-    discountValue,
-    minAmount,
-    maxDiscount,
-    usageLimit,
-    firstTimeUserOnly,
+    discountValue: numericValue,
+    minAmount: Number(minAmount) || 0,
+    maxDiscount: maxDiscount ? Number(maxDiscount) : undefined,
+    usageLimit: usageLimit ? Number(usageLimit) : undefined,
+    firstTimeUserOnly: Boolean(firstTimeUserOnly),
+    userRestriction: normalizedUserRestriction,
+    applicableUsers,
     applicableCategories,
     applicableProperties,
     startDate,
@@ -2138,7 +2200,6 @@ const createCoupon = catchAsyncError(async (req, res) => {
     data: coupon,
   });
 });
-
 
 const updateCoupon = catchAsyncError(async (req, res) => {
   const { couponId } = req.params;
@@ -2158,12 +2219,8 @@ const updateCoupon = catchAsyncError(async (req, res) => {
       message: "Coupon not found",
     });
   }
-  // if (coupon.expiryDate < new Date()) {
-  //   return res.status(400).json({
-  //     message: "Expired coupons cannot be edited",
-  //   });
-  // }
-  const updates = req.body;
+
+  const updates = { ...req.body };
 
   if (updates.code) {
     updates.code = updates.code.toUpperCase();
@@ -2171,6 +2228,7 @@ const updateCoupon = catchAsyncError(async (req, res) => {
     const existing = await Coupon.findOne({
       code: updates.code,
       _id: { $ne: couponId },
+      isDelete: false,
     });
 
     if (existing) {
@@ -2181,21 +2239,45 @@ const updateCoupon = catchAsyncError(async (req, res) => {
     }
   }
 
-  if (updates.discountType === "PERCENTAGE") {
-    if (updates.discountValue && updates.discountValue > 100) {
+  if (updates.couponType) {
+    updates.couponType = updates.couponType.toUpperCase();
+    if (!["DISCOUNT", "CASHBACK"].includes(updates.couponType)) {
       return res.status(400).json({
         success: false,
-        message: "Percentage discount cannot exceed 100",
+        message: "couponType must be either DISCOUNT or CASHBACK",
       });
     }
   }
 
-  if (updates.discountType === "FLAT") {
+  const targetDiscountType = updates.discountType || coupon.discountType;
+  const targetDiscountValue =
+    updates.discountValue !== undefined ? Number(updates.discountValue) : coupon.discountValue;
+
+  if (targetDiscountType === "PERCENTAGE") {
+    if (targetDiscountValue > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Percentage discount/cashback cannot exceed 100",
+      });
+    }
+  } else if (targetDiscountType === "FLAT") {
     updates.maxDiscount = undefined;
   }
 
-  if (updates.startDate && updates.expiryDate) {
-    if (new Date(updates.expiryDate) <= new Date(updates.startDate)) {
+  if (updates.discountValue !== undefined) {
+    if (isNaN(targetDiscountValue) || targetDiscountValue <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "discountValue must be a positive number greater than 0",
+      });
+    }
+    updates.discountValue = targetDiscountValue;
+  }
+
+  const targetStartDate = updates.startDate || coupon.startDate;
+  const targetExpiryDate = updates.expiryDate || coupon.expiryDate;
+  if (targetStartDate && targetExpiryDate) {
+    if (new Date(targetExpiryDate) <= new Date(targetStartDate)) {
       return res.status(400).json({
         success: false,
         message: "Expiry date must be after start date",
@@ -2204,7 +2286,7 @@ const updateCoupon = catchAsyncError(async (req, res) => {
   }
 
   const isValidIds = (arr) =>
-    arr.every((id) => mongoose.Types.ObjectId.isValid(id));
+    Array.isArray(arr) && arr.every((id) => mongoose.Types.ObjectId.isValid(id));
 
   if (
     updates.applicableCategories &&
@@ -2226,11 +2308,50 @@ const updateCoupon = catchAsyncError(async (req, res) => {
     });
   }
 
+  // Handle userRestriction updates
+  const targetUserRestriction = (updates.userRestriction || coupon.userRestriction || "ALL").toUpperCase();
+  if (updates.userRestriction) {
+    updates.userRestriction = targetUserRestriction;
+  }
+
+  if (targetUserRestriction === "SPECIFIC") {
+    const usersToCheck = updates.applicableUsers !== undefined ? updates.applicableUsers : coupon.applicableUsers;
+    if (!Array.isArray(usersToCheck) || usersToCheck.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one user must be selected when userRestriction is SPECIFIC",
+      });
+    }
+
+    if (!isValidIds(usersToCheck)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID(s) in applicableUsers",
+      });
+    }
+
+    const uniqueUserIds = [...new Set(usersToCheck.map((id) => id.toString()))];
+    const existingUsersCount = await User.countDocuments({
+      _id: { $in: uniqueUserIds },
+      isDeleted: false,
+    });
+
+    if (existingUsersCount !== uniqueUserIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more selected users do not exist or are deleted",
+      });
+    }
+    updates.applicableUsers = uniqueUserIds;
+  } else if (updates.userRestriction === "ALL") {
+    updates.applicableUsers = [];
+  }
+
   const updatedCoupon = await Coupon.findByIdAndUpdate(
     couponId,
     { $set: updates },
     { new: true, runValidators: true }
-  );
+  ).populate("applicableUsers", "firstName lastName phone email userId");
 
   res.status(200).json({
     success: true,
@@ -2239,16 +2360,44 @@ const updateCoupon = catchAsyncError(async (req, res) => {
   });
 });
 
+const getCouponById = catchAsyncError(async (req, res) => {
+  const { couponId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(couponId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid coupon ID",
+    });
+  }
+
+  const coupon = await Coupon.findOne({ _id: couponId, isDelete: false })
+    .populate("applicableUsers", "firstName lastName phone email userId")
+    .populate("applicableProperties", "name price")
+    .lean();
+
+  if (!coupon) {
+    return res.status(404).json({
+      success: false,
+      message: "Coupon not found",
+    });
+  }
+
+  res.status(200).json({
+    success: true,
+    data: coupon,
+  });
+});
 
 const getAllCoupons = catchAsyncError(async (req, res) => {
-
   const {
     page = 1,
     limit = 10,
     search,
     isActive,
     firstTimeUserOnly,
-    status
+    status,
+    couponType,
+    userRestriction,
   } = req.query;
 
   const pageNumber = Number(page);
@@ -2260,6 +2409,16 @@ const getAllCoupons = catchAsyncError(async (req, res) => {
   // 🔍 Search
   if (search) {
     query.code = { $regex: search, $options: "i" };
+  }
+
+  // Filter by couponType
+  if (couponType) {
+    query.couponType = couponType.toUpperCase();
+  }
+
+  // Filter by userRestriction
+  if (userRestriction) {
+    query.userRestriction = userRestriction.toUpperCase();
   }
 
   // ✅ Active filter
@@ -2290,12 +2449,13 @@ const getAllCoupons = catchAsyncError(async (req, res) => {
 
   const [coupons, total] = await Promise.all([
     Coupon.find(query)
+      .populate("applicableUsers", "firstName lastName phone email userId")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(pageSize)
       .lean(),
 
-    Coupon.countDocuments(query)
+    Coupon.countDocuments(query),
   ]);
 
   const totalPages = Math.ceil(total / pageSize);
@@ -2310,9 +2470,8 @@ const getAllCoupons = catchAsyncError(async (req, res) => {
     previousDisabled: pageNumber <= 1,
     nextPage: pageNumber + 1,
     previousPage: pageNumber - 1,
-    nextDisabled: pageNumber >= totalPages
+    nextDisabled: pageNumber >= totalPages,
   });
-
 });
 
 const deleteCoupon = catchAsyncError(async (req, res) => {
@@ -7375,6 +7534,7 @@ module.exports = {
   createCoupon,
   updateCoupon,
   getAllCoupons,
+  getCouponById,
   deleteCoupon,
   getAllCommissions,
   createCommission,

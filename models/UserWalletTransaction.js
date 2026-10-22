@@ -24,7 +24,14 @@ const userWalletTransactionSchema = new mongoose.Schema(
 
     transactionType: {
       type: String,
-      enum: ["gift_card_redeem", "wallet_payment", "refund", "admin_adjustment"],
+      enum: [
+        "gift_card_redeem",
+        "wallet_payment",
+        "refund",
+        "admin_adjustment",
+        "cashback",
+        "cashback_reversal"
+      ],
       default: "gift_card_redeem",
       required: true,
     },
@@ -52,6 +59,23 @@ const userWalletTransactionSchema = new mongoose.Schema(
     },
 
     giftCardCode: {
+      type: String,
+      default: null,
+    },
+
+    bookingId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Booking",
+      default: null,
+    },
+
+    couponId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Coupon",
+      default: null,
+    },
+
+    couponCode: {
       type: String,
       default: null,
     },

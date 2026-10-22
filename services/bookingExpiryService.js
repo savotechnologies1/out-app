@@ -171,6 +171,22 @@ async function autoCancelExpiredBookings() {
         }
       }
 
+      // Revert cashback/coupon usage if applied
+      if (updatedBooking.couponType === "CASHBACK" && updatedBooking.cashbackStatus === "PENDING") {
+        updatedBooking.cashbackStatus = "CANCELLED";
+      }
+      if (updatedBooking.couponId) {
+        const Coupon = require("../models/Coupon");
+        await Coupon.updateOne(
+          { _id: updatedBooking.couponId, usedCount: { $gt: 0 } },
+          { $inc: { usedCount: -1 } }
+        );
+        await Coupon.updateOne(
+          { _id: updatedBooking.couponId },
+          { $pull: { usedBy: { user: updatedBooking.user } } }
+        );
+      }
+
       // Update refund details in database
       await Booking.updateOne(
         { _id: updatedBooking._id },
@@ -180,6 +196,7 @@ async function autoCancelExpiredBookings() {
             refundTransactionId: tapRefundId,
             walletRefunded: updatedBooking.walletRefunded || false,
             providerBreakdown: updatedBooking.providerBreakdown,
+            cashbackStatus: updatedBooking.cashbackStatus || null,
           },
         }
       );

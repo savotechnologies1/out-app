@@ -9,6 +9,13 @@ const couponSchema = new mongoose.Schema(
       trim: true,
     },
 
+    couponType: {
+      type: String,
+      enum: ["DISCOUNT", "CASHBACK"],
+      default: "DISCOUNT",
+      required: true,
+    },
+
     discountType: {
       type: String,
       enum: ["PERCENTAGE", "FLAT"],
@@ -22,6 +29,20 @@ const couponSchema = new mongoose.Schema(
 
     firstTimeUserOnly: { type: Boolean, default: false },
 
+    userRestriction: {
+      type: String,
+      enum: ["ALL", "SPECIFIC"],
+      default: "ALL",
+      required: true,
+    },
+
+    applicableUsers: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     applicableCategories: [
       { type: mongoose.Schema.Types.ObjectId }
     ],
@@ -29,6 +50,12 @@ const couponSchema = new mongoose.Schema(
     applicableProperties: [
       { type: mongoose.Schema.Types.ObjectId }
     ],
+
+    cashbackTrigger: {
+      type: String,
+      enum: ["ON_BOOKING_COMPLETED", "ON_CHECKIN", "ON_PAYMENT"],
+      default: "ON_BOOKING_COMPLETED",
+    },
 
     usageLimit: Number,
     usedCount: { type: Number, default: 0 },

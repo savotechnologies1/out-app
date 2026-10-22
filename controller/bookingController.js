@@ -91,6 +91,57 @@ const checkBookingsConflict = (bookingA, bookingB) => {
   return false;
 };
 
+const handleCouponAndCashbackOnCancellation = async (booking) => {
+  try {
+    // 1. Cashback reversal / cancellation
+    if (booking.couponType === "CASHBACK" && (booking.cashbackAmount || 0) > 0) {
+      if (booking.cashbackStatus === "PENDING") {
+        booking.cashbackStatus = "CANCELLED";
+      } else if (booking.cashbackStatus === "CREDITED") {
+        let userWallet = await UserWallet.findOne({ user: booking.user });
+        if (userWallet) {
+          const deduction = booking.cashbackAmount;
+          const newBal = Number((userWallet.balance - deduction).toFixed(2));
+          userWallet.balance = newBal;
+          await userWallet.save();
+
+          await UserWalletTransaction.create({
+            wallet: userWallet._id,
+            user: booking.user,
+            type: "debit",
+            transactionType: "cashback_reversal",
+            amount: deduction,
+            balanceAfter: newBal,
+            currency: userWallet.currency || "SAR",
+            status: "completed",
+            description: `Reversal of cashback (${deduction} SAR) due to cancellation of booking ${booking.orderId}`,
+            bookingId: booking._id,
+            couponId: booking.couponId,
+            couponCode: booking.couponCode,
+          });
+        }
+        booking.cashbackStatus = "REVERSED";
+      }
+    }
+
+    // 2. Restore Coupon usage limit and user history
+    if (booking.couponId) {
+      await Coupon.updateOne(
+        { _id: booking.couponId, usedCount: { $gt: 0 } },
+        { $inc: { usedCount: -1 } }
+      );
+      await Coupon.updateOne(
+        { _id: booking.couponId },
+        { $pull: { usedBy: { user: booking.user } } }
+      );
+    }
+  } catch (err) {
+    console.error("Error in handleCouponAndCashbackOnCancellation:", err.message);
+  }
+};
+
+exports.handleCouponAndCashbackOnCancellation = handleCouponAndCashbackOnCancellation;
+
 const autoCancelConflictingBookings = async (confirmedBooking) => {
   try {
     const pendingBookings = await Booking.find({
@@ -108,6 +159,7 @@ const autoCancelConflictingBookings = async (confirmedBooking) => {
     }
 
     for (const confBooking of conflictingBookings) {
+      await handleCouponAndCashbackOnCancellation(confBooking);
       confBooking.bookingStatus = "cancelled";
       confBooking.rejectReason = "Booking auto-rejected due to too many bookings at a time, sorry for the inconvience";
       confBooking.pendingReason = null;
@@ -615,11 +667,11 @@ exports.checkAvailability = async (req, res) => {
     ================================================= */
 
     let discountAmount = 0;
-
+    let cashbackAmount = 0;
     let couponId = null;
+    let appliedCoupon = null;
 
     if (couponCode) {
-
       const coupon = await Coupon.findOne({
         code: couponCode.toUpperCase(),
         isActive: true,
@@ -632,37 +684,92 @@ exports.checkAvailability = async (req, res) => {
         });
       }
 
-      couponId = coupon._id;
-
-      const alreadyUsed = coupon.usedBy.find(
-        u => u.user.toString() === userId.toString()
-      );
-
-      if (alreadyUsed) {
+      const now = new Date();
+      if (coupon.startDate && now < new Date(coupon.startDate)) {
         return res.status(400).send({
-          message: "Coupon already used"
+          message: "Coupon is not active yet"
         });
       }
 
-      if (coupon.discountType === "PERCENTAGE") {
-
-        discountAmount =
-          (finalAmount * coupon.discountValue) / 100;
-
-        if (
-          coupon.maxDiscount &&
-          discountAmount > coupon.maxDiscount
-        ) {
-          discountAmount = coupon.maxDiscount;
-        }
-
-      } else {
-
-        discountAmount = coupon.discountValue;
+      if (coupon.expiryDate && now > new Date(coupon.expiryDate)) {
+        return res.status(400).send({
+          message: "Coupon has expired"
+        });
       }
 
-      finalAmount =
-        finalAmount - discountAmount;
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+        return res.status(400).send({
+          message: "Coupon usage limit has been reached"
+        });
+      }
+
+      if (coupon.minAmount && finalAmount < coupon.minAmount) {
+        return res.status(400).send({
+          message: `Minimum booking amount of ${coupon.minAmount} SAR required to use this coupon`
+        });
+      }
+
+      if (coupon.firstTimeUserOnly && userId) {
+        const hasPriorBooking = await Booking.exists({
+          user: userId,
+          bookingStatus: { $in: ["confirmed", "pending"] }
+        });
+        if (hasPriorBooking) {
+          return res.status(400).send({
+            message: "This coupon is only valid for your first booking"
+          });
+        }
+      }
+
+      if (coupon.userRestriction === "SPECIFIC") {
+        if (!userId || !coupon.applicableUsers.some(u => u && u.toString() === userId.toString())) {
+          return res.status(400).send({
+            message: "This coupon is only available to selected users"
+          });
+        }
+      }
+
+      if (coupon.applicableProperties && coupon.applicableProperties.length > 0) {
+        if (!hotelId || !coupon.applicableProperties.some(p => p && p.toString() === hotelId.toString())) {
+          return res.status(400).send({
+            message: "Coupon is not applicable to this property"
+          });
+        }
+      }
+
+      if (userId && coupon.usedBy && coupon.usedBy.length > 0) {
+        const alreadyUsed = coupon.usedBy.find(
+          u => u.user && u.user.toString() === userId.toString()
+        );
+        if (alreadyUsed) {
+          return res.status(400).send({
+            message: "Coupon already used"
+          });
+        }
+      }
+
+      couponId = coupon._id;
+      appliedCoupon = coupon;
+
+      let rawCalculated = 0;
+      if (coupon.discountType === "PERCENTAGE") {
+        rawCalculated = (finalAmount * coupon.discountValue) / 100;
+        if (coupon.maxDiscount && rawCalculated > coupon.maxDiscount) {
+          rawCalculated = coupon.maxDiscount;
+        }
+      } else {
+        rawCalculated = coupon.discountValue;
+      }
+      rawCalculated = Number(rawCalculated.toFixed(2));
+
+      if (coupon.couponType === "CASHBACK") {
+        cashbackAmount = Math.min(rawCalculated, finalAmount);
+        discountAmount = 0;
+      } else {
+        discountAmount = Math.min(rawCalculated, finalAmount);
+        cashbackAmount = 0;
+        finalAmount = Number((finalAmount - discountAmount).toFixed(2));
+      }
     }
 
     /* =================================================
@@ -737,6 +844,12 @@ exports.checkAvailability = async (req, res) => {
         nights,
 
         discountAmount,
+
+        cashbackAmount,
+
+        couponType: appliedCoupon?.couponType || null,
+
+        couponCode: appliedCoupon?.code || null,
 
         finalAmount,
 
@@ -1374,6 +1487,36 @@ exports.createBooking = async (req, res) => {
       isInstantBooking = (property?.instantBooking || false) && allServicesInstant;
     }
 
+    let bookingCouponType = null;
+    let bookingCouponCode = null;
+    let bookingDiscountAmount = Number(priceDetails?.discountAmount || 0);
+    let bookingCashbackAmount = Number(priceDetails?.cashbackAmount || 0);
+    let bookingCashbackStatus = null;
+
+    if (couponId) {
+      const couponDoc = await Coupon.findById(couponId);
+      if (couponDoc) {
+        bookingCouponType = couponDoc.couponType || "DISCOUNT";
+        bookingCouponCode = couponDoc.code;
+        if (bookingCouponType === "CASHBACK") {
+          bookingDiscountAmount = 0;
+          if (!bookingCashbackAmount) {
+            let rawCalculated = 0;
+            if (couponDoc.discountType === "PERCENTAGE") {
+              rawCalculated = (baseAmount * couponDoc.discountValue) / 100;
+              if (couponDoc.maxDiscount && rawCalculated > couponDoc.maxDiscount) {
+                rawCalculated = couponDoc.maxDiscount;
+              }
+            } else {
+              rawCalculated = couponDoc.discountValue;
+            }
+            bookingCashbackAmount = Number(Math.min(rawCalculated, baseAmount).toFixed(2));
+          }
+          bookingCashbackStatus = "PENDING";
+        }
+      }
+    }
+
     const booking = await Booking.create({
 
       bookingType,
@@ -1390,6 +1533,16 @@ exports.createBooking = async (req, res) => {
       services: normalizedServices,
 
       couponId,
+
+      couponType: bookingCouponType,
+
+      couponCode: bookingCouponCode,
+
+      discountAmount: bookingDiscountAmount,
+
+      cashbackAmount: bookingCashbackAmount,
+
+      cashbackStatus: bookingCashbackStatus,
 
       checkIn,
 
@@ -1589,6 +1742,10 @@ exports.createBooking = async (req, res) => {
         paymentMethod: "WALLET",
         paymentStatus: "paid",
         bookingStatus: booking.bookingStatus,
+        couponType: booking.couponType,
+        discountAmount: booking.discountAmount,
+        cashbackAmount: booking.cashbackAmount,
+        cashbackStatus: booking.cashbackStatus,
         totalGuests
       });
     }
@@ -1610,6 +1767,10 @@ exports.createBooking = async (req, res) => {
       paymentMethod,
       paymentStatus: "pending",
       bookingStatus: "pending",
+      couponType: booking.couponType,
+      discountAmount: booking.discountAmount,
+      cashbackAmount: booking.cashbackAmount,
+      cashbackStatus: booking.cashbackStatus,
       totalGuests
     });
 
@@ -2143,6 +2304,7 @@ exports.adminOverrideRefund = async (req, res) => {
     /* =============================
        UPDATE BOOKING STATUS
     ============================== */
+    await handleCouponAndCashbackOnCancellation(booking);
     booking.bookingStatus = "cancelled";
     booking.isCancelled = true;
     booking.cancellationDate = new Date();
@@ -2332,6 +2494,7 @@ exports.cancelBooking = async (req, res) => {
         }
       }
 
+      await handleCouponAndCashbackOnCancellation(booking);
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
       booking.cancellationReason = reason;
@@ -2534,6 +2697,7 @@ exports.cancelBooking = async (req, res) => {
       }
 
       /* 📝 UPDATE BOOKING */
+      await handleCouponAndCashbackOnCancellation(booking);
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
       booking.cancellationDate = new Date();
@@ -2618,6 +2782,7 @@ exports.cancelBooking = async (req, res) => {
        ❌ NO REFUND AFTER START
     ============================== */
     if (now >= bookingStartDate) {
+      await handleCouponAndCashbackOnCancellation(booking);
       booking.bookingStatus = "cancelled";
       booking.isCancelled = true;
       booking.cancellationDate = new Date();
@@ -3000,6 +3165,7 @@ exports.cancelBooking = async (req, res) => {
     /* =============================
        UPDATE BOOKING
     ============================== */
+    await handleCouponAndCashbackOnCancellation(booking);
     booking.bookingStatus = "cancelled";
     booking.isCancelled = true;
     booking.cancellationDate = new Date();
@@ -3461,6 +3627,7 @@ exports.updateBookingApprovalStatus = async (req, res) => {
     ========================================= */
 
     if (status === "cancelled") {
+      await handleCouponAndCashbackOnCancellation(booking);
       let walletRefundDone = false;
       if (booking.walletAmountApplied > 0 && !booking.walletRefunded) {
         try {

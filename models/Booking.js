@@ -80,6 +80,44 @@ const bookingSchema = new mongoose.Schema({
     ref: "Coupon"
   },
 
+  couponType: {
+    type: String,
+    enum: ["DISCOUNT", "CASHBACK"],
+    default: null
+  },
+
+  couponCode: {
+    type: String,
+    default: null
+  },
+
+  discountAmount: {
+    type: Number,
+    default: 0
+  },
+
+  cashbackAmount: {
+    type: Number,
+    default: 0
+  },
+
+  cashbackStatus: {
+    type: String,
+    enum: ["PENDING", "CREDITED", "CANCELLED", "REVERSED"],
+    default: null
+  },
+
+  cashbackCreditedAt: {
+    type: Date,
+    default: null
+  },
+
+  cashbackTransactionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "UserWalletTransaction",
+    default: null
+  },
+
   /* ========================
      DATE & GUESTS
   ======================== */

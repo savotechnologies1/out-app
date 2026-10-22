@@ -1570,12 +1570,18 @@ const getAvailableCoupons = async (req, res) => {
       bookingStatus: { $in: ["confirmed", "pending"] }
     });
 
+    const now = new Date();
     const filter = {
       isActive: true,
       isDelete: false,
-      startDate: { $lte: new Date() },
-      expiryDate: { $gte: new Date() },
-      "usedBy.user": { $ne: userId }
+      startDate: { $lte: now },
+      expiryDate: { $gte: now },
+      "usedBy.user": { $ne: userId },
+      $or: [
+        { userRestriction: "ALL" },
+        { userRestriction: { $exists: false } },
+        { userRestriction: "SPECIFIC", applicableUsers: userId }
+      ]
     };
 
     // If user has bookings → hide first time coupons
@@ -1585,7 +1591,7 @@ const getAvailableCoupons = async (req, res) => {
 
     const coupons = await Coupon.find(filter)
       .select(
-        "code discountType discountValue minAmount maxDiscount firstTimeUserOnly startDate expiryDate"
+        "code couponType discountType discountValue minAmount maxDiscount firstTimeUserOnly userRestriction startDate expiryDate"
       )
       .sort({ createdAt: -1 });
 
