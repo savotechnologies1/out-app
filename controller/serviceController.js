@@ -126,6 +126,7 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
     {
       $set: {
         OTP: otp,
+        otpSentAt: new Date(),
         ...(fcmToken && { fcmToken }),
       },
     }
@@ -300,11 +301,11 @@ const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
   let obj = {
     $push: { tokens: token },
     $set: { isVerified: true },
-    $unset: { OTP: "" },
+    $unset: { OTP: "", otpSentAt: "" },
   };
 
   if (user.isVerified) {
-    obj = { $push: { tokens: token }, $unset: { OTP: "" } };
+    obj = { $push: { tokens: token }, $unset: { OTP: "", otpSentAt: "" } };
   }
 
   ServiceUser.updateOne({ _id: user._id }, obj).then();
