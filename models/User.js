@@ -17,6 +17,7 @@ const userSchema = new mongoose.Schema(
     zipCode: { type: String },
     country: { type: String },
     OTP: { type: String },
+    otpSentAt: { type: Date },
     fcmToken: {
       type: String
     },

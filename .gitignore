@@ -10,8 +10,6 @@ pnpm-debug.log*
 # =========================
 # Environment variables
 # =========================
-.env
-.env.*
 !.env.example
 userchat.html
 logs
@@ -48,7 +46,6 @@ Thumbs.db
 # =========================
 # IDE / Editor
 # =========================
-.vscode/
 .idea/
 *.swp
 *.swo
@@ -90,3 +87,4 @@ service.html
 branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
+config.bat

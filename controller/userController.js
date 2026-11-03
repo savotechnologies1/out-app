@@ -74,6 +74,7 @@ const userLogin = catchAsyncError(async (req, res, next) => {
     {
       $set: {
         OTP: otp,
+        otpSentAt: new Date(),
         ...(fcmToken && { fcmToken: fcmToken })
       },
     }
@@ -156,6 +157,7 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
     phone,
     phoneCode: mobileCode,
     OTP: otp,
+    otpSentAt: new Date(),
   });
 
   return res.status(201).json({
@@ -208,11 +210,11 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
   let obj = {
     $push: { tokens: token },
     $set: { isVerified: true },
-    $unset: { OTP: "" },
+    $unset: { OTP: "", otpSentAt: "" },
   };
 
   if (user.isVerified) {
-    obj = { $push: { tokens: token }, $unset: { OTP: "" } };
+    obj = { $push: { tokens: token }, $unset: { OTP: "", otpSentAt: "" } };
   }
 
   User.updateOne({ _id: user._id }, obj).then();
@@ -438,18 +440,46 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
     });
   }
 
+  // ✅ Cooldown check: 2 minutes (120 seconds)
+  const COOLDOWN_SECONDS = 120;
+  const now = Date.now();
+  const lastSentTime = Math.max(
+    user?.otpSentAt && !isNaN(new Date(user.otpSentAt).getTime())
+      ? new Date(user.otpSentAt).getTime()
+      : 0,
+    serviceUser?.otpSentAt && !isNaN(new Date(serviceUser.otpSentAt).getTime())
+      ? new Date(serviceUser.otpSentAt).getTime()
+      : 0
+  );
+
+  if (lastSentTime > 0) {
+    const elapsedSeconds = Math.floor((now - lastSentTime) / 1000);
+    if (elapsedSeconds < COOLDOWN_SECONDS) {
+      const remainingSeconds = Math.max(1, COOLDOWN_SECONDS - Math.max(0, elapsedSeconds));
+      return res.status(400).send({
+        success: false,
+        data: null,
+        message: `Please wait ${remainingSeconds} second${remainingSeconds > 1 ? "s" : ""} before requesting a new OTP`,
+      });
+    }
+  }
+
   const otp = generateRandomOTP();
+  const sentAt = new Date();
 
   if (user) {
     await authenticaOTP(otp, user.email, user.phone);
-    await User.updateOne({ _id: user._id }, { $set: { OTP: otp } });
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { OTP: otp, otpSentAt: sentAt } }
+    );
   }
 
   if (serviceUser) {
     await authenticaOTP(otp, serviceUser.email, serviceUser.phone);
     await ServiceUser.updateOne(
       { _id: serviceUser._id },
-      { $set: { OTP: otp } }
+      { $set: { OTP: otp, otpSentAt: sentAt } }
     );
   }
 
@@ -3517,11 +3547,11 @@ const createUserReview = async (req, res) => {
       comment,
       photos
     });
-    
+
     if (!booking.reviewGiven) {
       await Booking.findByIdAndUpdate(bookingId, { reviewGiven: true });
     }
-    
+
     return res.status(201).json({
       success: true,
       message: "Review created successfully",
