@@ -34,6 +34,11 @@ const Admin = require("../models/Admin");
 const { sendNotification } = require("../utils/notificationService");
 const Commission = require("../models/Commission");
 const { authenticaOTP } = require("../functions/authentica");
+const {
+  isOtpValid,
+  issueOtp,
+  sendCooldownResponse,
+} = require("../functions/otpCooldown");
 const { timeToMinutes } = require("../utils/serviceAvailabilityUtils");
 const { getTimeAgo, getJoinedStatus } = require("../utils/date");
 const User = require("../models/User");
@@ -118,19 +123,21 @@ const serviceLogin = catchAsyncError(async (req, res, next) => {
   }
 
   const otp = generateRandomOTP();
+  const otpResult = await issueOtp({
+    Model: ServiceUser,
+    account: user,
+    otp,
+    fcmToken,
+    sendOtp: (code) => authenticaOTP(code, user.email, user.phone),
+  });
 
-  await authenticaOTP(otp, user.email, user.phone);
-
-  await ServiceUser.updateOne(
-    { _id: user._id },
-    {
-      $set: {
-        OTP: otp,
-        otpSentAt: new Date(),
-        ...(fcmToken && { fcmToken }),
-      },
-    }
-  );
+  if (otpResult.cooldownActive) {
+    return sendCooldownResponse(
+      res,
+      otpResult.account,
+      otpResult.retryAfterSeconds
+    );
+  }
 
   const existingWallet = await Wallet.findOne({
     user: user._id,
@@ -279,13 +286,26 @@ const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
 
   const user = await ServiceUser.findOne(
     { _id: req.params.id, isDeleted: false },
-    { phone: 1, OTP: 1, isVerified: 1, phoneCode: 1, role: 1 }
+    {
+      phone: 1,
+      OTP: 1,
+      otpSentAt: 1,
+      otpExpiresAt: 1,
+      otpHistory: 1,
+      isVerified: 1,
+      phoneCode: 1,
+      role: 1,
+      email: 1,
+    }
   ).lean(true);
 
   if (!user) return res.status(400).send({ message: "Service User not found" });
 
-  if (user?.OTP !== otp)
-    return res.status(400).send({ message: "Invalid OTP" });
+  if (!isOtpValid(user, otp)) {
+    return res.status(400).send({
+      message: "Invalid or expired OTP",
+    });
+  }
 
   let userData = {
     _id: user._id,
@@ -301,11 +321,14 @@ const serviceVerifyOTP = catchAsyncError(async (req, res, next) => {
   let obj = {
     $push: { tokens: token },
     $set: { isVerified: true },
-    $unset: { OTP: "", otpSentAt: "" },
+    $unset: { OTP: "", otpSentAt: "", otpExpiresAt: "", otpHistory: "" },
   };
 
   if (user.isVerified) {
-    obj = { $push: { tokens: token }, $unset: { OTP: "", otpSentAt: "" } };
+    obj = {
+      $push: { tokens: token },
+      $unset: { OTP: "", otpSentAt: "", otpExpiresAt: "", otpHistory: "" },
+    };
   }
 
   ServiceUser.updateOne({ _id: user._id }, obj).then();

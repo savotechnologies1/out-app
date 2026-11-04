@@ -18,6 +18,12 @@ const userSchema = new mongoose.Schema(
     country: { type: String },
     OTP: { type: String },
     otpSentAt: { type: Date },
+    otpExpiresAt: { type: Date },
+    otpHistory: [{
+      _id: false,
+      code: { type: String },
+      expiresAt: { type: Date },
+    }],
     fcmToken: {
       type: String
     },

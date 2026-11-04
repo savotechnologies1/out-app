@@ -18,6 +18,11 @@ const { validationResult } = require("express-validator");
 const Category = require("../models/Category");
 const moment = require("moment");
 const { authenticaOTP } = require("../functions/authentica");
+const {
+  isOtpValid,
+  issueOtp,
+  sendCooldownResponse,
+} = require("../functions/otpCooldown");
 const { createTokenAndCharge } = require("../functions/payment");
 const Banner = require("../models/Banner");
 const { createCharge, createTokenForCard } = require("../functions/payment");
@@ -68,19 +73,21 @@ const userLogin = catchAsyncError(async (req, res, next) => {
     return res.status(403).send({ message: "Your account is permanent deleted." })
   }
   const otp = generateRandomOTP();
+  const otpResult = await issueOtp({
+    Model: User,
+    account: user,
+    otp,
+    fcmToken,
+    sendOtp: (code) => authenticaOTP(code, user.email, user.phone),
+  });
 
-  await User.updateOne(
-    { _id: user._id },
-    {
-      $set: {
-        OTP: otp,
-        otpSentAt: new Date(),
-        ...(fcmToken && { fcmToken: fcmToken })
-      },
-    }
-  );
-
-  await authenticaOTP(otp, user.email, user.phone);
+  if (otpResult.cooldownActive) {
+    return sendCooldownResponse(
+      res,
+      otpResult.account,
+      otpResult.retryAfterSeconds
+    );
+  }
 
   return res.status(200).json({
     success: true,
@@ -158,6 +165,8 @@ const userSignUp = catchAsyncError(async (req, res, next) => {
     phoneCode: mobileCode,
     OTP: otp,
     otpSentAt: new Date(),
+    otpExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    otpHistory: [],
   });
 
   return res.status(201).json({
@@ -188,13 +197,26 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
 
   const user = await User.findOne(
     { _id: req.params.id, isDeleted: false },
-    { phone: 1, OTP: 1, isVerified: 1, phoneCode: 1, role: 1 }
+    {
+      phone: 1,
+      OTP: 1,
+      otpSentAt: 1,
+      otpExpiresAt: 1,
+      otpHistory: 1,
+      isVerified: 1,
+      phoneCode: 1,
+      role: 1,
+      email: 1,
+    }
   ).lean(true);
 
   if (!user) return res.status(400).send({ message: "User not found" });
 
-  if (user?.OTP !== otp)
-    return res.status(400).send({ message: "Invalid OTP" });
+  if (!isOtpValid(user, otp)) {
+    return res.status(400).send({
+      message: "Invalid or expired OTP",
+    });
+  }
 
   let userData = {
     _id: user._id,
@@ -210,11 +232,14 @@ const userVerifyOTP = catchAsyncError(async (req, res, next) => {
   let obj = {
     $push: { tokens: token },
     $set: { isVerified: true },
-    $unset: { OTP: "", otpSentAt: "" },
+    $unset: { OTP: "", otpSentAt: "", otpExpiresAt: "", otpHistory: "" },
   };
 
   if (user.isVerified) {
-    obj = { $push: { tokens: token }, $unset: { OTP: "", otpSentAt: "" } };
+    obj = {
+      $push: { tokens: token },
+      $unset: { OTP: "", otpSentAt: "", otpExpiresAt: "", otpHistory: "" },
+    };
   }
 
   User.updateOne({ _id: user._id }, obj).then();
@@ -410,7 +435,6 @@ const getUser = catchAsyncError(async (req, res, next) => {
 
 const resendOTP = catchAsyncError(async (req, res, next) => {
   const errors = validationResult(req);
-
   const checkValid = await checkValidations(errors);
   if (checkValid.type === "error") {
     return res.status(400).send({
@@ -419,72 +443,64 @@ const resendOTP = catchAsyncError(async (req, res, next) => {
       message: checkValid.errors.msg,
     });
   }
-  const { mobile, mobileCode } = req.body;
 
-  // ✅ normalize number
-  let formattedMobile = mobile;
-  if (!String(mobile).startsWith("+")) {
-    formattedMobile = `${mobileCode}${mobile}`;
-  }
-
+  const { mobile, mobileCode, accountType } = req.body;
+  const formattedMobile = String(mobile).startsWith("+")
+    ? mobile
+    : `${mobileCode}${mobile}`;
   const [user, serviceUser] = await Promise.all([
     User.findOne({ phone: formattedMobile }).lean(),
     ServiceUser.findOne({ phone: formattedMobile }).lean(),
   ]);
 
-  if (!user && !serviceUser) {
-    return res.status(400).send({
+  let Model;
+  let account;
+  if (accountType === "service") {
+    Model = ServiceUser;
+    account = serviceUser;
+  } else if (accountType === "user") {
+    Model = User;
+    account = user;
+  } else if (user && serviceUser) {
+    // Backward compatibility for older clients that don't send accountType.
+    account = new Date(user.otpSentAt || 0) >= new Date(serviceUser.otpSentAt || 0)
+      ? user
+      : serviceUser;
+    Model = account === user ? User : ServiceUser;
+  } else if (user) {
+    Model = User;
+    account = user;
+  } else {
+    Model = ServiceUser;
+    account = serviceUser;
+  }
+
+  if (!account) {
+    return res.status(404).send({
       success: false,
       data: null,
       message: "User not found",
     });
   }
 
-  // ✅ Cooldown check: 2 minutes (120 seconds)
-  const COOLDOWN_SECONDS = 120;
-  const now = Date.now();
-  const lastSentTime = Math.max(
-    user?.otpSentAt && !isNaN(new Date(user.otpSentAt).getTime())
-      ? new Date(user.otpSentAt).getTime()
-      : 0,
-    serviceUser?.otpSentAt && !isNaN(new Date(serviceUser.otpSentAt).getTime())
-      ? new Date(serviceUser.otpSentAt).getTime()
-      : 0
-  );
+  const otpResult = await issueOtp({
+    Model,
+    account,
+    otp: generateRandomOTP(),
+    sendOtp: (code) => authenticaOTP(code, account.email, account.phone),
+  });
 
-  if (lastSentTime > 0) {
-    const elapsedSeconds = Math.floor((now - lastSentTime) / 1000);
-    if (elapsedSeconds < COOLDOWN_SECONDS) {
-      const remainingSeconds = Math.max(1, COOLDOWN_SECONDS - Math.max(0, elapsedSeconds));
-      return res.status(400).send({
-        success: false,
-        data: null,
-        message: `Please wait ${remainingSeconds} second${remainingSeconds > 1 ? "s" : ""} before requesting a new OTP`,
-      });
-    }
-  }
-
-  const otp = generateRandomOTP();
-  const sentAt = new Date();
-
-  if (user) {
-    await authenticaOTP(otp, user.email, user.phone);
-    await User.updateOne(
-      { _id: user._id },
-      { $set: { OTP: otp, otpSentAt: sentAt } }
-    );
-  }
-
-  if (serviceUser) {
-    await authenticaOTP(otp, serviceUser.email, serviceUser.phone);
-    await ServiceUser.updateOne(
-      { _id: serviceUser._id },
-      { $set: { OTP: otp, otpSentAt: sentAt } }
+  if (otpResult.cooldownActive) {
+    return sendCooldownResponse(
+      res,
+      otpResult.account,
+      otpResult.retryAfterSeconds
     );
   }
 
   return res.status(200).send({
     success: true,
+    data: { id: account._id },
     message: "Resent OTP successfully",
   });
 });

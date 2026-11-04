@@ -32,6 +32,12 @@ const userSchema = new mongoose.Schema(
     phoneCode: { type: String },
     OTP: { type: String },
     otpSentAt: { type: Date },
+    otpExpiresAt: { type: Date },
+    otpHistory: [{
+      _id: false,
+      code: { type: String },
+      expiresAt: { type: Date },
+    }],
     docs: { type: String },
     isActive: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
